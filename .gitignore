@@ -1,0 +1,20 @@
+# Downloaded media — every top-level folder is an account archive (multi-GB).
+# Ignore them all by default; only tooling dirs below are re-included.
+/*/
+!/.agents/
+!/.claude/
+
+# gallery-dl state and debris (belt-and-braces if a folder is un-ignored)
+**/archive.sqlite3
+**/archive.sqlite3-shm
+**/archive.sqlite3-wal
+*.part
+*.part-*
+
+# run logs from background downloads
+*.log
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store

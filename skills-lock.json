@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "gallery-dl": {
+      "source": "https://raw.githubusercontent.com/TerminalSkills/skills/main/skills/gallery-dl/SKILL.md",
+      "sourceUrl": "https://raw.githubusercontent.com/TerminalSkills/skills/main/skills/gallery-dl/SKILL.md",
+      "sourceType": "download",
+      "skillPath": "SKILL.md",
+      "computedHash": "99577eb2912cfe45363dfd08d79cf1a8deb856334ba0ee4fcd2e683dbc419591"
+    }
+  }
+}
