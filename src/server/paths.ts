@@ -36,16 +36,38 @@ export function isReserved(folder: string): boolean {
   return RESERVED.has(lower);
 }
 
+/** True when `dir` is strictly inside `root`. Windows paths compare case-insensitively. */
+function isInside(dir: string, root: string): boolean {
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return process.platform === "win32"
+    ? dir.toLowerCase().startsWith(prefix.toLowerCase())
+    : dir.startsWith(prefix);
+}
+
+function isSamePath(a: string, b: string): boolean {
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 /**
  * Throws when `mediaRoot` is a place downloads must never go: somewhere an update or uninstall
  * would wipe, or somewhere that mixes media with the app's own state. `protectedDirs` are the
  * install directory and the state folder (GATHER_HOME) when the shell provides them.
  */
 export function assertSafeMediaRoot(mediaRoot: string, protectedDirs: readonly string[]): void {
-  // TODO(human): decide which locations are unsafe and throw an Error with a message the Settings
-  // page can show as-is.
-  void mediaRoot;
-  void protectedDirs;
+  const root = resolve(mediaRoot);
+  for (const raw of protectedDirs) {
+    const protectedDir = resolve(raw);
+    if (isSamePath(root, protectedDir) || isInside(root, protectedDir)) {
+      throw new Error(
+        `The media folder can't be inside the app's own folder (${protectedDir}). Updates would delete it.`,
+      );
+    }
+    if (isInside(protectedDir, root)) {
+      throw new Error(
+        `The media folder can't contain the app's own folder (${protectedDir}). Pick a folder dedicated to your downloads.`,
+      );
+    }
+  }
 }
 
 /**
@@ -58,12 +80,7 @@ export function resolveAccountDir(mediaRoot: string, folder: string): string {
   }
   const root = resolve(mediaRoot);
   const dir = resolve(root, folder);
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  const inside =
-    process.platform === "win32"
-      ? dir.toLowerCase().startsWith(prefix.toLowerCase())
-      : dir.startsWith(prefix);
-  if (!inside) {
+  if (!isInside(dir, root)) {
     throw new Error(`"${folder}" resolves outside the media folder.`);
   }
   return dir;
