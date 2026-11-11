@@ -145,7 +145,7 @@ function logFile(id: string): string {
 function defaults(): Settings {
   return {
     galleryDlPath: envGalleryDl() ?? "C:\\tools\\gallery-dl.exe",
-    mediaRoot: envMediaRoot() ?? process.cwd(),
+    mediaRoot: envMediaRoot() ?? /*turbopackIgnore: true*/ process.cwd(),
     cookies: { browser: "firefox" },
     defaultMedia: "all",
     defaultLayout: { kind: "byType" },
