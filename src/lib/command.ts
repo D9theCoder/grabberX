@@ -157,6 +157,9 @@ export function formatCommand(argv: string[], exe = "gallery-dl"): string {
     .join("\n");
 }
 
+/** Flags that take no value; the token after one is the next argument, never its value. */
+const SWITCHES = new Set(["--no-colors", "--simulate", "--no-skip", "--write-metadata"]);
+
 function flagLines(argv: string[]): string[] {
   const lines: string[] = [];
   for (let index = 0; index < argv.length; index++) {
@@ -166,7 +169,7 @@ function flagLines(argv: string[]): string[] {
       continue;
     }
     const value = argv[index + 1];
-    if (value !== undefined && !value.startsWith("-")) {
+    if (!SWITCHES.has(token) && value !== undefined && !value.startsWith("-")) {
       lines.push(`${token} ${quoteArg(value)}`);
       index++;
     } else {

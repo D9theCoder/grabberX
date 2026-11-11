@@ -394,6 +394,11 @@ describe("formatCommand", () => {
     );
   });
 
+  it("keeps a switch on its own line instead of gluing the next argument to it", () => {
+    const text = formatCommand(["--simulate", "https://x.com/username/media"]);
+    expect(text.split(/\r?\n/)).toEqual(["gallery-dl `", "  --simulate `", '  "https://x.com/username/media"']);
+  });
+
   it("keeps a single token on one line", () => {
     expect(formatCommand(["--version"], "C:\\tools\\gallery-dl.exe")).toBe(
       "C:\\tools\\gallery-dl.exe `\n  --version",

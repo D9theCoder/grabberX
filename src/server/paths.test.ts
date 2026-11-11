@@ -11,6 +11,15 @@ describe("isValidFolderName", () => {
     }
   });
 
+  it("rejects the names Windows reserves for devices, with or without an extension", () => {
+    for (const name of ["con", "NUL", "aux.txt", "COM1", "lpt9.log", "prn"]) {
+      expect(isValidFolderName(name), name).toBe(false);
+    }
+    for (const name of ["console", "com10", "auxiliary", "nullable"]) {
+      expect(isValidFolderName(name), name).toBe(true);
+    }
+  });
+
   it("rejects traversal, separators, whitespace and over-long names", () => {
     const bad = [
       "",

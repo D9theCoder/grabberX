@@ -1,6 +1,7 @@
 import "server-only";
 import { buildCommand } from "@/lib/command";
-import { classifyError } from "@/lib/parse-line";
+import { errorKindFor } from "@/lib/error-kind";
+import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
 import type {
@@ -58,14 +59,6 @@ export function canStart(next: Run, running: Run[], limit: number): boolean {
   return running.length < limit && !running.some((run) => sameFolder(run, next));
 }
 
-function errorKindFor(lines: string[]): ErrorKind {
-  for (const line of lines) {
-    const kind = classifyError(line);
-    if (kind) return kind;
-  }
-  return "unknown";
-}
-
 function timeStamp(date: Date): string {
   const pad = (value: number): string => String(value).padStart(2, "0");
   return [
@@ -93,6 +86,7 @@ interface ActiveRun {
   logBytes: number;
   logChain: Promise<void>;
   logTimer?: NodeJS.Timeout;
+  lateFlush?: NodeJS.Timeout;
 }
 
 export class RunQueue {
@@ -218,7 +212,13 @@ export class RunQueue {
   private queuedInOrder(): Run[] {
     return [...this.runs.values()]
       .filter((run) => run.status === "queued")
-      .sort((a, b) => (this.requestOrder.get(a.id) ?? 0) - (this.requestOrder.get(b.id) ?? 0));
+      .sort((a, b) => {
+        const left = this.requestOrder.get(a.id);
+        const right = this.requestOrder.get(b.id);
+        if (left !== undefined && right !== undefined) return left - right;
+        // No request number (not queued through enqueue): fall back to the id, oldest first.
+        return compareRunIds(b.id, a.id);
+      });
   }
 
   /** Starts queued runs that can run now, e.g. after the concurrency limit was raised in Settings. */
@@ -295,13 +295,13 @@ export class RunQueue {
           console.error("gather: could not read settings, so queued runs stay queued.", error);
           return;
         }
-        const running = [...this.active.values()].map((entry) => entry.run);
         for (const run of this.queuedInOrder()) {
-          // The list is a snapshot, and beginRun awaits: a queued run can be stopped meanwhile.
+          // The list is a snapshot, and beginRun awaits: a queued run can be stopped, and a running
+          // one can end, meanwhile. Both are read fresh for every candidate.
           if (run.status !== "queued") continue;
+          const running = [...this.active.values()].map((entry) => entry.run);
           if (!canStart(run, running, settings.concurrency)) continue;
           await this.beginRun(run, settings);
-          running.push(run);
         }
       } while (this.pumpAgain);
     } finally {
@@ -419,9 +419,20 @@ export class RunQueue {
     const chunk = `${line}\n`;
     active.logBuffer.push(chunk);
     active.logBytes += chunk.length;
-    // A line that arrives after the run was finalized is written once; a timer armed now would never be cleared.
-    if (active.logBytes >= LOG_FLUSH_BYTES || !this.active.has(active.run.id)) {
+    if (active.logBytes >= LOG_FLUSH_BYTES) {
       void this.flushLog(active);
+      return;
+    }
+    if (!this.active.has(active.run.id)) {
+      // Finalize already cleared the interval. Late lines share one single-shot flush instead of
+      // arming an interval nobody would clear, or writing once per line.
+      if (!active.lateFlush) {
+        active.lateFlush = setTimeout(() => {
+          active.lateFlush = undefined;
+          void this.flushLog(active);
+        }, LOG_FLUSH_MS);
+        active.lateFlush.unref?.();
+      }
       return;
     }
     if (active.logTimer) return;

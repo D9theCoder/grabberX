@@ -69,6 +69,18 @@ describe("getSettings", () => {
     expect(settings.concurrency).toBe(1);
   });
 
+  it("keeps the valid settings when one field is out of range", async () => {
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({ mediaRoot: "D:\Photos\p\scrapper", concurrency: 5, historyRetention: 300 }),
+      "utf8",
+    );
+    const settings = await getSettings();
+    expect(settings.mediaRoot).toBe("D:\Photos\p\scrapper");
+    expect(settings.historyRetention).toBe(300);
+    expect(settings.concurrency).toBe(1);
+  });
+
   it("falls back to defaults for a corrupt settings file", async () => {
     await writeFile(join(home, "settings.json"), "{ not json", "utf8");
     const settings = await getSettings();

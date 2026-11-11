@@ -66,7 +66,7 @@ const settingsShape = z.object({
 const settingsPatchSchema = settingsShape.partial().strict();
 const settingsFileSchema = settingsShape.partial();
 
-const RUN_ID = /^[0-9A-Za-z_.:-]{1,160}$/;
+const RUN_ID = /^[0-9A-Za-z_.-]{1,160}$/;
 
 export function isValidRunId(id: string): boolean {
   if (!RUN_ID.test(id)) return false;
@@ -147,11 +147,13 @@ export async function getSettings(): Promise<Settings> {
     return fallback;
   }
   try {
-    const parsed = settingsFileSchema.safeParse(JSON.parse(raw));
+    const json: unknown = JSON.parse(raw);
+    const parsed = settingsFileSchema.safeParse(json);
     if (!parsed.success) {
-      throw new Error(firstIssue(parsed.error));
+      warnAboutSettings(firstIssue(parsed.error));
     }
-    const saved = parsed.data;
+    // One bad field (a hand-edited concurrency, say) must not throw away the media folder and the rest.
+    const saved = parsed.success ? parsed.data : salvageSettings(json);
     return {
       galleryDlPath: saved.galleryDlPath ?? fallback.galleryDlPath,
       mediaRoot: saved.mediaRoot ?? fallback.mediaRoot,
@@ -162,12 +164,25 @@ export async function getSettings(): Promise<Settings> {
       concurrency: saved.concurrency ?? fallback.concurrency,
     };
   } catch (error) {
-    if (!warnedAboutSettings) {
-      warnedAboutSettings = true;
-      console.warn(`gather: ignoring unreadable settings file (${messageOf(error)}).`);
-    }
+    warnAboutSettings(messageOf(error));
     return fallback;
   }
+}
+
+function warnAboutSettings(reason: string): void {
+  if (warnedAboutSettings) return;
+  warnedAboutSettings = true;
+  console.warn(`gather: ignoring unreadable settings (${reason}).`);
+}
+
+function salvageSettings(json: unknown): Partial<Settings> {
+  if (!isRecord(json)) return {};
+  const valid: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(settingsShape.shape)) {
+    const result = schema.safeParse(json[key]);
+    if (result.success) valid[key] = result.data;
+  }
+  return settingsFileSchema.parse(valid);
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
