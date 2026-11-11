@@ -43,7 +43,14 @@ export function Button({
         VARIANTS[variant],
         loading
           ? cn("disabled:cursor-progress", variant === "primary" && "disabled:bg-ink-hover disabled:text-on-ink")
-          : "disabled:cursor-not-allowed disabled:border-transparent disabled:bg-sunken disabled:text-ink-3 disabled:active:translate-y-0",
+          : cn(
+              "disabled:cursor-not-allowed disabled:border-transparent disabled:active:translate-y-0",
+              // A disabled primary keeps its ink fill, just washed out: grey on grey made Download
+              // look like it had vanished, and its label must stay readable (A6).
+              variant === "primary"
+                ? "disabled:bg-ink/15 disabled:text-ink"
+                : "disabled:bg-sunken disabled:text-ink-3",
+            ),
         "[&_svg]:size-3.5 [&_svg]:flex-none",
         className,
       )}
