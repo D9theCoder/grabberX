@@ -63,3 +63,30 @@ test("library rows fill in their stats instead of staying on the spinner", async
   await expect(page.getByRole("cell", { name: "…" })).toHaveCount(0, { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
+
+test("the cookie warning renders without a client error", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+
+  await page.goto("/settings");
+  const check = page.getByRole("button", { name: "Check cookies" });
+  test.skip((await check.count()) === 0, "cookies are turned off in this profile");
+
+  // The probe is a server action; wait for its POST and for the button to leave its busy state,
+  // otherwise the notice may not have rendered yet.
+  const replied = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().includes("/settings"),
+  );
+  await check.click();
+  await replied;
+  await expect(check).not.toHaveAttribute("aria-busy", "true");
+
+  // A readable browser with a signed-in site shows no warning at all; either outcome is healthy.
+  const warning = page.getByText(/can't read .*cookies|look signed out/);
+  if ((await warning.count()) === 0) {
+    test.skip(true, "this browser's cookies are readable and signed in");
+  }
+
+  await expect(warning.first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
