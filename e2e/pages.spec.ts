@@ -33,6 +33,21 @@ for (const { path, heading } of [
   });
 }
 
+test("no page scrolls sideways at 390 px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  for (const path of ["/", "/library", "/history", "/settings"]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    // A single wide element (the old top-bar link, a segmented control) pushes the whole page
+    // sideways on a phone; nothing should ever be wider than the viewport.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(overflow, `${path} is wider than the viewport`).toBeLessThanOrEqual(0);
+  }
+});
+
 test("library rows fill in their stats instead of staying on the spinner", async ({ page }) => {
   const errors: Error[] = [];
   page.on("pageerror", (error) => errors.push(error));
