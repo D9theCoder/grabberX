@@ -17,6 +17,8 @@ interface CommandPanelProps {
   error: string | null;
   /** Shown above the buttons while a run for this account waits in the queue. */
   queuedNote: string | null;
+  /** A warning above the buttons, e.g. the cookie check. */
+  notice?: ReactNode;
   /** Tappable run summary in the sticky bar on narrow screens. */
   barSummary: ReactNode;
   onPreview: () => void;
@@ -50,6 +52,8 @@ export function CommandPanel(props: CommandPanelProps) {
           <CommandBlock steps={props.steps} />
         )}
       </div>
+
+      {props.notice}
 
       <div
         className={cn(

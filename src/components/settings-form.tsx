@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import {
+  checkCookies,
   checkGalleryDl,
   checkGalleryDlUpdate,
   saveSettingsAction,
@@ -14,6 +15,8 @@ import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { TextField } from "@/components/ui/text-field";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
+import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
+import type { CookieCheckKind } from "@/lib/cookie-check";
 import { useShell } from "@/lib/shell";
 import type { CookieBrowser, Media, Settings } from "@/lib/spec";
 
@@ -54,6 +57,8 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
   const [check, setCheck] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const [checking, startCheck] = useTransition();
   const [installed, setInstalled] = useState<string | null>(null);
+  const [cookieCheck, setCookieCheck] = useState<CookieCheckKind | null>(null);
+  const [checkingCookies, startCookieCheck] = useTransition();
   const versionAsked = useRef(false);
 
   useEffect(() => {
@@ -124,8 +129,25 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
           ? { tone: "info", text: `Updated. Now running gallery-dl ${result.data.version}.` }
           : { tone: "danger", text: result.error },
       );
+      if (result.ok) setInstalled(result.data.version);
     });
   }
+
+  function onCheckCookies() {
+    setCookieCheck(null);
+    startCookieCheck(async () => {
+      const result = await checkCookies();
+      setCookieCheck(result.ok ? result.data.kind : "unknown");
+    });
+  }
+
+  const cookieMessage = cookieCheck
+    ? cookieNotice(cookieCheck, {
+        browser: browserLabel(settings.cookies.browser),
+        // Settings has no account to check, so the probe uses X, the primary site.
+        site: cookieSiteLabel("x"),
+      })
+    : null;
 
   return (
     <div className="flex max-w-2xl flex-col gap-8">
@@ -182,23 +204,31 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
       <Group title="Session">
         <div className="flex flex-col gap-1.5">
           <span className="text-label">Cookies from</span>
-          <Segmented
-            label="Cookies from"
-            size="sm"
-            value={settings.cookies.browser}
-            onChange={(browser) =>
-              save("cookies", { cookies: { ...settings.cookies, browser: browser as CookieBrowser } })
-            }
-            options={[
-              { value: "firefox", label: "Firefox" },
-              { value: "chrome", label: "Chrome" },
-              { value: "edge", label: "Edge" },
-              { value: "none", label: "None" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Segmented
+              label="Cookies from"
+              size="sm"
+              value={settings.cookies.browser}
+              onChange={(browser) =>
+                save("cookies", { cookies: { ...settings.cookies, browser: browser as CookieBrowser } })
+              }
+              options={[
+                { value: "firefox", label: "Firefox" },
+                { value: "chrome", label: "Chrome" },
+                { value: "edge", label: "Edge" },
+                { value: "none", label: "None" },
+              ]}
+            />
+            {settings.cookies.browser === "none" ? null : (
+              <Button variant="secondary" loading={checkingCookies} onClick={onCheckCookies}>
+                Check cookies
+              </Button>
+            )}
+          </div>
           <span className="text-small text-ink-2">
             {saved === "cookies" ? <Saved /> : "Sign in to the site in this browser first. gallery-dl reads its cookies on every run."}
           </span>
+          {cookieMessage ? <Notice tone="warning">{cookieMessage}</Notice> : null}
         </div>
         <TextField
           label="Browser profile"
