@@ -383,14 +383,18 @@ Route Handler, reconnects on its own, and needs no extra server or package.
   different accounts share the same logged-in X session and the same rate-limit budget, so
   parallel runs mostly trigger 429s sooner rather than finishing faster.
 - **Trade-offs:** "Update all" over many accounts is serial and slow. Acceptable for a background task.
-- **Open:** the exact `canStart` rule is still to be written (see `TODO(human)` in §8.1).
+- **Revisit if:** previews feel slow behind long downloads (see §8.1).
 
 #### 8.1 Scheduling rule
+
+Strict on purpose: previews (`--simulate`) wait like downloads, because gallery-dl still opens the
+account's `archive.sqlite3` to read it. Letting previews skip the account lock or the global limit
+is a one-line change here if the wait becomes annoying.
 
 ```ts
 // src/server/run-queue.ts
 function canStart(next: Run, running: Run[], limit: number): boolean {
-  // TODO(human): decide when a queued run may start.
+  return running.length < limit && !running.some((run) => sameFolder(run, next));
 }
 ```
 
