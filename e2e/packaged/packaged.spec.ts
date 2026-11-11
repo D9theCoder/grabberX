@@ -1,7 +1,7 @@
 import { createServer, request } from "node:http";
 import type { Server } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -158,6 +158,45 @@ test("a download runs end to end with the bundled gallery-dl", async () => {
     .toBeGreaterThan(0);
   const files = await filesUnder(join(sandbox, "library"));
   expect(files.some((file) => file.endsWith("archive.sqlite3"))).toBe(true);
+});
+
+test("automatic updates run a pass that History marks as scheduled", async () => {
+  await page.goto(`${origin}/settings`);
+  const toggle = page.getByRole("switch", { name: "Automatic updates" });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+  // The app has planned the next pass for tonight. Move that moment into the past, the way a pass
+  // missed while gather was closed looks, then save the same frequency so it replans at once
+  // instead of waiting for its heartbeat.
+  const settings = JSON.parse(await readFile(join(sandbox, "home", "settings.json"), "utf8"));
+  const { enabled, frequency } = settings.schedule;
+  expect(enabled).toBe(true);
+  const key =
+    frequency.kind === "daily" ? `daily:${frequency.time}` : `every:${frequency.hours}`;
+  await writeFile(
+    join(sandbox, "home", "schedule.json"),
+    JSON.stringify({ nextDueAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(), frequency: key }),
+    "utf8",
+  );
+  await page.getByRole("radio", { name: "Every day" }).click();
+
+  // History is a snapshot, and the pass starts after a short launch-style delay, so reload until the
+  // run it queued has finished.
+  await page.goto(`${origin}/history`);
+  const scheduledRow = page.getByRole("row").filter({ hasText: "Scheduled" });
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return scheduledRow.filter({ hasText: "Done" }).count();
+      },
+      { timeout: 120_000, intervals: [2_000] },
+    )
+    .toBeGreaterThan(0);
+  await expect(scheduledRow.first()).toBeVisible();
+  expect(pageErrors).toEqual([]);
 });
 
 test("quitting leaves no server running", async () => {
