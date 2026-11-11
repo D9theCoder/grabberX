@@ -1,5 +1,53 @@
 # Packaging gather as a Windows installer (Electron)
 
+> **Status: implemented** on `feat/electron-packaging`. This file started as the handoff and still reads as
+> the plan; the section below records how it was actually built and how to run it.
+
+## As built
+
+```powershell
+npm ci; npm ci --prefix electron     # app dependencies, then the shell's own (electron-updater)
+npm run dist                          # next build + standalone prep + gallery-dl seed + NSIS installer
+npm run pack                          # same, unpacked into release\win-unpacked (faster, for testing)
+npm run electron                      # run the shell from source against .next/standalone
+npm run test:e2e:packaged             # drives the real Electron app; set GATHER_EXE to test a built Gather.exe
+```
+
+Output: `release\Gather-Setup-<version>.exe` (about 150 MB). Verified end to end: silent install into a temp
+folder, the packaged suite against the installed app (welcome screen, setup, every page, Host check, a real
+download through the bundled gallery-dl, clean quit), then uninstall, which removed the app and kept
+`%APPDATA%\gather`.
+
+Differences from the plan below:
+
+- **Two `package.json` files.** `electron/package.json` is the installed app (shell plus `electron-updater`),
+  so the installer does not also carry Next's dependencies. Keep its `version` equal to the root one;
+  `electron/lib.test.ts` checks this.
+- **Server files are plain files in `resources/server`**, not inside the asar. `electron-builder` never copies
+  `node_modules` through `extraResources`, so `scripts/after-pack.cjs` does it. `scripts/prepare-standalone.mjs`
+  deletes `.gather`, `src` and other folders the tracer can pull into the standalone output; `.gather` holds
+  run history and must never be shipped.
+- **Logging lives in the shell**, not the server: `main.cjs` pipes the server's stdout and stderr into
+  `%APPDATA%\gather\logs\gather.log` (one rotated copy). Settings has an "Open the logs folder" button.
+- **Versions:** the shell sets `GATHER_APP_VERSION`; Settings shows it under About. gallery-dl's version is
+  the existing Check button.
+- **Shutdown:** the server runs as an Electron `utilityProcess`; `main.cjs` posts `"shutdown"` and
+  `src/server/shutdown-hook.ts` stops every run (taskkill, `.part` sweep) before exiting. The window close
+  button hides to the tray while downloads run.
+- **First run:** `/welcome` (library folder with a Browse button, cookie browser, gallery-dl check). Any page
+  redirects there while `settings.json` does not exist and the app is packaged.
+- **gallery-dl:** the standalone exe is published at `gdl-org/builds`, not the main repo. `scripts/fetch-gallery-dl.mjs`
+  pins a tag and SHA-256 and refuses a mismatch. Settings has "Look for updates" / "Update now" (`gallery-dl
+  --update-check` and `--update`), refused while a run is active.
+- **Auto-update of the app is wired but dormant.** There is no `publish` target, so no `app-update.yml` is
+  written and the update check logs "skipped". To enable it, uncomment `publish` in `electron-builder.yml` with
+  the GitHub owner and repository, and release through the workflow.
+- **CI:** `.github/workflows/build.yml` runs typecheck, unit tests, the page tests, builds the installer,
+  smoke-tests the unpacked app, uploads the installer and, for a `v*` tag, creates a GitHub release. It has
+  not run yet.
+- **Not done:** code signing (SmartScreen will warn), and the Settings "Browse" and tray flows have no
+  automated test beyond the `pickFolder` bridge being present.
+
 Handoff for whoever implements this. Goal: a user downloads `Gather-Setup-x.y.z.exe`, runs it, and gets a
 Start-menu app that opens in its own window. No Node, no `npm`, no terminal. Windows 10/11 x64 only.
 Everything stays on the user's machine.

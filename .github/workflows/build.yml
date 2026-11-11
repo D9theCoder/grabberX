@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm ci --prefix electron
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Page tests against the dev server
+        run: |
+          npx playwright install chromium
+          npm run test:e2e
+
+      - name: Build the installer
+        run: npm run dist
+
+      - name: Smoke test the packaged app
+        shell: pwsh
+        run: |
+          $env:GATHER_EXE = "$PWD\release\win-unpacked\Gather.exe"
+          npm run test:e2e:packaged
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gather-Setup
+          path: release/Gather-Setup-*.exe
+
+      - name: Publish a release for a version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" (Get-ChildItem release\Gather-Setup-*.exe) --generate-notes

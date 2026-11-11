@@ -107,3 +107,12 @@ describe("isOwnOrigin", () => {
     expect(lib.isOwnOrigin("not a url", origin)).toBe(false);
   });
 });
+
+describe("versions", () => {
+  it("keeps the shell version equal to the app version", async () => {
+    const root = JSON.parse(await readFile(join(__dirname, "..", "package.json"), "utf8"));
+    const shell = JSON.parse(await readFile(join(__dirname, "package.json"), "utf8"));
+    // The installer and the updater read electron/package.json; Settings shows the same number.
+    expect(shell.version).toBe(root.version);
+  });
+});

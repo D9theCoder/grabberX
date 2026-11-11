@@ -10,6 +10,7 @@
 !/scripts/
 !/electron/
 !/build/
+!/.github/
 
 # Next.js app
 /node_modules/
