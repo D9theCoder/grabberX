@@ -5,9 +5,11 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { AccountHint, ActionResult, JobSpec, Settings } from "@/lib/spec";
+import type { AccountHint, ActionResult, JobSpec, Settings, SiteId } from "@/lib/spec";
+import { classifyCookieCheck } from "@/lib/cookie-check";
+import type { CookieCheckKind } from "@/lib/cookie-check";
 import { parseJobSpec } from "@/lib/spec-schema";
-import { folderNameFor, validateAccount } from "@/lib/sites";
+import { folderNameFor, siteDef, validateAccount } from "@/lib/sites";
 import { lastLine, runGalleryDl } from "@/server/gallery-dl";
 import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
@@ -18,6 +20,10 @@ import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store"
 const VERSION_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_TIMEOUT_MS = 30_000;
 const UPDATE_TIMEOUT_MS = 180_000;
+const COOKIE_CHECK_TIMEOUT_MS = 20_000;
+
+/** The probe account does not have to exist: a signed-out session fails before any lookup. */
+const PROBE_ACCOUNT = "example_user";
 
 const hintInput = z.object({
   site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]),
@@ -183,6 +189,51 @@ export async function checkGalleryDl(path?: string): Promise<ActionResult<{ vers
     }, VERSION_TIMEOUT_MS);
     timer.unref?.();
   });
+}
+
+const cookieCheckInput = z.object({
+  site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]).optional(),
+  account: z.string().optional(),
+});
+
+/**
+ * A cheap, read-only probe: one simulated file against the account's page. gallery-dl has to read
+ * the browser cookies and authenticate before it lists anything, so its exit code and the lines it
+ * printed say whether the session works. Nothing blocks the run; the answer is only a hint.
+ */
+export async function checkCookies(
+  input?: unknown,
+): Promise<ActionResult<{ kind: CookieCheckKind }>> {
+  const parsed = cookieCheckInput.safeParse(input ?? {});
+  if (!parsed.success) return { ok: false, error: "That check isn't valid." };
+  const settings = await getSettings().catch(() => undefined);
+  if (!settings) return { ok: false, error: "Those settings couldn't be read." };
+  if (settings.cookies.browser === "none") return { ok: true, data: { kind: "skipped" } };
+
+  const site: SiteId = parsed.data.site ?? "x";
+  const accountInput = parsed.data.account?.trim() ?? "";
+  const validated = accountInput ? validateAccount(site, accountInput) : null;
+  const probeUrl = validated?.ok
+    ? siteDef(site).urlFor(validated.account)
+    : `https://x.com/${PROBE_ACCOUNT}/media`;
+
+  const browser = settings.cookies.browser;
+  const profile = settings.cookies.profile?.trim();
+  const result = await runGalleryDl(
+    settings.galleryDlPath,
+    [
+      "--simulate",
+      "--range",
+      "1",
+      "--no-colors",
+      "--cookies-from-browser",
+      profile ? `${browser}:${profile}` : browser,
+      probeUrl,
+    ],
+    COOKIE_CHECK_TIMEOUT_MS,
+  );
+  // The output can name the user's profile path, so only the classification leaves this function.
+  return { ok: true, data: { kind: classifyCookieCheck(result) } };
 }
 
 export async function accountHint(input: unknown): Promise<AccountHint> {
