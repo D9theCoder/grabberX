@@ -168,7 +168,7 @@ A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the
 | Image size | **Original** | X: `-o twitter.size=["orig"]` (default already) | "Original is the full file the artist uploaded (X caps at 4096 px)." Options: Original, Large, Medium. Hidden for sites without size variants. |
 | Min file size / Max file size | empty | `--filesize-min`, `--filesize-max` | "e.g. 200k, 5M" |
 | Include retweets | off | `-o twitter.retweets=false` | X only |
-| Include replies | off | `-o twitter.replies=false` | X only |
+| Include replies | **on** (gallery-dl default, matches AGENTS.md) | `-o twitter.replies=false` only when turned off | X only |
 
 **Pace and limits**
 

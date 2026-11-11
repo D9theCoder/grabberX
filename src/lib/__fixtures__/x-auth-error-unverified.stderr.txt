@@ -1,0 +1,2 @@
+[cookies][info] Extracted 129 cookies from Firefox
+[twitter][error] AuthRequired: authenticated cookies needed to access this timeline

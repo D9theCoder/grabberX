@@ -1,0 +1,2 @@
+[cookies][info] Extracted 129 cookies from Firefox
+[twitter][error] NotFoundError: Requested user could not be found

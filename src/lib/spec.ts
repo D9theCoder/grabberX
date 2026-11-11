@@ -142,7 +142,8 @@ export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string
 export const DEFAULT_ADVANCED: Advanced = {
   imageSize: "orig",
   retweets: false,
-  replies: false,
+  // gallery-dl's own default is on. Keeping it means a default run matches the commands in AGENTS.md.
+  replies: true,
   writeMetadata: false,
   noSkip: false,
   cookies: { browser: "firefox" },
