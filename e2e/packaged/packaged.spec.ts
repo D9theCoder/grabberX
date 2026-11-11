@@ -199,6 +199,29 @@ test("automatic updates run a pass that History marks as scheduled", async () =>
   expect(pageErrors).toEqual([]);
 });
 
+test("the gallery renders a sharp thumbnail and the shell can move files to the Recycle Bin", async () => {
+  const folder = join(sandbox, "library", "example_gallery", "Image");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(sandbox, "library", "example_gallery", "archive.sqlite3"), "");
+  await writeFile(join(folder, "1800000000000000001_1.png"), PNG);
+
+  await page.goto(`${origin}/library/example_gallery?path=Image`);
+  const tile = page.getByRole("button", { name: "1800000000000000001_1.png" });
+  await expect(tile).toBeVisible();
+  await expect
+    .poll(() => tile.locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+    .toBe(true);
+
+  const response = await page.request.get(
+    `${origin}/api/media?account=example_gallery&path=Image/1800000000000000001_1.png&thumb=240`,
+  );
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("image/webp");
+
+  expect(await page.evaluate(() => typeof window.gatherShell?.trashItem)).toBe("function");
+  expect(pageErrors).toEqual([]);
+});
+
 test("quitting leaves no server running", async () => {
   await app.close();
   await expect

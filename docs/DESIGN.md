@@ -44,10 +44,13 @@ Components reference tokens only, never raw hex or px.
 
 Not in v1: a dark theme. Tokens are named by role, so one can be added later without touching components.
 
+The one exception is `stage` (#0E0E0E), the ground behind the lightbox, with `on-ink` for its controls. It is for looking at media and appears nowhere else.
+
 ## 3. Components
 
-The design system ships 11 components with live previews: `Button`, `TextField`, `Segmented`,
-`ChoiceList`, `Switch`, `Disclosure`, `CommandBlock`, `Status`, `Stat`, `LogView`, `Notice`.
+The design system ships 16 components with live previews: `Button`, `TextField`, `Segmented`,
+`ChoiceList`, `Switch`, `Disclosure`, `CommandBlock`, `Status`, `Stat`, `LogView`, `Notice`, and the
+gallery set `Breadcrumb`, `FolderCard`, `Thumbnail`, `Toolbar`, `Lightbox`.
 
 In the Next.js app, build them as React components with the **same props** (`components/index.d.ts`
 in the design system is the contract), styled with Tailwind from the tokens:
@@ -293,6 +296,36 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
 - `Update all` button top-right runs every account one after another (queued).
 - Below 768 px the table becomes a stacked list: account, the three counters, last run, layout, and
   an overflow menu with the row actions.
+
+### 6.1 Account gallery (`/library/[account]`)
+
+Opened from the account name in the Library table. Media is the focus: no tiles with captions, no chrome
+beyond a breadcrumb, a filter and a sort.
+
+- **Route.** `/library/[account]?path=Image/2025` shows one folder. The query string keeps the URL
+  shareable and Back working. `?file=<name>` opens the lightbox on that file, so a reload keeps the place.
+- **Header.** Breadcrumb `Library / account / Image / 2025`, then the folder name as the page title (mono).
+- **Browse.** Sub-folders first as `FolderCard`s (Image, Video, year folders), then the files as justified
+  rows that keep each file's aspect ratio. Only the rows near the viewport are rendered, so a folder of
+  thousands of files stays responsive.
+- **Thumbnails.** Images load a small WebP from `/api/media?...&thumb=240|480`, generated on first request and
+  cached under the state folder (`thumbs/`, capped at 256 MB). Videos show their first frame, a play glyph and
+  the length. If thumbnails are unavailable (`sharp` failed to load) the browser scales the original.
+- **Filter and sort.** Show: All, Images, Videos. Sort: Newest first, Oldest first, Name. File names are
+  `{post_id}_{n}.{ext}`, so name and post order agree.
+- **Keyboard.** One tile takes Tab. Arrow keys move between tiles (up and down keep the column), Home and End
+  jump, Enter opens the lightbox. Esc in the lightbox returns focus to the tile.
+- **Empty folder.** "No files here yet." with a link back to the account. A filter with no match says
+  "Nothing matches this filter in this folder."
+- **Lightbox.** `stage` ground. Fit to screen; scroll or pinch to zoom, double-click for 100 percent, drag to
+  pan. Left and right arrows move, Esc closes, `F` fullscreen, `I` details, Space plays a video. Counter
+  "3 of 128". Details: file, dimensions, size, post date, link to the post. Actions: Open in Explorer (opens the
+  account folder), Copy path, Delete.
+- **Delete.** Asks first: "It moves to the Recycle Bin. gather still remembers it in the archive, so a later
+  update will not download it again." In the packaged app the file goes to the Recycle Bin; from source it is
+  deleted for good and the dialog says so. The archive is never touched.
+- **Safety.** Every path is resolved inside the account folder. `..`, absolute paths, reserved folders, other
+  accounts, symlinks that leave the folder and non-media extensions are refused.
 
 ## 7. History (`/history`, `/history/[id]`)
 

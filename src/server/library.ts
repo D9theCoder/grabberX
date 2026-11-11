@@ -156,6 +156,11 @@ export async function getAccountStats(folder: string): Promise<AccountStats> {
   return accountStats(folder, dir);
 }
 
+/** Drops an account's cached totals, e.g. after the gallery deletes a file. */
+export function invalidateAccountStats(folder: string): void {
+  statsCache.delete(folder);
+}
+
 /** Windows refuses a rename while something holds the folder open (Explorer, an indexer); usually transient. */
 const RENAME_BACKOFF_MS = [0, 150, 450];
 
