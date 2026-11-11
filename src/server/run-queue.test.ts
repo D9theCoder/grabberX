@@ -23,9 +23,26 @@ vi.mock("@/lib/parse-line", () => ({
   classifyError: (line: string) => (line.includes("login") ? "auth" : null),
 }));
 
+const storeHooks = vi.hoisted(() => ({
+  /**
+   * Runs inside the mocked `saveRun`, before the real write. Tests use it to hold a status write
+   * open or to make the write fail without touching the file system.
+   */
+  beforeSave: undefined as
+    | undefined
+    | ((run: { id: string; status: string; stepIndex: number }) => Promise<void> | void),
+}));
+
 vi.mock("@/server/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/store")>();
-  return { ...actual, pruneRuns: vi.fn(actual.pruneRuns) };
+  return {
+    ...actual,
+    pruneRuns: vi.fn(actual.pruneRuns),
+    saveRun: vi.fn(async (run: Parameters<typeof actual.saveRun>[0]) => {
+      await storeHooks.beforeSave?.(run);
+      await actual.saveRun(run);
+    }),
+  };
 });
 
 let sandbox = "";
@@ -44,6 +61,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.mocked(storeModule.pruneRuns).mockClear();
+  storeHooks.beforeSave = undefined;
 });
 
 afterAll(async () => {
@@ -233,8 +251,8 @@ describe("RunQueue", () => {
     expect(stored?.status).toBe("done");
     expect(stored?.counts).toEqual({ saved: 2, skipped: 1, failed: 1 });
 
-    const log = await storeModule.readLog(enqueued.id);
-    expect(log).toContain("gallery-dl line");
+    const log = await storeModule.readLogTail(enqueued.id);
+    expect(log.text).toContain("gallery-dl line");
   });
 
   it("locks one run per account and honours the global limit", async () => {
@@ -308,6 +326,159 @@ describe("RunQueue", () => {
     ]);
     expect(first.id).not.toBe(second.id);
     expect(await storeModule.listRuns()).toHaveLength(2);
+    expect((await storeModule.getRun(first.id))?.id).toBe(first.id);
+    expect((await storeModule.getRun(second.id))?.id).toBe(second.id);
+
+    await queue.stop(second.id);
+    await queue.stop(first.id);
+  });
+
+  it("keeps ids distinct when both enqueues are still saving their records", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    // Neither run is registered in the queue while its record is being written, so the id has to be
+    // claimed by the reservation, not by `runs` or the file already existing.
+    const saving: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let bothSaving: () => void = () => {};
+    const both = new Promise<void>((resolve) => {
+      bothSaving = resolve;
+    });
+    storeHooks.beforeSave = async (run) => {
+      if (run.status !== "queued") return;
+      saving.push(run.id);
+      if (saving.length === 2) bothSaving();
+      await gate;
+    };
+
+    const pending = [queue.enqueue(spec("username")), queue.enqueue(spec("username"))];
+    await both;
+    release();
+    const [first, second] = await Promise.all(pending);
+    storeHooks.beforeSave = undefined;
+
+    expect([...saving].sort()).toEqual([first.id, second.id].sort());
+    expect(first.id).not.toBe(second.id);
+    expect(await storeModule.listRuns()).toHaveLength(2);
+
+    await queue.stop(second.id);
+    await queue.stop(first.id);
+  });
+
+  it("starts no second step when Stop lands while the step-2 status is being saved", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    let releaseSave: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let saveStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      saveStarted = resolve;
+    });
+    storeHooks.beforeSave = async (run) => {
+      if (run.status === "running" && run.stepIndex === 1) {
+        saveStarted();
+        await held;
+      }
+    };
+
+    const run = await queue.enqueue(spec("username"));
+    await waitFor(() => controlled.calls.length === 1);
+    controlled.resolveNext({ exitCode: 0 });
+    await started;
+
+    const stopping = queue.stop(run.id);
+    // Let stop() mark the request before the held write finishes; the flag is what must win.
+    await delay(10);
+    releaseSave();
+    expect(await stopping).toBe(true);
+    storeHooks.beforeSave = undefined;
+
+    expect(controlled.calls).toHaveLength(1);
+    expect(queue.get(run.id)?.status).toBe("stopped");
+    expect((await storeModule.getRun(run.id))?.status).toBe("stopped");
+  });
+
+  it("stops a run whose Stop arrives while the first status write is still open", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    let releaseSave: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let saveStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      saveStarted = resolve;
+    });
+    let firstStatusSave = true;
+    let heldRunId = "";
+    storeHooks.beforeSave = async (run) => {
+      if (firstStatusSave && run.status === "running") {
+        firstStatusSave = false;
+        heldRunId = run.id;
+        saveStarted();
+        await held;
+      }
+    };
+
+    const enqueued = queue.enqueue(spec("username"));
+    await started;
+    // Stop arrives while the "running" record is still being written and no process exists yet.
+    const stopping = queue.stop(heldRunId);
+    await delay(10);
+    releaseSave();
+    const run = await enqueued;
+    storeHooks.beforeSave = undefined;
+
+    // The Stop waited for the real stop instead of resolving against a placeholder promise.
+    expect(await stopping).toBe(true);
+    expect(run.id).toBe(heldRunId);
+    expect(controlled.calls).toHaveLength(0);
+    expect(queue.get(run.id)?.status).toBe("stopped");
+    expect((await storeModule.getRun(run.id))?.status).toBe("stopped");
+  });
+
+  it("leaves no run in memory when its record cannot be saved", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    let attemptedId = "";
+    storeHooks.beforeSave = (run) => {
+      attemptedId = run.id;
+      throw new Error("EPERM: operation not permitted, rename");
+    };
+
+    await expect(queue.enqueue(spec("username"))).rejects.toThrow(/EPERM/);
+    storeHooks.beforeSave = undefined;
+
+    expect(attemptedId).not.toBe("");
+    expect(queue.get(attemptedId)).toBeUndefined();
+    expect(queue.snapshot(attemptedId)).toBeUndefined();
+    expect(queue.list()).toEqual([]);
+    expect(await storeModule.listRuns()).toEqual([]);
+    expect(controlled.calls).toHaveLength(0);
+
+    // A later enqueue must not resurrect the run that the user was told could not start.
+    const next = await queue.enqueue(spec("other"));
+    await waitFor(() => controlled.calls.length === 1);
+    expect(controlled.calls.map((call) => call.argv)).toEqual([["images", "other"]]);
+    expect(queue.list().map((run) => run.id)).toEqual([next.id]);
+    expect(await queue.stop(next.id)).toBe(true);
   });
 
   it("sweeps .part files when a run is stopped", async () => {

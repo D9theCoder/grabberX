@@ -1,6 +1,7 @@
 import "server-only";
 import { buildCommand } from "@/lib/command";
 import { classifyError } from "@/lib/parse-line";
+import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
 import type {
   ErrorKind,
@@ -38,10 +39,6 @@ const TERMINAL: ReadonlySet<RunStatus> = new Set([
 
 export function isTerminalStatus(status: RunStatus): boolean {
   return TERMINAL.has(status);
-}
-
-function isActiveStatus(status: RunStatus): boolean {
-  return status === "queued" || status === "running" || status === "stopping";
 }
 
 function normalizeFolder(folder: string): string {
@@ -102,10 +99,13 @@ export class RunQueue {
   private readonly deps: Required<QueueDeps>;
   private readonly ready: Promise<void>;
   private readonly runs = new Map<string, Run>();
+  /** Ids claimed by an enqueue that has not finished saving yet; see `allocateRunId`. */
+  private readonly reserved = new Set<string>();
   private readonly active = new Map<string, ActiveRun>();
   private readonly buffers = new Map<string, RunEvent[]>();
   private readonly latestCounts = new Map<string, RunEvent>();
   private readonly latestStatus = new Map<string, RunEvent>();
+  private readonly statusWrites = new Map<string, Promise<void>>();
   private readonly listeners = new Map<string, Set<(event: StreamEvent) => void>>();
   private readonly finished: string[] = [];
   private idLock: Promise<void> = Promise.resolve();
@@ -142,10 +142,19 @@ export class RunQueue {
       stepIndex: 0,
       counts: { saved: 0, skipped: 0, failed: 0 },
     };
+    // Persist before registering. A record that fails to save must leave nothing in memory, or a
+    // later pump starts a download the user was told could not start.
+    try {
+      await saveRun(run);
+    } catch (error) {
+      this.reserved.delete(id);
+      throw error;
+    }
+    // The record is on disk, so `runs` now guards the id and the reservation is no longer needed.
+    this.reserved.delete(id);
     this.runs.set(run.id, run);
     this.buffers.set(run.id, []);
     this.latestStatus.set(run.id, { t: "status", status: "queued", stepIndex: 0 });
-    await saveRun(run);
     await this.pump();
     return cloneRun(run);
   }
@@ -240,10 +249,13 @@ export class RunQueue {
     const base = `${timeStamp(new Date())}_${folder}`;
     let id = base;
     let attempt = 1;
-    while (this.runs.has(id) || (await getRun(id)) !== undefined) {
+    // `reserved` covers the window where an enqueue has claimed an id but has not saved (and so has
+    // not registered) it yet. Without it, two enqueues in one second would pick the same id.
+    while (this.runs.has(id) || this.reserved.has(id) || (await getRun(id)) !== undefined) {
       attempt += 1;
       id = `${base}-${attempt}`;
     }
+    this.reserved.add(id);
     return id;
   }
 
@@ -280,6 +292,10 @@ export class RunQueue {
     run.status = "running";
     run.startedAt = new Date().toISOString();
     run.stepIndex = 0;
+    let openGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
     const active: ActiveRun = {
       run,
       stopRequested: false,
@@ -289,18 +305,31 @@ export class RunQueue {
       logBytes: 0,
       logChain: Promise.resolve(),
     };
-    this.active.set(run.id, active);
-    await this.setStatus(run, "running");
-    active.finished = this.execute(active, settings).catch((error: unknown) =>
-      this.failUnexpected(active, settings, error),
+    // `finished` is a real promise before the first await: a Stop that lands during the status write
+    // below must wait for the work, not resolve against a placeholder. The gate holds the run until
+    // the "running" status is saved, and `execute` then sees any stop that arrived meanwhile.
+    active.finished = gate.then(() =>
+      this.execute(active, settings).catch((error: unknown) =>
+        this.failUnexpected(active, settings, error),
+      ),
     );
+    this.active.set(run.id, active);
+    try {
+      await this.setStatus(run, "running");
+    } finally {
+      openGate();
+    }
   }
 
   private async execute(active: ActiveRun, settings: Settings): Promise<void> {
     const { run } = active;
     for (let index = 0; index < run.steps.length; index += 1) {
+      // Checked before the write too: once Stop has set "stopping", writing "running" would undo it.
       if (active.stopRequested) break;
       if (index > 0) await this.setStatus(run, "running", index);
+      // Stop can land while that status write is in flight. Recheck right before spawning, so no
+      // process starts once a stop was requested.
+      if (active.stopRequested) break;
       const step = run.steps[index];
       const handle = this.deps.startProcess({
         exe: settings.galleryDlPath,
@@ -424,7 +453,12 @@ export class RunQueue {
     this.emit(run.id, event);
   }
 
-  private async setStatus(
+  /**
+   * Status writes are chained per run. `saveRun` is a file write, and two overlapping writes could
+   * land in the opposite order, leaving a stale status on disk (History would then show a run as
+   * running long after it ended). Chaining also keeps the status events in order.
+   */
+  private setStatus(
     run: Run,
     status: RunStatus,
     stepIndex: number = run.stepIndex,
@@ -433,12 +467,18 @@ export class RunQueue {
     run.stepIndex = stepIndex;
     const event: RunEvent = { t: "status", status, stepIndex };
     this.latestStatus.set(run.id, event);
-    try {
-      await saveRun(run);
-    } catch (error) {
-      console.error("gather: could not save the run record.", error);
-    }
-    this.emit(run.id, event);
+    const previous = this.statusWrites.get(run.id) ?? Promise.resolve();
+    const write: Promise<void> = previous
+      .catch(() => {})
+      .then(() => saveRun(run))
+      .catch((error: unknown) => {
+        console.error("gather: could not save the run record.", error);
+      })
+      .then(() => {
+        this.emit(run.id, event);
+      });
+    this.statusWrites.set(run.id, write);
+    return write;
   }
 
   private async finalize(
@@ -493,6 +533,7 @@ export class RunQueue {
       this.buffers.delete(oldest);
       this.latestCounts.delete(oldest);
       this.latestStatus.delete(oldest);
+      this.statusWrites.delete(oldest);
     }
   }
 

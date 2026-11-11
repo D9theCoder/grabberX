@@ -13,9 +13,12 @@ import { maskSecrets } from "@/lib/mask";
 import { endMessage } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
 import type { Run } from "@/lib/spec";
-import { getRun, getSettings, isValidRunId, readLog } from "@/server/store";
+import { getRun, getSettings, isValidRunId, readLogTail } from "@/server/store";
 
 export const dynamic = "force-dynamic";
+
+/** One DOM node per line: a 50k-line log would freeze the tab, so only the tail is rendered. */
+const LOG_LINES_SHOWN = 2000;
 
 function settingsRows(run: Run): Array<[string, string]> {
   const { spec } = run;
@@ -35,11 +38,21 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
   const { id } = await params;
   if (!isValidRunId(id)) notFound();
 
-  const [run, settings, log] = await Promise.all([getRun(id), getSettings(), readLog(id)]);
+  const [run, settings, tail] = await Promise.all([getRun(id), getSettings(), readLogTail(id)]);
   if (!run) notFound();
 
   const outcome = endMessage(run, settings.galleryDlPath);
-  const lines = maskSecrets(log).split(/\r?\n/).filter(Boolean);
+  const allLines = tail.text.split(/\r?\n/).filter(Boolean);
+  const shown = allLines.slice(-LOG_LINES_SHOWN);
+  const lines = shown.length > 0 ? maskSecrets(shown.join("\n")).split("\n") : [];
+  const logPath = `.gather/runs/${run.id}.log`;
+  const note =
+    tail.truncated || lines.length < allLines.length
+      ? `Showing the last ${lines.length} lines of this log. The full log is in ${logPath}.`
+      : null;
+  const unavailable = tail.truncated
+    ? `The end of this log is one line that is too long to show here. The full log is in ${logPath}.`
+    : "This run has no log yet.";
   const elapsed =
     run.startedAt && run.endedAt ? formatElapsed(Date.parse(run.endedAt) - Date.parse(run.startedAt)) : null;
 
@@ -80,16 +93,22 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
       <section className="flex flex-col gap-3 border-t border-line pt-8">
         <h2 className="m-0 text-title">Command</h2>
         <CommandBlock
-          steps={run.steps.map((step) => ({ label: step.label, command: formatCommand(step.argv) }))}
+          steps={run.steps.map((step) => ({
+            label: step.label,
+            command: maskSecrets(formatCommand(step.argv)),
+          }))}
         />
       </section>
 
       <section className="flex flex-col gap-3 border-t border-line pt-8">
         <h2 className="m-0 text-title">Log</h2>
         {lines.length > 0 ? (
-          <LogView lines={lines} maxHeight={560} />
+          <>
+            {note ? <p className="m-0 text-small text-ink-2">{note}</p> : null}
+            <LogView lines={lines} maxHeight={560} />
+          </>
         ) : (
-          <p className="m-0 text-small text-ink-2">This run has no log yet.</p>
+          <p className="m-0 text-small text-ink-2">{unavailable}</p>
         )}
       </section>
 

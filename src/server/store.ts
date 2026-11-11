@@ -2,6 +2,7 @@ import "server-only";
 import {
   appendFile,
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -9,9 +10,14 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { isActiveStatus } from "@/lib/run-copy";
 import type { Counts, Run, Settings } from "@/lib/spec";
+
+/** A History page never needs more of a log than this, and a run can write many megabytes. */
+const LOG_TAIL_BYTES = 512 * 1024;
 
 const COOKIE_BROWSERS = ["firefox", "chrome", "edge", "none"] as const;
 const MEDIA = ["images", "videos", "all"] as const;
@@ -241,8 +247,14 @@ export async function getRun(id: string): Promise<Run | undefined> {
   }
 }
 
-function sortKey(run: Run): string {
-  return run.startedAt ?? run.id;
+/**
+ * Ordering key. Run ids are allocated at enqueue time in local time (`2026-11-11T14-30-00_acct`), so
+ * the id alone is chronological. `startedAt` is UTC, and mixing the two put runs hours apart, which
+ * also made pruning delete the wrong records.
+ */
+function compareRuns(a: Run, b: Run): number {
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? 1 : -1;
 }
 
 export async function listRuns(limit = 200): Promise<Run[]> {
@@ -258,7 +270,7 @@ export async function listRuns(limit = 200): Promise<Run[]> {
     .filter((id) => isValidRunId(id));
   const loaded = await Promise.all(ids.map((id) => getRun(id)));
   const runs = loaded.filter((run): run is Run => run !== undefined);
-  runs.sort((a, b) => (sortKey(a) < sortKey(b) ? 1 : sortKey(a) > sortKey(b) ? -1 : 0));
+  runs.sort(compareRuns);
   return typeof limit === "number" && runs.length > limit ? runs.slice(0, limit) : runs;
 }
 
@@ -269,12 +281,52 @@ export async function appendLog(id: string, chunk: string): Promise<void> {
   await appendFile(logFile(id), chunk, "utf8");
 }
 
-export async function readLog(id: string): Promise<string> {
-  if (!isValidRunId(id)) return "";
+export interface LogTail {
+  text: string;
+  /** True when older bytes were left out; `text` then starts at a line boundary. */
+  truncated: boolean;
+  totalBytes: number;
+}
+
+/**
+ * Reads only the end of a log. A big update writes tens of thousands of lines, and History must not
+ * pull that whole file into memory just to show the last screen.
+ */
+export async function readLogTail(id: string, maxBytes: number = LOG_TAIL_BYTES): Promise<LogTail> {
+  if (!isValidRunId(id)) return { text: "", truncated: false, totalBytes: 0 };
+  const limit = Math.max(0, Math.floor(maxBytes));
+  let handle: FileHandle | undefined;
   try {
-    return await readFile(logFile(id), "utf8");
+    handle = await open(logFile(id), "r");
+    const info = await handle.stat();
+    const totalBytes = info.size;
+    if (totalBytes === 0) return { text: "", truncated: false, totalBytes: 0 };
+    const truncated = totalBytes > limit;
+    // One byte more than the cap when truncating: it tells whether the window starts on a line boundary.
+    const start = truncated ? totalBytes - limit - 1 : 0;
+    const length = totalBytes - start;
+    const buffer = Buffer.alloc(length);
+    let filled = 0;
+    while (filled < length) {
+      const { bytesRead } = await handle.read(buffer, filled, length - filled, start + filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    const bytes = buffer.subarray(0, filled);
+    if (!truncated) return { text: bytes.toString("utf8"), truncated, totalBytes };
+
+    const startsOnLine = bytes[0] === 0x0a;
+    let text = bytes.subarray(1).toString("utf8");
+    if (!startsOnLine) {
+      // The first line is cut in the middle; drop it rather than show half a line.
+      const newline = text.indexOf("\n");
+      text = newline === -1 ? "" : text.slice(newline + 1);
+    }
+    return { text, truncated, totalBytes };
   } catch {
-    return "";
+    return { text: "", truncated: false, totalBytes: 0 };
+  } finally {
+    await handle?.close().catch(() => {});
   }
 }
 
@@ -282,7 +334,9 @@ export async function pruneRuns(retention: number): Promise<number> {
   const keep = Math.max(1, Math.floor(retention));
   const runs = await listRuns(Number.MAX_SAFE_INTEGER);
   if (runs.length <= keep) return 0;
-  const doomed = runs.slice(keep);
+  // A queued, running or stopping record is live state: pruning it would hide a run that is still
+  // going and leave the queue writing to a file nobody lists. Active records never count as history.
+  const doomed = runs.filter((run) => !isActiveStatus(run.status)).slice(keep);
   let removed = 0;
   for (const run of doomed) {
     await unlink(runFile(run.id)).catch(() => {});

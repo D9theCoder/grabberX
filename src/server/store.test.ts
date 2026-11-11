@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import type { Run, Settings } from "@/lib/spec";
+import type { Run, RunStatus, Settings } from "@/lib/spec";
 import {
   appendLog,
   getRun,
@@ -10,7 +10,7 @@ import {
   isValidRunId,
   listRuns,
   pruneRuns,
-  readLog,
+  readLogTail,
   saveRun,
   saveSettings,
 } from "@/server/store";
@@ -31,7 +31,7 @@ afterAll(async () => {
   if (sandbox) await rm(sandbox, { recursive: true, force: true });
 });
 
-function makeRun(id: string, startedAt?: string): Run {
+function makeRun(id: string, startedAt?: string, status: RunStatus = "done"): Run {
   return {
     id,
     spec: {
@@ -50,7 +50,7 @@ function makeRun(id: string, startedAt?: string): Run {
       },
     },
     steps: [{ label: "images", argv: ["-o", "x"] }],
-    status: "done",
+    status,
     stepIndex: 0,
     counts: { saved: 3, skipped: 1, failed: 0 },
     ...(startedAt ? { startedAt } : {}),
@@ -154,17 +154,83 @@ describe("run records", () => {
       expect(await getRun(id)).toBeUndefined();
       await expect(appendLog(id, "x")).rejects.toThrow();
     }
-    expect(await readLog("../escape")).toBe("");
+    expect(await readLogTail("../escape")).toEqual({ text: "", truncated: false, totalBytes: 0 });
   });
 });
 
 describe("run logs", () => {
-  it("appends and reads a log", async () => {
+  it("appends and reads a small log whole", async () => {
     const id = "2026-11-11T09-14-02_username";
     await appendLog(id, "one\n");
     await appendLog(id, "two\n");
-    expect(await readLog(id)).toBe("one\ntwo\n");
-    expect(await readLog("2026-11-11T09-14-02_missing")).toBe("");
+    expect(await readLogTail(id)).toEqual({ text: "one\ntwo\n", truncated: false, totalBytes: 8 });
+  });
+
+  it("reads only the end of a log longer than the cap and starts on a line boundary", async () => {
+    const id = "2026-11-11T09-14-02_username";
+    const lines = Array.from({ length: 500 }, (_, index) => `line ${index} ${"x".repeat(24)}`);
+    const full = `${lines.join("\n")}\n`;
+    await appendLog(id, full);
+
+    const tail = await readLogTail(id, 512);
+    expect(tail.truncated).toBe(true);
+    expect(tail.totalBytes).toBe(Buffer.byteLength(full));
+    expect(Buffer.byteLength(tail.text)).toBeLessThanOrEqual(512);
+    // No half line at the top, and the real last line is still intact at the bottom.
+    expect(tail.text.startsWith("line ")).toBe(true);
+    expect(tail.text.endsWith(`${lines[lines.length - 1]}\n`)).toBe(true);
+    expect(full.endsWith(tail.text)).toBe(true);
+  });
+
+  it("keeps the first line when the window starts exactly on a line boundary", async () => {
+    const id = "2026-11-11T09-14-02_username";
+    await appendLog(id, "old line\nkept line\n");
+
+    const tail = await readLogTail(id, Buffer.byteLength("kept line\n"));
+    expect(tail).toEqual({ text: "kept line\n", truncated: true, totalBytes: 19 });
+  });
+
+  it("shows nothing when the tail is a single line with no newline", async () => {
+    const id = "2026-11-11T09-14-02_username";
+    await appendLog(id, "x".repeat(1000));
+    expect(await readLogTail(id, 100)).toEqual({ text: "", truncated: true, totalBytes: 1000 });
+  });
+
+  it("returns an empty tail for a missing log or an invalid id", async () => {
+    const empty = { text: "", truncated: false, totalBytes: 0 };
+    expect(await readLogTail("2026-11-11T09-14-02_missing")).toEqual(empty);
+    expect(await readLogTail("../escape")).toEqual(empty);
+  });
+});
+
+describe("history order", () => {
+  it("orders by run id, so local ids and UTC startedAt cannot disagree", async () => {
+    // A UTC+7 machine: the id is local time, startedAt is UTC. The old key mixed the two, so the
+    // queued 20:00 record (key "…T20-00-00_q") sorted above the 23:00 run (key "…T16:00:00.000Z").
+    await saveRun(makeRun("2026-11-11T08-00-00_q", undefined, "queued"));
+    await saveRun(makeRun("2026-11-11T14-30-00_q", undefined, "queued"));
+    await saveRun(makeRun("2026-11-11T15-00-00_a", "2026-11-11T08:00:00.000Z"));
+    await saveRun(makeRun("2026-11-11T20-00-00_q", undefined, "queued"));
+    await saveRun(makeRun("2026-11-11T22-00-00_a", "2026-11-11T15:00:00.000Z"));
+    await saveRun(makeRun("2026-11-11T23-00-00_a", "2026-11-11T16:00:00.000Z"));
+
+    expect((await listRuns()).map((run) => run.id)).toEqual([
+      "2026-11-11T23-00-00_a",
+      "2026-11-11T22-00-00_a",
+      "2026-11-11T20-00-00_q",
+      "2026-11-11T15-00-00_a",
+      "2026-11-11T14-30-00_q",
+      "2026-11-11T08-00-00_q",
+    ]);
+  });
+
+  it("orders two runs of the same second by the dedupe suffix", async () => {
+    await saveRun(makeRun("2026-11-11T09-00-00_a"));
+    await saveRun(makeRun("2026-11-11T09-00-00_a-2"));
+    expect((await listRuns()).map((run) => run.id)).toEqual([
+      "2026-11-11T09-00-00_a-2",
+      "2026-11-11T09-00-00_a",
+    ]);
   });
 });
 
@@ -184,5 +250,32 @@ describe("pruneRuns", () => {
     expect(left.map((run) => run.id)).not.toContain(ids[0]);
     await expect(stat(join(home, "runs", `${ids[0]}.log`))).rejects.toThrow();
     expect(await pruneRuns(10)).toBe(0);
+  });
+
+  it("never deletes a queued, running or stopping record", async () => {
+    for (let hour = 1; hour <= 6; hour += 1) {
+      const stamp = `2026-11-11T1${hour}-00-00_a`;
+      await saveRun(makeRun(stamp));
+    }
+    // Older ids than every finished run, so only the active exemption can save them.
+    const queued = makeRun("2026-11-11T00-00-00_q", undefined, "queued");
+    const running = makeRun("2026-11-11T00-00-01_r", undefined, "running");
+    const stopping = makeRun("2026-11-11T00-00-02_s", undefined, "stopping");
+    await saveRun(queued);
+    await saveRun(running);
+    await saveRun(stopping);
+
+    expect(await pruneRuns(2)).toBe(4);
+    const left = (await listRuns()).map((run) => run.id);
+    expect(left).toContain(queued.id);
+    expect(left).toContain(running.id);
+    expect(left).toContain(stopping.id);
+    expect(left).toEqual([
+      "2026-11-11T16-00-00_a",
+      "2026-11-11T15-00-00_a",
+      "2026-11-11T00-00-02_s",
+      "2026-11-11T00-00-01_r",
+      "2026-11-11T00-00-00_q",
+    ]);
   });
 });
