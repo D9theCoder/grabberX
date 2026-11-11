@@ -4,4 +4,5 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("gatherShell", {
   pickFolder: (defaultPath) => ipcRenderer.invoke("gather:pick-folder", defaultPath),
   openLogs: () => ipcRenderer.invoke("gather:open-logs"),
+  trashItem: (filePath) => ipcRenderer.invoke("gather:trash-item", filePath),
 });

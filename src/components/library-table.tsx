@@ -368,7 +368,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
               return (
                 <div key={entry.folder} className="flex flex-col gap-2 border-b border-line py-4">
                   <div className="flex items-start justify-between gap-3">
-                    <span className="font-mono text-code">{entry.folder}</span>
+                    <Link href={`/library/${encodeURIComponent(entry.folder)}`} className="font-mono text-code underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link>
                     <RowMenu
                       label={`Actions for ${entry.folder}`}
                       actions={[
@@ -434,7 +434,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                   return (
                     <Fragment key={entry.folder}>
                       <tr className="border-b border-line">
-                        <td className="py-3 pr-4 font-mono text-code">{entry.folder}</td>
+                        <td className="py-3 pr-4 font-mono text-code"><Link href={`/library/${encodeURIComponent(entry.folder)}`} className="underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link></td>
                         <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
                           {loaded ? formatCount(loaded.images) : "…"}
                         </td>

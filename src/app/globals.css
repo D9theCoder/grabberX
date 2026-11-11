@@ -16,6 +16,9 @@
   --color-warn: #8a5a00;
   --color-focus: var(--color-ink);
 
+  /* Only behind the lightbox. A documented exception, not a dark theme. */
+  --color-stage: #0e0e0e;
+
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
