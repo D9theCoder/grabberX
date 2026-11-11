@@ -3,6 +3,7 @@
 /*/
 !/.agents/
 !/.claude/
+!/docs/
 
 # gallery-dl state and debris (belt-and-braces if a folder is un-ignored)
 **/archive.sqlite3

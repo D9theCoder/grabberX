@@ -1,0 +1,298 @@
+# Design Handoff: gather
+
+> Working name **gather**: a local web front end for `gallery-dl`. Rename freely; nothing depends on it.
+>
+> **Design system (source of truth for tokens and components):** https://claude.ai/artifact/QqeuePNc22evgNcg2fzkjD
+> Its files are versioned in [`docs/design-system/project/`](design-system/project/): `tokens.json`,
+> the brand book `README.md`, and one guideline + live preview per component. This file covers
+> screens, behavior and edge cases; when it names a token or component, the design system defines it.
+
+---
+
+## 1. Design principles
+
+1. **One screen does the job.** Pick a source, say what to keep, press Download. Everything else
+   is folded away under *Advanced*, with defaults that are already right.
+2. **Show the command.** The exact `gallery-dl` command is always visible and copyable, so every
+   run can be reproduced in a terminal.
+3. **Honest progress.** gallery-dl does not know the total file count up front. No percentage bar:
+   counters (saved, skipped, failed), the current file, and elapsed time.
+4. **Monochrome, words for status.** Ink and greys on `paper` (#FCFCFC). Selection is an ink fill
+   or an ink radio, never a tinted fill with a colored border. Status is a word with a glyph, never a
+   pill or an uppercase label. Color only means *failed* (`danger`) or *wait* (`warn`).
+5. **Safe by default.** Defaults match the folder layout already in use
+   (`<account>/Image`, `<account>/Video`, shared `archive.sqlite3`), so a run never re-downloads
+   or scatters files.
+
+## 2. Tokens (summary)
+
+Full list with usage notes: the design system's `tokens.json`. All values are exposed as CSS custom
+properties (`--paper`, `--ink`, `--space-4`, …) and mapped into Tailwind v4 with `@theme`.
+Components reference tokens only, never raw hex or px.
+
+| Group | Tokens |
+|---|---|
+| Grounds | `paper` #FCFCFC · `surface` #FFFFFF · `sunken` #F3F3F3 |
+| Edges | `line` #E5E5E5 (dividers) · `line-strong` #C9C9C9 (containers) · `control` #8F8F8F (inputs, 3.2:1) |
+| Text | `ink` #141414 (18:1) · `ink-2` #5C5C5C (6.5:1) · `ink-3` #8F8F8F (disabled only) · `on-ink` #FCFCFC |
+| Meaning | `danger` #B3261E (6.4:1) · `warn` #8A5A00 (5.8:1) · `focus` = ink |
+| Type | Schibsted Grotesk (`display` 28/34, `title` 17/24, `body` 15/22, `label` 14/20, `small` 13/18, `stat` 24/28) · Fragment Mono (`code` 13/20, `log` 12/18) |
+| Space | 4 · 8 · 12 · 16 · 24 · 32 · 48 px |
+| Radius | 4 · 6 · 8 px. Nothing pill-shaped. |
+| Elevation | None. Borders only. |
+| Motion | 120 ms hover/press, 200 ms disclosure, spinner only loops; all off under reduced motion |
+
+Not in v1: a dark theme. Tokens are named by role, so one can be added later without touching components.
+
+## 3. Components
+
+The design system ships 11 components with live previews: `Button`, `TextField`, `Segmented`,
+`ChoiceList`, `Switch`, `Disclosure`, `CommandBlock`, `Status`, `Stat`, `LogView`, `Notice`.
+
+In the Next.js app, build them as React components with the **same props** (`components/index.d.ts`
+in the design system is the contract), styled with Tailwind from the tokens:
+
+- Accessibility-heavy behavior comes from native elements first: `details/summary` for
+  `Disclosure`, native radios for `ChoiceList`, `<input type="date">` for dates. `Segmented` is a
+  `radiogroup` with arrow-key movement (a dozen lines). No date-picker or icon library.
+- **No shadcn/ui.** Its default look (soft tints, pills, rings, shadows) is what this system avoids,
+  and every component here is small enough to own outright.
+- About ten inline SVG icons (24px grid, 1.75px stroke, round caps) live in
+  `src/components/icons.tsx` with direct named exports.
+
+---
+
+## 4. Information architecture
+
+```
+/            Run          the form + live run panel (90% of use)
+/library     Library      accounts already on disk: files, size, last run, "Update" button
+/history     History      past runs, filterable by account and status
+/history/[id]             one run: settings used, command, full log
+/settings    Settings     gallery-dl path, media root, cookie browser + profile, defaults
+```
+
+Top bar: wordmark on the left, then `Run · Library · History`, with `Settings` as a gear on the right.
+The current page shows an ink underline 2 px thick. No sidebar.
+
+---
+
+## 5. Screen spec: Run (`/`)
+
+### 5.1 Layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ gather            Run  Library  History                              ⚙       │  top bar 56px
+├──────────────────────────────────────────────────────────────────────────────┤
+│ New run                                                                      │  display
+│ ┌─────────────────────────────────────────┐  ┌──────────────────────────────┐│
+│ │ SOURCE                                  │  │ COMMAND                  copy ││
+│ │ Site   [X ▾] [Instagram] [Bluesky] ...  │  │ gallery-dl -o 'directory=…'  ││
+│ │ Account [@ username              ]      │  │   --filter "extension in …"  ││
+│ │         ✓ On disk · 1,204 files · 3.1GB │  │   --download-archive …        ││
+│ │                                         │  ├──────────────────────────────┤│
+│ │ MEDIA   [ Images | Videos | All ]       │  │ [ Preview files ] [Download] ││
+│ │                                         │  ├──────────────────────────────┤│
+│ │ DATES   (All time)(30 days)(This year)  │  │ ● Running  username  02:14   ││
+│ │         (Custom) [from] → [to]          │  │ 312 saved  1,090 skipped  0 ✕ ││
+│ │                                         │  │ Video/1834…_1.mp4             ││
+│ │ FOLDERS (•) By type   Image/ Video/     │  │ ┌ log ──────────────────────┐ ││
+│ │         ( ) By type + year              │  │ │ …                         │ ││
+│ │         ( ) Flat                        │  │ └───────────────────────────┘ ││
+│ │         ( ) Custom template             │  │ [ Stop ]                     ││
+│ │         preview: username/Image/…jpg    │  └──────────────────────────────┘│
+│ │                                         │        (sticky, top: 24px)       │
+│ │ ▸ Advanced  (3 changed)                 │                                  │
+│ └─────────────────────────────────────────┘                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- Container: `max-width: 1120px`, centered, side gutter `--space-8` (desktop) / `--space-4` (mobile).
+- Grid: `grid-template-columns: minmax(0,1fr) 400px; gap: --space-8`.
+- Right column is `position: sticky; top: --space-6`, so the command and the Download button never
+  scroll away.
+- Form sections are separated by a `--border` top rule and `--space-8` vertical space, not by
+  boxes. Fewer boxes means less visual noise.
+
+### 5.2 Sections and fields
+
+| # | Section | Control | Default | Notes |
+|---|---|---|---|---|
+| 1 | **Site** | `Segmented`: X, Instagram, Bluesky, Pixiv, Reddit, Other URL | X | Sites other than X carry a quiet `beta` tag until they pass a smoke test (see ARCHITECTURE §9). Picking **Other URL** swaps the Account field for a full-URL field. |
+| 2 | **Account** | `TextField` with a fixed `prefix` (`@` for X, `bsky.app/profile/` for Bluesky, and so on) | empty | Accepts a handle or a pasted profile URL. On paste, the URL is parsed and only the handle is kept. Below it, an **account hint** line (see 5.3). |
+| 3 | **Media** | `Segmented`: Images · Videos · All | All | "All" runs images first, then videos, in one job. Each option has a tooltip listing the extensions it covers. |
+| 4 | **Dates** | `Segmented` (sm): All time · Last 30 days · This year · Custom. "Custom" shows two native date inputs: *From* → *To* | All time | Both ends are optional. Hint text: "Uses the post date, not the download date." |
+| 5 | **Folders** | `ChoiceList`, each row showing the path it produces | By type | See 5.4. |
+| 6 | **Advanced** | `Disclosure`, closed by default, `meta` reads "n changed" when n > 0 | closed | See 5.5. |
+
+### 5.3 Account hint states
+
+| State | Text (`small`) | Color |
+|---|---|---|
+| Empty | — (nothing shown) | — |
+| Typing (debounced 300 ms) | — | — |
+| Folder exists | `✓ On disk · 1,204 files · 3.1 GB · last run 3 days ago` | ink-2, with ✓ |
+| New | `New account · will create new_account/` | ink-2 |
+| Invalid | `X handles are 1–15 letters, numbers or _` | danger |
+| Reserved name | `"src" is used by the app itself. Choose a different folder name in Advanced → Folder name.` | danger |
+| Run already active | `A run for this account is in progress` (links to it) | warn |
+
+### 5.4 Folder layouts
+
+| Option | Writes to | gallery-dl `directory` |
+|---|---|---|
+| **By type** (default) | `<acct>/Image/…`, `<acct>/Video/…` | `["<acct>","Image"]` / `["<acct>","Video"]` |
+| **By type + year** | `<acct>/Image/2025/…`, `<acct>/Video/…` | `["<acct>","Image","{date:%Y}"]` |
+| **By year / month** | `<acct>/2025-03/…` | `["<acct>","{date:%Y-%m}"]` |
+| **Flat** | `<acct>/…` | `["<acct>"]` |
+| **Custom** | user template | text field, mono font, with a key picker (`{date:%Y}`, `{tweet_id}`, `{num}`, `{extension}`, `{author[name]}`) |
+
+Under the list, show one **path preview** line in `code`, built from a sample post:
+`username/Image/1834220145_1.jpg`. It updates on every change.
+
+If the account folder already exists with a different layout (for example it has `Image/2024/`
+but "By type" is selected), show a `Notice` (info):
+*"Existing files use a different layout. They won't be moved. New files go to the new layout,
+and nothing is downloaded twice."*
+
+### 5.5 Advanced (folded)
+
+Grouped into three blocks, each with a `title` heading in sentence case. Each control has a one-line hint.
+A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the `Disclosure` meta counts them.
+
+**Quality**
+
+| Control | Default | Maps to | Hint |
+|---|---|---|---|
+| Image size | **Original** | X: `-o twitter.size=["orig"]` (default already) | "Original is the full file the artist uploaded (X caps at 4096 px)." Options: Original, Large, Medium. Hidden for sites without size variants. |
+| Min file size / Max file size | empty | `--filesize-min`, `--filesize-max` | "e.g. 200k, 5M" |
+| Include retweets | off | `-o twitter.retweets=false` | X only |
+| Include replies | off | `-o twitter.replies=false` | X only |
+
+**Pace and limits**
+
+| Control | Default | Maps to | Hint |
+|---|---|---|---|
+| Wait between pages | 0 s | `--sleep-request` | "Slows page loading. The only setting that helps against rate limits." |
+| Wait between files | 0 s | `--sleep` | "Slows downloads, not page loading." |
+| Wait after rate limit (429) | gallery-dl default | `--sleep-429` | |
+| Retries | 4 | `-R` | |
+| Bandwidth cap | none | `--limit-rate` | "e.g. 2M" |
+| Stop when caught up | **on** for accounts already on disk, off for new | `-A 20` | "Stops after 20 files in a row are already saved. Makes updates fast." |
+| Only the newest N files | empty | `--range 1-N` | Useful for a quick test |
+
+**Output and session**
+
+| Control | Default | Maps to |
+|---|---|---|
+| Save metadata (.json beside each file) | off | `--write-metadata` |
+| Overwrite existing files | off | `--no-skip` (shows a danger hint) |
+| Cookies from | Firefox (from Settings) | `--cookies-from-browser firefox[:profile]` |
+| Folder name | account handle | overrides `<acct>`, needed for reserved names |
+| Proxy | empty | `--proxy` |
+
+### 5.6 Command panel (right column)
+
+- **`CommandBlock`:** `sunken` body, `line-strong` edge, `radius-lg`, `code` text. One flag per line, each
+  ending in a backtick (PowerShell's line continuation). Values in `ink`, flags in `ink-2`. Copy sits
+  top-right and reads "Copied" with a check for 1.5 s, announced politely.
+- When Media is **All**, the block shows two tabs, `1 · images` and `2 · videos`.
+- **Actions:** `Preview files` (`secondary`: runs `--simulate`, lists what would download without
+  writing anything) and `Download` (`primary`, ink fill). Both are full-width in a 2-column row.
+- **Disabled reasons** show as a hint under the buttons, never as a silent disabled button:
+  "Enter an account first", "gallery-dl not found, check Settings".
+
+### 5.7 Run panel (replaces the empty state under the actions)
+
+| Part | Spec |
+|---|---|
+| Header | `Status` with account and elapsed `mm:ss` as its detail: "Running · username · 02:14" |
+| Counters | Three `Stat`s: **saved** (default), **skipped** (`muted`), **failed** (`danger` when > 0). |
+| Current file | One mono line, truncated in the middle (`Video/18342…_1.mp4`), full path in `title`. |
+| Phase | For "All": `Step 1 of 2 · images`. |
+| Rate-limit wait | `Notice` (warning): "Rate limited · retrying in 0:42 (2 of 4)", counting down. |
+| Log | `LogView`, collapsed to the last 6 lines and expandable to 320 px max height, scrolling. `#` skipped lines are `ink-2`, warnings `warn`, errors `danger`. Auto-scrolls only while the user is at the bottom. |
+| Actions | `Stop` (`danger` button). After the run ends: `Open folder` and `Run again`. |
+
+Empty state (no run yet): one line in `ink-2`, "Runs appear here. Nothing is downloaded until you
+press Download."
+
+### 5.8 Component states
+
+Hover, focus, selected, disabled and loading states for every component are defined in the design
+system (brand book → States, and each component's guideline). Screen-specific rules:
+
+- Download is never silently disabled: the reason sits under it in `small`.
+- While a run is active for the chosen account, Download reads `Queue`.
+- Focus is always the 2px `focus` outline with a 2px offset.
+
+### 5.9 Responsive
+
+| Breakpoint | Changes |
+|---|---|
+| ≥ 1024 px | Two columns, as above |
+| 640–1023 px | One column. The command panel moves under the form. A **sticky bottom bar** (`paper`, `line` top border) holds `Preview files` + `Download`, plus the run status when one is active. Tapping it scrolls to the run panel. |
+| < 640 px | The site `Segmented` scrolls horizontally (scroll-snap, no wrap). Date inputs stack. Command preview is folded behind a "Show command" link. 16 px gutter. No horizontal page scroll. |
+
+Touch targets are at least 40 × 40 px everywhere.
+
+### 5.10 Edge cases and copy
+
+| Situation | What the user sees |
+|---|---|
+| gallery-dl missing / wrong path | `Notice` (danger) under the top bar: "gallery-dl wasn't found at C:\tools\gallery-dl.exe. **Set the path**". Download is disabled. |
+| Firefox not logged in to the site / cookies expired | Run fails with: "X asked for a login. Open x.com in Firefox, sign in, then run again." |
+| Account doesn't exist or is protected | "This account doesn't exist or its posts are protected." |
+| Rate limited, retries exhausted | "X is limiting requests. Wait about 15 minutes, or set *Wait between pages* to 2 s." |
+| Date *From* is after *To* | Inline error under the dates: "Start date is after end date." |
+| Disk full | "The drive is full. 312 files were saved before it stopped." |
+| Stop pressed | Status reads "Stopping", then "Stopped". Partial `.part` files are cleaned up and the copy says so: "Stopped. Unfinished files were removed." |
+| Second run for the same account | Download label changes to `Queue`. Status reads "Queued · 1 ahead" in `warn` text below the buttons. |
+| 0 new files | Done state reads "Up to date · nothing new since last run." |
+| Very long handle / custom template | Inputs never grow. Preview line truncates in the middle with an ellipsis. |
+
+### 5.11 Accessibility
+
+- Focus order: Site → Account → Media → Dates → Folders → Advanced toggle → (Advanced fields) →
+  Copy → Preview files → Download → Stop.
+- Every control has a visible `<label>`. `Segmented` is a `radiogroup` with arrow keys.
+- `Ctrl+Enter` anywhere in the form = Download (shown as a hint in the button tooltip).
+- Run status is announced through one `aria-live="polite"` region, **throttled**: start, every
+  phase change, rate-limit waits, and the end. Never per file.
+- Each `Stat` is one labelled group: "312 saved".
+- Color is never the only signal: failed shows ✕ and the word; a selected segment is an ink fill, not a hue.
+
+---
+
+## 6. Library (`/library`)
+
+A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · Last run · Layout · actions.
+
+- Sort by last run (default), name, or size. A search box filters as you type.
+- Row actions: `Update` (starts a run with the account's saved settings and "Stop when caught up"
+  on), `Open folder`, and an overflow menu with "Use as new run" (fills the form).
+- Accounts are detected as top-level folders that contain `archive.sqlite3`, so app folders
+  (`src`, `public`, `node_modules`…) never appear.
+- Empty state: "No accounts yet. Your first download will show up here."
+- `Update all` button top-right runs every account one after another (queued).
+
+## 7. History (`/history`, `/history/[id]`)
+
+- List: `Status`, account, media, started, duration, saved/skipped/failed.
+- Detail: the settings used (read-only summary), the exact commands, full log (with
+  `content-visibility: auto` for long logs), and `Run again`.
+
+## 8. Settings (`/settings`)
+
+Plain form, saved on blur with a quiet "Saved" tick:
+gallery-dl path (with a `Check` button that runs `--version`) · Media root (default: the app folder)
+· Cookie browser + profile · Default media / folder layout · History retention (default 200 runs).
+
+---
+
+## 9. Copy voice
+
+Short, plain, second person, no exclamation marks. Verbs on buttons: **Download**, **Preview files**,
+**Stop**, **Update**, **Run again**, **Open folder**. Don't say "scrape", "job", or "extractor"
+in the UI. Say **run**, **account**, **files**.

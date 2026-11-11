@@ -1,0 +1,17 @@
+<!-- @dsCard group="Inputs" height=220 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TextField — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+  h(G.TextField, { label: 'Account', prefix: '@', mono: true, defaultValue: 'username', hint: 'On disk · 1,204 files · 3.1 GB · last run 3 days ago' }),
+  h(G.TextField, { label: 'Account', prefix: '@', mono: true, defaultValue: 'acct main!', error: 'X handles are 1–15 letters, numbers or _' }),
+  h(G.TextField, { label: 'Wait between pages', defaultValue: '0', hint: 'Seconds. The only setting that helps against rate limits.' }),
+  h(G.TextField, { label: 'From', type: 'date', defaultValue: '2025-01-01' })));
+</script>
+</body>
+</html>
