@@ -236,7 +236,8 @@ describe("updateAccount", () => {
     expect(queued).not.toHaveProperty("dateTo");
     expect(queued.advanced).not.toHaveProperty("range");
     expect(queued.advanced.noSkip).toBe(false);
-    expect(queued.advanced.abortAfterSkipped).toBe(20);
+    // The last run was limited to --range 5, so "stop when caught up" would trust a partial history.
+    expect(queued.advanced.abortAfterSkipped).toBeUndefined();
   });
 
   it("reads only the recent runs when the folder's latest run is among them", async () => {

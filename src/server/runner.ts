@@ -41,7 +41,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function killTreeWindows(pid: number): Promise<void> {
+export function killTreeWindows(pid: number): Promise<void> {
   return new Promise((resolve) => {
     // taskkill /T also kills the second process a PyInstaller one-file exe starts; child.kill()
     // would only kill the bootloader and leave the downloader holding the archive lock.

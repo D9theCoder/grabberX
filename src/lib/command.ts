@@ -28,7 +28,10 @@ function argvFor(
 ): string[] {
   const site = siteDef(spec.site);
   const folder = folderNameFor(spec);
-  const root = settings.mediaRoot.replace(/[\\/]+$/, "");
+  const trimmed = settings.mediaRoot.replace(/[\\/]+$/, "");
+  // A drive root ("D:\") or "/" loses its meaning without the slash: "D:" is the current folder on D.
+  const root = trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}/` : trimmed;
+  const rootPrefix = root.endsWith("/") ? root : `${root}/`;
   const argv = [
     "-d",
     root,
@@ -36,7 +39,7 @@ function argvFor(
     `directory=${JSON.stringify(directoryFor(spec.layout, folder, media))}`,
     ...site.mediaOptions(media),
     "--download-archive",
-    `${root}/${folder}/archive.sqlite3`,
+    `${rootPrefix}${folder}/archive.sqlite3`,
     ...qualityFlags(spec),
     ...dateFlags(spec),
     ...paceFlags(spec.advanced),

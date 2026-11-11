@@ -187,6 +187,7 @@ describe("parseJobSpec: dates", () => {
   it("rejects a date that does not exist", () => {
     expect(error({ dateFrom: "2025-02-30" })).toBe("That date doesn't exist.");
     expect(error({ dateTo: "2025-13-01" })).toBe("That date doesn't exist.");
+    expect(error({ dateTo: "9999-12-31" })).toBe("Use a date before the year 9999.");
   });
 
   it("rejects a start date after the end date", () => {

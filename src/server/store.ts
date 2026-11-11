@@ -15,6 +15,7 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
 import { compareRunIds } from "@/lib/run-order";
+import { isDeviceName } from "@/server/paths";
 import type { Counts, Run, Settings } from "@/lib/spec";
 
 /** A History page never needs more of a log than this, and a run can write many megabytes. */
@@ -70,6 +71,8 @@ const RUN_ID = /^[0-9A-Za-z_.-]{1,160}$/;
 
 export function isValidRunId(id: string): boolean {
   if (!RUN_ID.test(id)) return false;
+  // "runs/con.json" would open the CON device on Windows; no id the app allocates looks like this.
+  if (isDeviceName(id)) return false;
   return !id.includes("..");
 }
 
@@ -90,6 +93,38 @@ function runsDir(): string {
 
 function settingsFile(): string {
   return join(gatherHome(), "settings.json");
+}
+
+function queueLockFile(): string {
+  return join(gatherHome(), "queue.lock");
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Whether this process may treat the runs on disk as its own. Another live process (a second server, a
+ * build collecting page data) that imports the queue must not mark a running download as interrupted or
+ * sweep its files, so the first process records its pid and later ones leave the records alone. A stale
+ * pid (crash, reboot) is recognised by the process being gone.
+ */
+export async function claimQueueLock(): Promise<boolean> {
+  try {
+    const owner = Number((await readFile(queueLockFile(), "utf8")).trim());
+    if (Number.isInteger(owner) && owner > 0 && owner !== process.pid && isProcessAlive(owner)) {
+      return false;
+    }
+  } catch {
+    /* no lock file yet */
+  }
+  await writeAtomic(queueLockFile(), `${process.pid}\n`).catch(() => {});
+  return true;
 }
 
 function runFile(id: string): string {
@@ -263,20 +298,25 @@ export async function getRun(id: string): Promise<Run | undefined> {
   }
 }
 
-export async function listRuns(limit = 200): Promise<Run[]> {
+/** Ids of the stored run records, newest first. Reads the folder listing only, never a record. */
+async function listRunIds(): Promise<string[]> {
   let names: string[];
   try {
     names = await readdir(runsDir());
   } catch {
     return [];
   }
-  const ids = names
+  return names
     .filter((name) => name.endsWith(".json"))
     .map((name) => name.slice(0, -".json".length))
-    .filter((id) => isValidRunId(id));
+    .filter((id) => isValidRunId(id))
+    .sort(compareRunIds);
+}
+
+export async function listRuns(limit = 200): Promise<Run[]> {
+  const ids = await listRunIds();
   // The id is the order (see compareRunIds), so reading stops once `limit` readable records are found;
   // a corrupt file in the newest window is skipped and the next one takes its place.
-  ids.sort(compareRunIds);
   const runs: Run[] = [];
   // The first batch is the whole window, so an unlimited read stays one parallel pass.
   const step = Math.max(1, Math.min(limit, ids.length));
@@ -345,8 +385,22 @@ export async function readLogTail(id: string, maxBytes: number = LOG_TAIL_BYTES)
   }
 }
 
-export async function pruneRuns(retention: number): Promise<number> {
+let pruning: Promise<number> | undefined;
+
+/** Every finished run calls this. Runs that end together share one pass instead of racing on the unlinks. */
+export function pruneRuns(retention: number): Promise<number> {
+  if (!pruning) {
+    pruning = prune(retention).finally(() => {
+      pruning = undefined;
+    });
+  }
+  return pruning;
+}
+
+async function prune(retention: number): Promise<number> {
   const keep = Math.max(1, Math.floor(retention));
+  // Under the limit, which is the usual case, nothing needs reading: the folder listing is enough.
+  if ((await listRunIds()).length <= keep) return 0;
   const runs = await listRuns(Number.MAX_SAFE_INTEGER);
   if (runs.length <= keep) return 0;
   // A queued, running or stopping record is live state: pruning it would hide a run that is still

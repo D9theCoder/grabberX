@@ -103,7 +103,33 @@ describe("buildUpdateSpec", () => {
     expect(plan.spec).not.toHaveProperty("dateTo");
     expect(plan.spec.advanced).not.toHaveProperty("range");
     expect(plan.spec.advanced.noSkip).toBe(false);
-    expect(plan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    // The previous run was limited to --range 5, so it never reached the older files.
+    expect(plan.spec.advanced.abortAfterSkipped).toBeUndefined();
+  });
+
+  describe("stop when caught up", () => {
+    const entry = { folder: "username", layout: "byType" as const };
+
+    function planFor(previousRun: Run): JobSpec["advanced"] {
+      return expectOk(buildUpdateSpec("username", entry, [previousRun], SETTINGS)).spec.advanced;
+    }
+
+    it("is turned on after a finished run that walked the whole account", () => {
+      const advanced = planFor(run("2026-11-10T09-00-00_username", spec(), { status: "done" }));
+      expect(advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    });
+
+    it("is left off after a failed, stopped or interrupted run, which may leave a backlog", () => {
+      for (const status of ["failed", "stopped", "interrupted"] as const) {
+        const advanced = planFor(run("2026-11-10T09-00-00_username", spec({}, { abortAfterSkipped: 3 }), { status }));
+        expect(advanced.abortAfterSkipped, status).toBeUndefined();
+      }
+    });
+
+    it("is left off when the only record is a preview", () => {
+      const preview = run("2026-11-10T09-00-00_username", spec({ simulate: true }), { status: "done" });
+      expect(planFor(preview).abortAfterSkipped).toBeUndefined();
+    });
   });
 
   it("keeps the account preferences that are not one-offs", () => {

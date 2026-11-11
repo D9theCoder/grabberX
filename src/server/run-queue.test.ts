@@ -650,6 +650,31 @@ describe("RunQueue", () => {
     expect(queue.list()).toEqual([]);
   });
 
+  it("leaves the runs of another live process alone", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const imageDir = join(media, "username", "Image");
+    await mkdir(imageDir, { recursive: true });
+    await writeFile(join(imageDir, "x.jpg.part"), "x");
+
+    const running = runFor("username", "running");
+    await storeModule.saveRun(running);
+    await writeFile(join(process.env.GATHER_HOME ?? "", "queue.lock"), `${process.ppid}\n`, "utf8");
+
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: () => ({
+        pid: 1,
+        done: Promise.resolve({ exitCode: 0 }),
+        stop: async () => {},
+      }),
+    });
+    await queue.whenReady();
+
+    expect((await storeModule.getRun(running.id))?.status).toBe("running");
+    expect(await readdir(imageDir)).toEqual(["x.jpg.part"]);
+  });
+
   it("prunes history after a run finishes", async () => {
     isolationHome();
     const media = await tempDir();

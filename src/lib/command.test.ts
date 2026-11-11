@@ -168,6 +168,16 @@ describe("buildCommand: layout", () => {
     expect(step.argv[1]).toBe("D:\\Photos\\p\\scrapper");
     expect(step.argv).toContain("D:\\Photos\\p\\scrapper/username/archive.sqlite3");
   });
+
+  it("keeps the slash of a drive root or a POSIX root", () => {
+    const drive = buildCommand(makeSpec(), { mediaRoot: "D:\\", cookies: { browser: "firefox" } })[0];
+    expect(drive.argv[1]).toBe("D:/");
+    expect(drive.argv).toContain("D:/username/archive.sqlite3");
+
+    const posix = buildCommand(makeSpec(), { mediaRoot: "/", cookies: { browser: "firefox" } })[0];
+    expect(posix.argv[1]).toBe("/");
+    expect(posix.argv).toContain("/username/archive.sqlite3");
+  });
 });
 
 describe("buildCommand: options", () => {

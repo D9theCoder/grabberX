@@ -1,9 +1,10 @@
-import { mkdtemp, readdir, rm, writeFile, mkdir, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Run, RunStatus, Settings } from "@/lib/spec";
 import {
+  claimQueueLock,
   appendLog,
   getRun,
   getSettings,
@@ -159,6 +160,13 @@ describe("run records", () => {
     expect(await listRuns(2)).toHaveLength(2);
   });
 
+  it("rejects ids that Windows would open as a device", () => {
+    for (const id of ["con", "NUL", "aux.json", "COM1", "lpt3"]) {
+      expect(isValidRunId(id), id).toBe(false);
+    }
+    expect(isValidRunId("2026-11-11T09-00-00_console")).toBe(true);
+  });
+
   it("rejects ids that could leave the runs folder", async () => {
     for (const id of ["../escape", "a/b", "a\\b", "..", "", "a b"]) {
       expect(isValidRunId(id), id).toBe(false);
@@ -246,7 +254,37 @@ describe("history order", () => {
   });
 });
 
+describe("claimQueueLock", () => {
+  it("is granted when nobody holds it, and again to the same process", async () => {
+    expect(await claimQueueLock()).toBe(true);
+    expect(await claimQueueLock()).toBe(true);
+    expect((await readFile(join(home, "queue.lock"), "utf8")).trim()).toBe(String(process.pid));
+  });
+
+  it("is refused while another live process holds it", async () => {
+    await writeFile(join(home, "queue.lock"), `${process.ppid}\n`, "utf8");
+    expect(await claimQueueLock()).toBe(false);
+    expect((await readFile(join(home, "queue.lock"), "utf8")).trim()).toBe(String(process.ppid));
+  });
+
+  it("is taken over from a process that no longer exists", async () => {
+    await writeFile(join(home, "queue.lock"), "2147483646\n", "utf8");
+    expect(await claimQueueLock()).toBe(true);
+    expect((await readFile(join(home, "queue.lock"), "utf8")).trim()).toBe(String(process.pid));
+  });
+});
+
 describe("pruneRuns", () => {
+  it("shares one pass between runs that finish together", async () => {
+    for (let hour = 0; hour < 12; hour += 1) {
+      await saveRun(makeRun(`2026-11-11T${String(hour).padStart(2, "0")}-00-00_a`));
+    }
+    const [first, second] = await Promise.all([pruneRuns(10), pruneRuns(10)]);
+    expect(first).toBe(2);
+    expect(second).toBe(2);
+    expect(await listRuns()).toHaveLength(10);
+  });
+
   it("keeps the newest records and deletes their logs", async () => {
     const ids: string[] = [];
     for (let hour = 0; hour < 12; hour += 1) {

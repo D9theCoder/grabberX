@@ -252,7 +252,9 @@ run `stopped`.
 - **Rule:** at most one running run per account, and a global limit of 1 by default
   (setting, range 1–3). See ADR-4.
 - On app start, any record still `running`/`stopping` becomes `interrupted`, and its account folder
-  gets the `.part` sweep.
+  gets the `.part` sweep. Only the process that holds `.gather/queue.lock` (its pid, taken over when
+  that process is gone) does this, so a second process importing the queue, such as `next build`
+  while a download runs, leaves live records and files alone.
 
 ### Singleton survives dev reloads
 

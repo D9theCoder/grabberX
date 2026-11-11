@@ -10,6 +10,7 @@ import { folderNameFor, validateAccount } from "@/lib/sites";
 import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
+import { killTreeWindows } from "@/server/runner";
 import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store";
 
 const VERSION_TIMEOUT_MS = 8000;
@@ -164,10 +165,15 @@ export async function checkGalleryDl(path?: string): Promise<ActionResult<{ vers
     });
 
     timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already gone */
+      if (process.platform === "win32" && child.pid !== undefined) {
+        // A one-file PyInstaller exe starts a second process; child.kill() would leave it running.
+        void killTreeWindows(child.pid);
+      } else {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
       }
       finish({ ok: false, error: `gallery-dl didn't answer at ${exe}.` });
     }, VERSION_TIMEOUT_MS);

@@ -19,6 +19,7 @@ import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
 import {
   appendLog,
+  claimQueueLock,
   getRun,
   getSettings as loadSettings,
   isValidRunId,
@@ -574,6 +575,7 @@ export class RunQueue {
   }
 
   private async markInterrupted(): Promise<void> {
+    if (!(await claimQueueLock())) return;
     const persisted = await listRuns(Number.MAX_SAFE_INTEGER);
     const stale = persisted.filter((run) => isActiveStatus(run.status));
     if (stale.length === 0) return;

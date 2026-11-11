@@ -77,19 +77,21 @@ export function buildUpdateSpec(
       account: guessed.account,
       layout: layoutFromDisk(entry.layout),
     };
-    return carriedOver(base, "x");
+    return carriedOver(base, true, "x");
   }
 
-  return carriedOver(previous.spec);
+  // Stopping after 20 skipped files assumes everything older is already downloaded. That only holds when
+  // the last real run walked the whole account: a failed, stopped or --range run leaves a backlog behind.
+  const walkedEverything =
+    !previous.spec.simulate && previous.status === "done" && previous.spec.advanced.range === undefined;
+  return carriedOver(previous.spec, walkedEverything);
 }
 
-function carriedOver(base: JobSpec, assumedSite?: "x"): ActionResult<UpdatePlan> {
-  const advanced: Advanced = {
-    ...base.advanced,
-    noSkip: false,
-    abortAfterSkipped: CAUGHT_UP_AFTER,
-  };
+function carriedOver(base: JobSpec, caughtUp: boolean, assumedSite?: "x"): ActionResult<UpdatePlan> {
+  const advanced: Advanced = { ...base.advanced, noSkip: false };
   delete advanced.range;
+  if (caughtUp) advanced.abortAfterSkipped = CAUGHT_UP_AFTER;
+  else delete advanced.abortAfterSkipped;
 
   const spec: JobSpec = { ...base, simulate: false, advanced };
   delete spec.dateFrom;

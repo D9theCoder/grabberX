@@ -51,7 +51,9 @@ const siteInput = z.enum(SITE_IDS, "Pick a site.");
 const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use dates like 2025-10-31.")
-  .refine(isRealDate, "That date doesn't exist.");
+  .refine(isRealDate, "That date doesn't exist.")
+  // --date-before gets the day after "To"; the next day of 9999-12-31 is not a four-digit year.
+  .refine((value) => !value.startsWith("9999-"), "Use a date before the year 9999.");
 
 const folderName = z
   .string()

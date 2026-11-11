@@ -18,9 +18,13 @@ const FOLDER_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 // Windows resolves these (with or without an extension) to devices, so no folder can have the name.
 const DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
 
+export function isDeviceName(name: string): boolean {
+  return DEVICE_NAME.test(name);
+}
+
 export function isValidFolderName(name: string): boolean {
   if (!FOLDER_NAME.test(name)) return false;
-  if (DEVICE_NAME.test(name)) return false;
+  if (isDeviceName(name)) return false;
   if (name === "." || name === "..") return false;
   if (name.endsWith(".")) return false;
   return true;
