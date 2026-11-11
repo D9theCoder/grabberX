@@ -1,7 +1,7 @@
 import { createServer, request } from "node:http";
 import type { Server } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -158,6 +158,29 @@ test("a download runs end to end with the bundled gallery-dl", async () => {
     .toBeGreaterThan(0);
   const files = await filesUnder(join(sandbox, "library"));
   expect(files.some((file) => file.endsWith("archive.sqlite3"))).toBe(true);
+});
+
+test("the gallery renders a sharp thumbnail and the shell can move files to the Recycle Bin", async () => {
+  const folder = join(sandbox, "library", "example_gallery", "Image");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(sandbox, "library", "example_gallery", "archive.sqlite3"), "");
+  await writeFile(join(folder, "1800000000000000001_1.png"), PNG);
+
+  await page.goto(`${origin}/library/example_gallery?path=Image`);
+  const tile = page.getByRole("button", { name: "1800000000000000001_1.png" });
+  await expect(tile).toBeVisible();
+  await expect
+    .poll(() => tile.locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+    .toBe(true);
+
+  const response = await page.request.get(
+    `${origin}/api/media?account=example_gallery&path=Image/1800000000000000001_1.png&thumb=240`,
+  );
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("image/webp");
+
+  expect(await page.evaluate(() => typeof window.gatherShell?.trashItem)).toBe("function");
+  expect(pageErrors).toEqual([]);
 });
 
 test("quitting leaves no server running", async () => {
