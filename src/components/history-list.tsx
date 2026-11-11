@@ -80,7 +80,10 @@ export function HistoryList({ runs, now }: { runs: Run[]; now: number }) {
                 {visible.map((run) => (
                   <div key={run.id} className="flex flex-col gap-1.5 border-b border-line py-4">
                     <div className="flex items-center justify-between gap-3">
-                      <Status state={run.status} />
+                      <div className="flex items-baseline gap-2">
+                        <Status state={run.status} />
+                        {run.scheduled ? <span className="text-small text-ink-2">Scheduled</span> : null}
+                      </div>
                       <span className="text-small text-ink-2">
                         {run.startedAt ? relative(run.startedAt) : "—"}
                       </span>
@@ -125,7 +128,10 @@ export function HistoryList({ runs, now }: { runs: Run[]; now: number }) {
                     {visible.map((run) => (
                       <tr key={run.id} className="border-b border-line hover:bg-sunken">
                         <td className="py-3 pr-4">
-                          <Status state={run.status} />
+                          <span className="flex items-baseline gap-2">
+                            <Status state={run.status} />
+                            {run.scheduled ? <span className="text-small text-ink-2">Scheduled</span> : null}
+                          </span>
                         </td>
                         <td className="py-3 pr-4 font-mono text-code">
                           <Link href={`/history/${run.id}`} className="underline-offset-2 hover:underline">
