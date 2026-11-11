@@ -267,6 +267,16 @@ test.describe("media gallery", () => {
     expect(gone.status()).toBe(404);
   });
 
+  test("the gallery does not scroll sideways at 390 px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const path of [`/library/${account}`, `/library/${account}?path=Image/2025`]) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, `${path} is wider than the viewport`).toBeLessThanOrEqual(0);
+    }
+  });
+
   test("a folder that is not in the library says so without a client error", async ({ page }) => {
     const errors: Error[] = [];
     page.on("pageerror", (error) => errors.push(error));
