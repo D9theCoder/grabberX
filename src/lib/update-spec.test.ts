@@ -10,6 +10,8 @@ const SETTINGS: Settings = {
   defaultLayout: { kind: "byType" },
   historyRetention: 200,
   concurrency: 1,
+  schedule: { enabled: false, frequency: { kind: "daily", time: "03:00" } },
+  pausedAccounts: [],
 };
 
 const ENTRY: LibraryEntry = { folder: "username", layout: "byType" };

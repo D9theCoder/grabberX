@@ -1,3 +1,5 @@
+import type { ScheduleSettings } from "@/lib/schedule";
+
 export type SiteId = "x" | "instagram" | "bluesky" | "pixiv" | "reddit" | "url";
 export type Media = "images" | "videos" | "all";
 export type CookieBrowser = "firefox" | "chrome" | "edge" | "none";
@@ -58,6 +60,10 @@ export interface Settings {
   historyRetention: number;
   /** Global run concurrency, 1 to 3. */
   concurrency: number;
+  /** Automatic updates: off by default. */
+  schedule: ScheduleSettings;
+  /** Account folders the scheduler skips; everything else runs. */
+  pausedAccounts: string[];
 }
 
 export type RunStatus =
@@ -91,6 +97,8 @@ export interface Run {
   status: RunStatus;
   stepIndex: number;
   counts: Counts;
+  /** True when the scheduler started it, so History can tell it from a manual run. */
+  scheduled?: boolean;
   startedAt?: string;
   endedAt?: string;
   exitCode?: number;
