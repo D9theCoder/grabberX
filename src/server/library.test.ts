@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run } from "@/lib/spec";
-import { getAccountHint, getAccountStats, listAccounts } from "@/server/library";
+import { getAccountHint, getAccountStats, listAccounts, moveAccountFolder } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
 import { saveSettings } from "@/server/store";
 
@@ -109,6 +109,76 @@ describe("getAccountStats", () => {
 
   it("rejects a folder name that could escape the media root", async () => {
     await expect(getAccountStats("../escape")).rejects.toThrow();
+  });
+});
+
+describe("moveAccountFolder", () => {
+  it("renames a folder and keeps its archive, files and stats reachable under the new name", async () => {
+    await touch(join(media, "old_name", "archive.sqlite3"));
+    await touch(join(media, "old_name", "Image", "1_1.jpg"), "abcd");
+
+    // Fill the stats cache under the old name first; the move must not strand it there.
+    await expect(getAccountStats("old_name")).resolves.toMatchObject({ images: 1 });
+    await moveAccountFolder("old_name", "new_name");
+
+    expect(await listAccounts().then((rows) => rows.map((row) => row.folder))).toEqual(["new_name"]);
+    await expect(getAccountStats("new_name")).resolves.toMatchObject({ images: 1 });
+  });
+
+  it("keeps account folders working when moving without a rename", async () => {
+    await touch(join(media, "acct", "archive.sqlite3"));
+    await touch(join(media, "other", "archive.sqlite3"));
+
+    await moveAccountFolder("acct", "moved_acct");
+
+    expect(await listAccounts().then((rows) => rows.map((row) => row.folder))).toEqual([
+      "moved_acct",
+      "other",
+    ]);
+  });
+
+  it("refuses while an update is active for the source folder", async () => {
+    await touch(join(media, "acct", "archive.sqlite3"));
+    findActive.mockReturnValue(activeRun("2026-11-11T09-14-02_acct", "acct"));
+
+    await expect(moveAccountFolder("acct", "moved_acct")).rejects.toThrow(/is queued or running/);
+  });
+
+  it("refuses while an update is active for the target name", async () => {
+    await touch(join(media, "acct", "archive.sqlite3"));
+    findActive.mockImplementation((folder) =>
+      folder === "moved_acct" ? activeRun("2026-11-11T09-14-02_moved_acct", "moved_acct") : undefined,
+    );
+
+    await expect(moveAccountFolder("acct", "moved_acct")).rejects.toThrow(/An update for moved_acct/);
+  });
+
+  it("refuses an existing target folder", async () => {
+    await touch(join(media, "acct", "archive.sqlite3"));
+    await touch(join(media, "taken", "archive.sqlite3"));
+
+    await expect(moveAccountFolder("acct", "taken")).rejects.toThrow(/already exists/);
+  });
+
+  it("refuses reserved, invalid and unknown source names", async () => {
+    await touch(join(media, "acct", "archive.sqlite3"));
+
+    await expect(moveAccountFolder("acct", "src")).rejects.toThrow(/used by the app itself/);
+    await expect(moveAccountFolder("acct", ".gather")).rejects.toThrow(/used by the app itself/);
+    await expect(moveAccountFolder("acct", "a/b")).rejects.toThrow(/folder names can use/i);
+    await expect(moveAccountFolder("acct", "acct")).rejects.toThrow(/already this folder's name/);
+  });
+
+  it("refuses a source that is not a library folder", async () => {
+    await expect(moveAccountFolder("gone", "renamed")).rejects.toThrow(/library/);
+  });
+
+  it("allows a case-only rename where the target exists in the other case", async () => {
+    await touch(join(media, "CaseAcct", "archive.sqlite3"));
+
+    await moveAccountFolder("CaseAcct", "caseacct");
+
+    expect(await listAccounts().then((rows) => rows.map((row) => row.folder))).toEqual(["caseacct"]);
   });
 });
 

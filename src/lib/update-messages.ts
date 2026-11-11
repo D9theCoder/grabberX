@@ -29,8 +29,12 @@ export function updateAccountMessage(folder: string, data: UpdateAccountData): U
   };
 }
 
-export function updateAllMessage(result: UpdateAllResult): UpdateMessage {
-  const parts = [queuedCopy(result.started)];
+/** Copy for a Library move, shared by the table so tests can pin the wording. */
+export function moveAccountMessage(from: string, to: string): UpdateMessage {
+  return { tone: "info", text: `Moved ${from} to ${to}.` };
+}
+
+export function updateAllMessage(result: UpdateAllResult): UpdateMessage {  const parts = [queuedCopy(result.started)];
 
   if (result.assumed.length > 0) {
     parts.push(`Assumed X for ${result.assumed.join(", ")}.`);

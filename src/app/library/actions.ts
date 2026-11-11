@@ -5,7 +5,7 @@ import type { ActionResult, LibraryEntry, Run, RunStatus, Settings } from "@/lib
 import { activeSkipReason } from "@/lib/update-messages";
 import { buildUpdateSpec, folderKey, runsForFolder } from "@/lib/update-spec";
 import type { UpdateAccountData, UpdateAllResult, UpdatePlan, UpdateSkip } from "@/lib/update-spec";
-import { listAccounts } from "@/server/library";
+import { listAccounts, moveAccountFolder } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
 import { getSettings, listRuns } from "@/server/store";
 
@@ -105,6 +105,43 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
   revalidatePath("/history");
   const assumedSite = built.data.assumedSite;
   return { ok: true, data: assumedSite ? { runId: queued.runId, assumedSite } : { runId: queued.runId } };
+}
+
+export interface MoveAccountData {
+  folder: string;
+}
+
+/** Claims either folder while a move is in flight, so a double click cannot start two renames. */
+const moving = new Set<string>();
+
+export async function moveAccount(
+  from: string,
+  to: string,
+): Promise<ActionResult<MoveAccountData>> {
+  if (typeof from !== "string" || typeof to !== "string") {
+    return { ok: false, error: "That folder name isn't valid." };
+  }
+  const source = from.trim();
+  const target = to.trim();
+  const keys = [folderKey(source), folderKey(target)];
+  if (keys.some((key) => moving.has(key))) {
+    return { ok: false, error: "A move for one of these folders is already running." };
+  }
+  for (const key of keys) moving.add(key);
+  try {
+    await moveAccountFolder(source, target);
+  } catch (error) {
+    // Refusals throw messages written for inline display; the rename failure itself is logged in
+    // the library, so nothing to report here beyond the message.
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "The folder couldn't be moved.",
+    };
+  } finally {
+    for (const key of keys) moving.delete(key);
+  }
+  revalidatePath("/library");
+  return { ok: true, data: { folder: target } };
 }
 
 export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {

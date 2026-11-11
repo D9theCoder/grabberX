@@ -5,13 +5,17 @@ const mocks = vi.hoisted(() => ({
   enqueue: vi.fn<(spec: JobSpec) => Promise<Run>>(),
   findActive: vi.fn<(folder: string) => Run | undefined>(),
   listAccounts: vi.fn<() => Promise<LibraryEntry[]>>(),
+  moveAccountFolder: vi.fn<(from: string, to: string) => Promise<void>>(),
   getSettings: vi.fn<() => Promise<Settings>>(),
   listRuns: vi.fn<(limit?: number) => Promise<Run[]>>(),
   revalidatePath: vi.fn<(path: string) => void>(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
-vi.mock("@/server/library", () => ({ listAccounts: mocks.listAccounts }));
+vi.mock("@/server/library", () => ({
+  listAccounts: mocks.listAccounts,
+  moveAccountFolder: mocks.moveAccountFolder,
+}));
 vi.mock("@/server/run-queue", () => ({
   runQueue: { enqueue: mocks.enqueue, findActive: mocks.findActive },
 }));
@@ -20,7 +24,7 @@ vi.mock("@/server/store", () => ({
   listRuns: mocks.listRuns,
 }));
 
-import { updateAccount, updateAll } from "@/app/library/actions";
+import { moveAccount, updateAccount, updateAll } from "@/app/library/actions";
 
 const SETTINGS: Settings = {
   galleryDlPath: "C:\\tools\\gallery-dl.exe",
@@ -90,6 +94,7 @@ beforeEach(() => {
   mocks.listRuns.mockResolvedValue([]);
   mocks.findActive.mockReturnValue(undefined);
   mocks.enqueue.mockImplementation(async (spec) => runFor(spec));
+  mocks.moveAccountFolder.mockResolvedValue(undefined);
 });
 
 describe("updateAll", () => {
@@ -184,6 +189,60 @@ describe("updateAll", () => {
     });
     expect(mocks.enqueue).toHaveBeenCalledTimes(2);
     expect(mocks.revalidatePath).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("moveAccount", () => {
+  it("renames a folder and revalidates the library page", async () => {
+    const result = await moveAccount("old_name", "new_name ");
+
+    expect(result).toEqual({ ok: true, data: { folder: "new_name" } });
+    expect(mocks.moveAccountFolder).toHaveBeenCalledWith("old_name", "new_name");
+    expect(mocks.revalidatePath).toHaveBeenCalledTimes(1);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/library");
+  });
+
+  it("returns the library's refusal message as-is", async () => {
+    mocks.moveAccountFolder.mockRejectedValue(
+      new Error('"new_name" already exists. Choose a different folder name.'),
+    );
+
+    const result = await moveAccount("old_name", "new_name");
+
+    expect(result).toEqual({
+      ok: false,
+      error: '"new_name" already exists. Choose a different folder name.',
+    });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("reserves either folder while a move is in flight", async () => {
+    const pending: Array<() => void> = [];
+    mocks.moveAccountFolder.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+
+    const first = moveAccount("old_name", "new_name");
+    await until(() => pending.length === 1);
+    const second = await moveAccount("other", "new_name");
+    const third = await moveAccount("new_name", "back");
+
+    expect(second).toEqual({ ok: false, error: "A move for one of these folders is already running." });
+    expect(third).toEqual({ ok: false, error: "A move for one of these folders is already running." });
+    expect(mocks.moveAccountFolder).toHaveBeenCalledTimes(1);
+
+    pending[0]();
+    expect(await first).toEqual({ ok: true, data: { folder: "new_name" } });
+  });
+
+  it("refuses a non-string folder name", async () => {
+    const result = await moveAccount(42 as unknown as string, "new_name");
+
+    expect(result).toEqual({ ok: false, error: "That folder name isn't valid." });
+    expect(mocks.moveAccountFolder).not.toHaveBeenCalled();
   });
 });
 

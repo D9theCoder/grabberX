@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { updateAccount, updateAll } from "@/app/library/actions";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
+import { moveAccount, updateAccount, updateAll } from "@/app/library/actions";
 import { FolderIcon, MoreIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatCount, formatRelative } from "@/lib/format";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import type { AccountStats, DetectedLayout, LibraryEntry } from "@/lib/spec";
-import { updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
+import { moveAccountMessage, updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
 
 interface Row {
   entry: LibraryEntry;
@@ -153,6 +153,9 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
   const [sort, setSort] = useState<SortKey>("lastRun");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
+  const [moveFor, setMoveFor] = useState<string | null>(null);
+  const [moveName, setMoveName] = useState("");
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(now);
   const [, startTransition] = useTransition();
 
@@ -230,6 +233,92 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
     }).catch(() => undefined);
   }
 
+  function startMove(folder: string) {
+    setMoveFor(folder);
+    setMoveName(folder);
+    setMoveError(null);
+  }
+
+  function cancelMove() {
+    setMoveFor(null);
+    setMoveError(null);
+  }
+
+  function submitMove(folder: string) {
+    const target = moveName.trim();
+    // The server re-checks everything; these two only save a round trip.
+    if (target === "") {
+      setMoveError("Enter a folder name.");
+      return;
+    }
+    if (target.toLowerCase() === folder.toLowerCase()) {
+      setMoveError("That's already this folder's name.");
+      return;
+    }
+    setBusy(`move:${folder}`);
+    setMoveError(null);
+    startTransition(async () => {
+      try {
+        const result = await moveAccount(folder, target);
+        if (result.ok) {
+          setMoveFor(null);
+          setMessage(moveAccountMessage(folder, result.data.folder));
+        } else {
+          setMoveError(result.error);
+        }
+      } catch {
+        setMoveError("The folder couldn't be moved.");
+      } finally {
+        setBusy(null);
+      }
+    });
+  }
+
+  /** The rename form, shown inline under the row it belongs to, sharing one draft state. */
+  function moveEditor(folder: string) {
+    return (
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitMove(folder);
+        }}
+        onReset={(event) => {
+          event.preventDefault();
+          cancelMove();
+        }}
+        className="flex flex-wrap items-end gap-3 py-1"
+      >
+        <TextField
+          label="New folder name"
+          className="w-full sm:w-72"
+          mono
+          value={moveName}
+          error={moveError ?? undefined}
+          hint={
+            moveError
+              ? undefined
+              : "Files and the download archive move with it, so nothing re-downloads."
+          }
+          disabled={busy !== null}
+          autoFocus
+          onFocus={(event) => event.currentTarget.select()}
+          onChange={(event) => setMoveName(event.target.value)}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          loading={busy === `move:${folder}`}
+          disabled={busy !== null}
+        >
+          Move
+        </Button>
+        <Button type="reset" size="sm" variant="ghost" disabled={busy !== null}>
+          Cancel
+        </Button>
+      </form>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -280,6 +369,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                       actions={[
                         { label: "Update", disabled: busy !== null, onSelect: () => update(entry.folder) },
                         { label: "Open folder", onSelect: () => openFolder(entry.folder) },
+                        { label: "Move", disabled: busy !== null, onSelect: () => startMove(entry.folder) },
                         {
                           label: "Use as new run",
                           href: `/?account=${encodeURIComponent(entry.folder)}`,
@@ -307,6 +397,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                       </dd>
                     </div>
                   </dl>
+                  {moveFor === entry.folder ? moveEditor(entry.folder) : null}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-small text-ink-2">
                     <span>{entry.lastRunAt ? `Last run ${relative(entry.lastRunAt)}` : "No runs yet"}</span>
                     <span>{LAYOUT_NAMES[entry.layout]}</span>
@@ -336,48 +427,62 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                 {visible.map(({ entry }) => {
                   const loaded = stats[entry.folder];
                   return (
-                    <tr key={entry.folder} className="border-b border-line">
-                      <td className="py-3 pr-4 font-mono text-code">{entry.folder}</td>
-                      <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
-                        {loaded ? formatCount(loaded.images) : "…"}
-                      </td>
-                      <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
-                        {loaded ? formatCount(loaded.videos) : "…"}
-                      </td>
-                      <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
-                        {loaded ? formatBytes(loaded.bytes) : "…"}
-                      </td>
-                      <td className="py-3 pr-4 text-small text-ink-2">
-                        {entry.lastRunAt ? relative(entry.lastRunAt) : "—"}
-                      </td>
-                      <td className="py-3 pr-4 text-small text-ink-2">{LAYOUT_NAMES[entry.layout]}</td>
-                      <td className="py-3">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={busy === entry.folder}
-                            disabled={busy !== null}
-                            onClick={() => update(entry.folder)}
-                          >
-                            Update
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => openFolder(entry.folder)}>
-                            <FolderIcon />
-                            Open folder
-                          </Button>
-                          <RowMenu
-                            label={`More actions for ${entry.folder}`}
-                            actions={[
-                              {
-                                label: "Use as new run",
-                                href: `/?account=${encodeURIComponent(entry.folder)}`,
-                              },
-                            ]}
-                          />
-                        </div>
-                      </td>
-                    </tr>
+                    <Fragment key={entry.folder}>
+                      <tr className="border-b border-line">
+                        <td className="py-3 pr-4 font-mono text-code">{entry.folder}</td>
+                        <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
+                          {loaded ? formatCount(loaded.images) : "…"}
+                        </td>
+                        <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
+                          {loaded ? formatCount(loaded.videos) : "…"}
+                        </td>
+                        <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
+                          {loaded ? formatBytes(loaded.bytes) : "…"}
+                        </td>
+                        <td className="py-3 pr-4 text-small text-ink-2">
+                          {entry.lastRunAt ? relative(entry.lastRunAt) : "—"}
+                        </td>
+                        <td className="py-3 pr-4 text-small text-ink-2">{LAYOUT_NAMES[entry.layout]}</td>
+                        <td className="py-3">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={busy === entry.folder}
+                              disabled={busy !== null}
+                              onClick={() => update(entry.folder)}
+                            >
+                              Update
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openFolder(entry.folder)}>
+                              <FolderIcon />
+                              Open folder
+                            </Button>
+                            <RowMenu
+                              label={`More actions for ${entry.folder}`}
+                              actions={[
+                                {
+                                  label: "Move",
+                                  disabled: busy !== null,
+                                  onSelect: () => startMove(entry.folder),
+                                },
+                                {
+                                  label: "Use as new run",
+                                  href: `/?account=${encodeURIComponent(entry.folder)}`,
+                                },
+                              ]}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                      {moveFor === entry.folder ? (
+                        <tr>
+                          <td colSpan={7} className="border-b border-line bg-sunken px-4 py-2">
+                            {moveEditor(entry.folder)}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </tbody>
