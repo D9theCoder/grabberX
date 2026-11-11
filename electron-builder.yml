@@ -46,8 +46,6 @@ nsis:
   deleteAppDataOnUninstall: false
   artifactName: Gather-Setup-${version}.${ext}
 
-# To enable auto-update, publish releases to GitHub and add:
-# publish:
-#   provider: github
-#   owner: <account>
-#   repo: <repository>
+# Auto-update: there is deliberately no `publish` block here. CI passes the GitHub owner and repository on the
+# command line (see .github/workflows/build.yml), which makes the build write resources/app-update.yml and
+# latest.yml. A local `npm run dist` therefore produces an installer that never checks for updates.

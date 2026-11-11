@@ -39,14 +39,22 @@ Differences from the plan below:
 - **gallery-dl:** the standalone exe is published at `gdl-org/builds`, not the main repo. `scripts/fetch-gallery-dl.mjs`
   pins a tag and SHA-256 and refuses a mismatch. Settings has "Look for updates" / "Update now" (`gallery-dl
   --update-check` and `--update`), refused while a run is active.
-- **Auto-update of the app is wired but dormant.** There is no `publish` target, so no `app-update.yml` is
-  written and the update check logs "skipped". To enable it, uncomment `publish` in `electron-builder.yml` with
-  the GitHub owner and repository, and release through the workflow.
+- **Auto-update of the app** is on for CI builds and off for local ones. The workflow passes this repository as
+  the publish target (`-c.publish.*`), so the build writes `app-update.yml` and `latest.yml`, and a `v*` tag
+  uploads the installer, its blockmap and `latest.yml` to the GitHub release. The installed app checks on
+  launch, downloads in the background and installs on quit. Verified locally: a build with a publish target
+  contains both files, and the app's check runs against GitHub and survives a 404. Not yet verified: a full
+  update from one released version to the next, which needs two real releases.
+- **Code signing** is optional and secret-driven. With `CSC_LINK` (a base64 `.pfx`) and `CSC_KEY_PASSWORD` set
+  as repository secrets, electron-builder signs the installer and `Gather.exe`; without them the build is
+  unsigned and SmartScreen warns on first run. Verified: empty values build fine and skip signing. Not
+  verified: an actual signed build, because it needs a purchased code-signing certificate. A new
+  certificate also starts with little SmartScreen reputation, so a warning can persist for a while.
 - **CI:** `.github/workflows/build.yml` runs typecheck, unit tests, the page tests, builds the installer,
   smoke-tests the unpacked app, uploads the installer and, for a `v*` tag, creates a GitHub release. It has
   not run yet.
-- **Not done:** code signing (SmartScreen will warn), and the Settings "Browse" and tray flows have no
-  automated test beyond the `pickFolder` bridge being present.
+- **Not done:** a real signed build and a real release-to-release update (both need accounts outside this
+  repo), and an automated test of the tray flow.
 
 Handoff for whoever implements this. Goal: a user downloads `Gather-Setup-x.y.z.exe`, runs it, and gets a
 Start-menu app that opens in its own window. No Node, no `npm`, no terminal. Windows 10/11 x64 only.
