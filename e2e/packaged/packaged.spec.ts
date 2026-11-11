@@ -1,7 +1,7 @@
 import { createServer, request } from "node:http";
 import type { Server } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -61,7 +61,9 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await app?.close().catch(() => {});
   await new Promise((resolve) => imageServer?.close(resolve));
-  await rm(sandbox, { recursive: true, force: true }).catch(() => {});
+  // KEEP_SANDBOX=1 leaves the temp home (with logs/gather.log) behind for debugging a failure.
+  if (process.env.KEEP_SANDBOX !== "1") await rm(sandbox, { recursive: true, force: true }).catch(() => {});
+  else console.log(`sandbox kept at ${sandbox}`);
 });
 
 test("a new install lands on the welcome screen with gallery-dl found", async () => {
@@ -115,6 +117,32 @@ test("Settings shows the app version and the gallery-dl copy in the user's folde
   await expect(page.getByLabel("gallery-dl path")).toHaveValue(join(sandbox, "home", "bin", "gallery-dl.exe"));
   await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.getByText(/Found gallery-dl/)).toBeVisible();
+});
+
+test("Browse saves the picked folder and refuses one inside the app's own state", async () => {
+  const picked = join(sandbox, "other-library");
+  await mkdir(picked, { recursive: true });
+  const savedRoot = async () => JSON.parse(await readFile(join(sandbox, "home", "settings.json"), "utf8")).mediaRoot;
+
+  await page.goto(`${origin}/settings`);
+  const pickNext = (folder: string) =>
+    app.evaluate(({ dialog }, folderPath) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folderPath] });
+    }, folder);
+
+  await pickNext(join(sandbox, "home"));
+  await page.getByRole("button", { name: "Browse…" }).click();
+  await expect(page.getByText(/can't be inside the app's own folder/)).toBeVisible();
+  expect(await savedRoot()).toBe(join(sandbox, "library"));
+
+  await pickNext(picked);
+  await page.getByRole("button", { name: "Browse…" }).click();
+  await expect.poll(savedRoot).toBe(picked);
+
+  // Put it back: the download test below expects files in the original library.
+  await pickNext(join(sandbox, "library"));
+  await page.getByRole("button", { name: "Browse…" }).click();
+  await expect.poll(savedRoot).toBe(join(sandbox, "library"));
 });
 
 test("a download runs end to end with the bundled gallery-dl", async () => {

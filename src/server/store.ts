@@ -14,6 +14,7 @@ import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
+import { retryTransient } from "@/server/fs-retry";
 import { compareRunIds } from "@/lib/run-order";
 import { envAppDir, envGalleryDl, envHome, envMediaRoot } from "@/server/env";
 import { assertSafeMediaRoot, isDeviceName } from "@/server/paths";
@@ -171,7 +172,7 @@ async function writeAtomic(file: string, data: string): Promise<void> {
   const temp = `${file}.${process.pid}.${tempCounter}.tmp`;
   try {
     await writeFile(temp, data, "utf8");
-    await rename(temp, file);
+    await retryTransient(() => rename(temp, file));
   } catch (error) {
     await unlink(temp).catch(() => {});
     throw error;
