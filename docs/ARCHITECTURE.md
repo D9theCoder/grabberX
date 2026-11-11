@@ -422,6 +422,17 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
 
 ---
 
+### ADR-8: Cache Components off
+
+- **Decision:** `next.config.ts` has no `cacheComponents` and no `partialPrefetching`, although the
+  Next 16.4.6 `create-next-app` template enables both.
+- **Why:** With Cache Components on, Next 16 removes the `dynamic` and `runtime` route segment
+  exports, so the SSE handler in §6.3 (`dynamic = 'force-dynamic'`, `runtime = 'nodejs'`) would fail
+  the build. Every page here reads live process and file system state, so there is nothing worth
+  prerendering or caching across requests.
+- **Revisit if:** the app ever serves slow-changing data worth caching. Then adopt `use cache` per
+  function and drop the segment exports from the SSE route.
+
 ## 9. Build order (each step ends with something that works)
 
 1. **Scaffold at the root:** `npx create-next-app@latest . --ts --tailwind --app --src-dir
