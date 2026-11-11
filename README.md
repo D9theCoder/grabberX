@@ -58,7 +58,7 @@ npm run test:e2e:packaged
 ```
 
 How it is packaged is written up in [docs/PACKAGING.md](docs/PACKAGING.md), and the design decisions are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Every push to `main` is built by GitHub Actions, which bumps the patch version and publishes a release.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Commit message rules are in [docs/COMMITS.md](docs/COMMITS.md). Every push to `main` is built by GitHub Actions, which bumps the patch version and publishes a release.
 
 ## Responsible use
 

@@ -39,7 +39,7 @@ jobs:
           git config user.email "${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com"
           npm version patch --no-git-tag-version
           (cd electron && npm version "$(node -p "require('../package.json').version")" --no-git-tag-version --allow-same-version)
-          git commit -am "Release $(node -p "require('./package.json').version")"
+          git commit -am "chore: release $(node -p "require('./package.json').version")"
           git push
 
       # The update target is this repository, so no owner or name is hardcoded. Without the signing secrets the
