@@ -338,8 +338,8 @@ describe("RunQueue", () => {
     controlled.resolveNext({ exitCode: 0 });
     await waitFor(() => controlled.calls.length === 2);
     controlled.resolveNext({ exitCode: 0 });
-    await waitFor(() => queue.get(scheduled.id)?.status === "running");
-    expect(controlled.calls).toHaveLength(3);
+    await waitFor(() => controlled.calls.length === 3);
+    expect(queue.get(scheduled.id)?.status).toBe("running");
 
     controlled.resolveNext({ exitCode: 0 });
     await waitFor(() => controlled.calls.length === 4);
