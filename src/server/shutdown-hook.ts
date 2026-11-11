@@ -16,6 +16,9 @@ export function listenForShutdown(): void {
   parentPort.on("message", async (message) => {
     if (message.data !== "shutdown") return;
     try {
+      // No new pass may start while the app is quitting.
+      const { stopScheduler } = await import("@/server/scheduler");
+      await stopScheduler();
       const { runQueue } = await import("@/server/run-queue");
       await runQueue.shutdown();
     } catch (error) {

@@ -318,6 +318,42 @@ describe("RunQueue", () => {
     expect(queue.get(second.id)?.status).toBe("stopped");
   });
 
+  it("records a scheduled run and makes it wait for a manual run on the same account", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    const manual = await queue.enqueue(spec("username"));
+    expect(queue.get(manual.id)?.scheduled).toBeUndefined();
+
+    const scheduled = await queue.enqueue(spec("username"), { scheduled: true });
+    expect(queue.get(scheduled.id)?.scheduled).toBe(true);
+    expect(queue.get(scheduled.id)?.status).toBe("queued");
+    expect(queue.findActive("username")?.id).toBe(manual.id);
+    expect(controlled.calls).toHaveLength(1);
+
+    const settled = queue.waitFor(scheduled.id);
+    // The manual run finishes its two steps, then the scheduled one starts.
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => controlled.calls.length === 2);
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => queue.get(scheduled.id)?.status === "running");
+    expect(controlled.calls).toHaveLength(3);
+
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => controlled.calls.length === 4);
+    controlled.resolveNext({ exitCode: 0 });
+    const done = await settled;
+    expect(done?.status).toBe("done");
+    expect(done?.scheduled).toBe(true);
+    expect((await storeModule.getRun(scheduled.id))?.scheduled).toBe(true);
+
+    // A finished run resolves at once, and an unknown id resolves empty instead of hanging.
+    expect((await queue.waitFor(scheduled.id))?.status).toBe("done");
+    expect(await queue.waitFor("2026-11-11T09-00-00_missing")).toBeUndefined();
+  });
+
   it("gives two runs started in the same second distinct ids", async () => {
     isolationHome();
     const media = await tempDir();

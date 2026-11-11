@@ -30,6 +30,8 @@ export const DEFAULT_SCHEDULE: ScheduleSettings = {
 
 export const MIN_INTERVAL_HOURS = 1;
 export const MAX_INTERVAL_HOURS = 168;
+/** A due time that passed this recently is simply due now, not missed while the app was closed. */
+export const CATCH_UP_GRACE_MS = 5 * 60 * 1000;
 
 const TIME_PATTERN = /^([01][0-9]|2[0-3]):([0-5][0-9])$/;
 const HOUR_MS = 60 * 60 * 1000;
@@ -116,18 +118,21 @@ export function nextRunAt(frequency: ScheduleFrequency, after: Date): Date {
 /**
  * What a scheduler that just started should do.
  *
- * A saved due time in the past means gather was closed at (or before) the moment it was waiting for:
- * one pass now, not one pass for every day it missed. A missing or unreadable due time, or one saved
- * for a different frequency, is replanned from now.
+ * A saved due time well in the past means gather was closed at the moment it was waiting for: one
+ * pass now, not one pass for every day it missed. A time that has only just passed is simply due —
+ * timers fire a few milliseconds late, and a heartbeat can wake up seconds after the moment — so it
+ * runs at once without the catch-up delay. A missing or unreadable due time, or one saved for a
+ * different frequency, is replanned from now.
  */
 export function planSchedule(
   frequency: ScheduleFrequency,
   saved: ScheduleState,
   now: Date,
+  graceMs: number = CATCH_UP_GRACE_MS,
 ): SchedulePlan {
   const savedAt = saved.frequency === frequencyKey(frequency) ? readDate(saved.nextDueAt) : null;
   if (!savedAt) return { nextDueAt: nextRunAt(frequency, now), catchUp: false };
-  return { nextDueAt: savedAt, catchUp: savedAt.getTime() <= now.getTime() };
+  return { nextDueAt: savedAt, catchUp: now.getTime() - savedAt.getTime() > graceMs };
 }
 
 function readDate(value: string | undefined): Date | null {

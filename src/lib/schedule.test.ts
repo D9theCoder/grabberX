@@ -151,9 +151,18 @@ describe("planSchedule", () => {
   });
 
   it("catches up once when the app was closed over the scheduled time", () => {
-    const plan = planSchedule(daily("03:00"), { nextDueAt: now.toISOString(), frequency: "daily:03:00" }, now);
+    const missed = new Date(2026, 10, 12, 8, 0);
+    const plan = planSchedule(daily("03:00"), { nextDueAt: missed.toISOString(), frequency: "daily:03:00" }, now);
     expect(plan.catchUp).toBe(true);
-    expect(plan.nextDueAt.getTime()).toBe(now.getTime());
+    expect(plan.nextDueAt.getTime()).toBe(missed.getTime());
+  });
+
+  it("treats a due time that has only just passed as due now, not as a catch-up", () => {
+    // Timers fire late by milliseconds, and the heartbeat can wake up seconds after the moment.
+    const justNow = new Date(now.getTime() - 30_000);
+    const plan = planSchedule(daily("03:00"), { nextDueAt: justNow.toISOString(), frequency: "daily:03:00" }, now);
+    expect(plan.catchUp).toBe(false);
+    expect(plan.nextDueAt.getTime()).toBe(justNow.getTime());
   });
 
   it("makes one catch-up for many missed days, not one per day", () => {
