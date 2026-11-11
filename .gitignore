@@ -6,6 +6,7 @@
 !/docs/
 !/src/
 !/public/
+!/e2e/
 
 # Next.js app
 /node_modules/
@@ -15,6 +16,12 @@
 next-env.d.ts
 .env*
 npm-debug.log*
+
+# Playwright artifacts (the browser binaries live in %USERPROFILE%\AppData\Local\ms-playwright)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # gather runtime state (settings, run records, logs)
 /.gather/

@@ -16,7 +16,9 @@ interface AdvancedFieldsProps {
   folderError?: string;
   onFolderChange: (value: string) => void;
   caughtUp: boolean;
+  caughtUpChanged: boolean;
   onCaughtUpChange: (value: boolean) => void;
+  onCaughtUpReset: () => void;
 }
 
 function Hint({ text, changed, onReset }: { text?: string; changed: boolean; onReset: () => void }) {
@@ -59,7 +61,9 @@ export function AdvancedFields({
   folderError,
   onFolderChange,
   caughtUp,
+  caughtUpChanged,
   onCaughtUpChange,
+  onCaughtUpReset,
 }: AdvancedFieldsProps) {
   const numberField = (
     key: "sleepRequest" | "sleep" | "sleep429" | "retries" | "range",
@@ -127,11 +131,15 @@ export function AdvancedFields({
             <Switch
               label="Include retweets"
               checked={advanced.retweets}
+              changed={advanced.retweets !== false}
+              onReset={() => onChange({ retweets: false })}
               onChange={(retweets) => onChange({ retweets })}
             />
             <Switch
               label="Include replies"
               checked={advanced.replies}
+              changed={advanced.replies !== true}
+              onReset={() => onChange({ replies: true })}
               onChange={(replies) => onChange({ replies })}
             />
           </>
@@ -150,12 +158,14 @@ export function AdvancedFields({
           {numberField("sleep429", "Wait after rate limit (s)", "Empty uses the gallery-dl default.", "default")}
           {numberField("retries", "Retries", "Empty uses 4.", "4")}
           {textField("limitRate", "Bandwidth cap", "e.g. 2M", "none")}
-          {numberField("range", "Only the newest N files", "Useful for a quick test.", "all")}
+          {numberField("range", "Only the newest N files", "Useful for a quick test.", "")}
         </div>
         <Switch
           label="Stop when caught up"
           hint="Stops after 20 files in a row are already saved. Makes updates fast."
           checked={caughtUp}
+          changed={caughtUpChanged}
+          onReset={onCaughtUpReset}
           onChange={onCaughtUpChange}
         />
       </Block>
@@ -165,12 +175,17 @@ export function AdvancedFields({
           label="Save metadata"
           hint="Writes a .json file beside each file."
           checked={advanced.writeMetadata}
+          changed={advanced.writeMetadata}
+          onReset={() => onChange({ writeMetadata: false })}
           onChange={(writeMetadata) => onChange({ writeMetadata })}
         />
         <Switch
           label="Overwrite existing files"
           hint="Downloads everything again and replaces what is on disk. Use with care."
+          hintTone="danger"
           checked={advanced.noSkip}
+          changed={advanced.noSkip}
+          onReset={() => onChange({ noSkip: false })}
           onChange={(noSkip) => onChange({ noSkip })}
         />
         <div className="flex flex-col gap-1.5">

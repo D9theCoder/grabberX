@@ -9,11 +9,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+// Each variant owns its border color: mixing `border-transparent` into the base let it win over
+// `border-line-strong` at runtime, leaving secondary buttons with no visible edge.
 const VARIANTS = {
-  primary: "bg-ink text-on-ink hover:bg-ink-hover",
-  secondary: "bg-surface text-ink border-line-strong hover:border-ink-2",
-  ghost: "bg-transparent text-ink hover:bg-sunken",
-  danger: "bg-transparent text-danger hover:bg-sunken",
+  primary: "border-transparent bg-ink text-on-ink hover:bg-ink-hover",
+  secondary: "border-line-strong bg-surface text-ink hover:border-ink-2",
+  ghost: "border-transparent bg-transparent text-ink hover:bg-sunken",
+  danger: "border-transparent bg-transparent text-danger hover:bg-sunken",
 } as const;
 
 export function Button({
@@ -33,7 +35,7 @@ export function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 border border-transparent font-medium whitespace-nowrap",
+        "inline-flex items-center justify-center gap-2 border font-medium whitespace-nowrap",
         "transition-colors duration-120 active:translate-y-px",
         size === "sm"
           ? "h-8 rounded-sm px-3 text-small"

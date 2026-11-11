@@ -85,7 +85,7 @@ export function CommandBlock({ command = "", label = "Command", steps, onCopy, c
           {copied ? "Copied" : ""}
         </span>
       </div>
-      <pre className="m-0 overflow-x-auto px-3.5 py-3 font-mono text-code whitespace-pre-wrap break-words text-ink">
+      <pre className="m-0 overflow-x-auto px-3.5 py-3 font-mono text-code whitespace-pre text-ink">
         {highlight(current.command)}
       </pre>
     </div>

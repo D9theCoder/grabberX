@@ -146,7 +146,7 @@ export function RunPanel({ stream, galleryDlPath, onRunAgain, runAgainPending, c
             <button
               type="button"
               onClick={() => setExpanded((value) => !value)}
-              className="self-start text-small text-ink-2 underline underline-offset-2 hover:text-ink"
+              className="inline-flex min-h-10 items-center self-start text-small text-ink-2 underline underline-offset-2 hover:text-ink"
             >
               {expanded ? "Show fewer lines" : "Show full log"}
             </button>

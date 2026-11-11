@@ -173,8 +173,8 @@ describe("parseJobSpec: folder", () => {
   });
 
   it("accepts a plain name", () => {
-    const result = parse({ folder: "acct.main-2" });
-    expect(result.ok && result.data.folder).toBe("acct.main-2");
+    const result = parse({ folder: "example.main-2" });
+    expect(result.ok && result.data.folder).toBe("example.main-2");
   });
 });
 

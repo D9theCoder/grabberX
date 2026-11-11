@@ -73,7 +73,7 @@ export function Segmented({
       role="radiogroup"
       aria-label={label}
       className={cn(
-        "inline-flex max-w-full gap-0.5 rounded-md border border-line-strong bg-surface p-0.5",
+        "inline-flex w-fit max-w-full gap-0.5 rounded-md border border-line-strong bg-surface p-0.5",
         scrollOnNarrow
           ? "snap-x overflow-x-auto sm:flex-wrap sm:overflow-visible"
           : "flex-wrap",
@@ -94,7 +94,9 @@ export function Segmented({
             onClick={() => select(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "inline-flex flex-none snap-start items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
+              "relative inline-flex flex-none snap-start items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
+              // Stretch the hit area to 40px tall without changing the visual track height.
+              "after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']",
               "transition-colors duration-120 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-ink-3",
               size === "sm" ? "h-7 px-2.5 text-small" : "h-[34px] px-3.5 text-label",
               on ? "bg-ink text-on-ink hover:bg-ink-hover" : "text-ink-2 hover:bg-sunken hover:text-ink",

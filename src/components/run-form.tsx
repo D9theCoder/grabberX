@@ -23,7 +23,6 @@ interface RunFormProps {
   accountError?: string;
   hint: AccountHint | null;
   folderName: string;
-  knownAccounts: string[];
   onSite: (site: SiteId) => void;
   onAccountInput: (raw: string) => void;
   onMedia: (media: Media) => void;
@@ -40,7 +39,9 @@ interface RunFormProps {
   folderError?: string;
   onFolderChange: (value: string) => void;
   caughtUp: boolean;
+  caughtUpChanged: boolean;
   onCaughtUpChange: (value: boolean) => void;
+  onCaughtUpReset: () => void;
   advancedChanged: number;
 }
 
@@ -119,7 +120,6 @@ export function RunForm(props: RunFormProps) {
           prefix={site.prefix || undefined}
           placeholder={site.placeholder}
           value={props.accountInput}
-          list="known-accounts"
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
@@ -127,11 +127,6 @@ export function RunForm(props: RunFormProps) {
           hint={accountHint.text}
           onChange={(event) => props.onAccountInput(event.target.value)}
         />
-        <datalist id="known-accounts">
-          {props.knownAccounts.map((account) => (
-            <option key={account} value={account} />
-          ))}
-        </datalist>
       </Section>
 
       <Section title="Media">
@@ -161,18 +156,24 @@ export function RunForm(props: RunFormProps) {
           ]}
         />
         {props.datePreset === "custom" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-start">
             <TextField
               label="From"
               type="date"
               value={spec.dateFrom ?? ""}
+              error={props.dateError}
               onChange={(event) => props.onDates({ dateFrom: event.target.value || undefined, dateTo: spec.dateTo })}
             />
+            <span
+              aria-hidden="true"
+              className="hidden h-10 items-center justify-center pt-[26px] text-ink-2 sm:flex"
+            >
+              →
+            </span>
             <TextField
               label="To"
               type="date"
               value={spec.dateTo ?? ""}
-              error={props.dateError}
               onChange={(event) => props.onDates({ dateFrom: spec.dateFrom, dateTo: event.target.value || undefined })}
             />
           </div>
@@ -242,7 +243,9 @@ export function RunForm(props: RunFormProps) {
           folderError={props.folderError}
           onFolderChange={props.onFolderChange}
           caughtUp={props.caughtUp}
+          caughtUpChanged={props.caughtUpChanged}
           onCaughtUpChange={props.onCaughtUpChange}
+          onCaughtUpReset={props.onCaughtUpReset}
         />
       </Disclosure>
     </div>

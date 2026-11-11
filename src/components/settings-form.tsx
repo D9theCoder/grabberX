@@ -11,7 +11,7 @@ import { TextField } from "@/components/ui/text-field";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import type { CookieBrowser, Media, Settings } from "@/lib/spec";
 
-type FieldKey = "galleryDlPath" | "mediaRoot" | "cookies" | "defaultMedia" | "defaultLayout" | "historyRetention" | "concurrency";
+type FieldKey = "galleryDlPath" | "mediaRoot" | "cookies" | "profile" | "defaultMedia" | "defaultLayout" | "historyRetention" | "concurrency";
 
 function Saved() {
   return (
@@ -78,7 +78,7 @@ export function SettingsForm({ initial }: { initial: Settings }) {
       <h1 className="m-0 text-display">Settings</h1>
 
       <Group title="gallery-dl">
-        <div className="flex items-end gap-2">
+        <div className="flex items-start gap-2">
           <TextField
             label="gallery-dl path"
             mono
@@ -89,7 +89,7 @@ export function SettingsForm({ initial }: { initial: Settings }) {
             onChange={(event) => setDraft({ ...draft, galleryDlPath: event.target.value })}
             onBlur={() => draft.galleryDlPath !== settings.galleryDlPath && save("galleryDlPath", { galleryDlPath: draft.galleryDlPath })}
           />
-          <Button variant="secondary" loading={checking} onClick={onCheck}>
+          <Button variant="secondary" className="mt-[26px]" loading={checking} onClick={onCheck}>
             Check
           </Button>
         </div>
@@ -132,11 +132,11 @@ export function SettingsForm({ initial }: { initial: Settings }) {
           placeholder="default"
           value={draft.profile}
           error={errors.cookies}
-          hint="Optional. Leave empty for the default profile."
+          hint={saved === "profile" ? <Saved /> : "Optional. Leave empty for the default profile."}
           onChange={(event) => setDraft({ ...draft, profile: event.target.value })}
           onBlur={() =>
             draft.profile !== (settings.cookies.profile ?? "") &&
-            save("cookies", { cookies: { ...settings.cookies, profile: draft.profile.trim() || undefined } })
+            save("profile", { cookies: { ...settings.cookies, profile: draft.profile.trim() || undefined } })
           }
         />
       </Group>

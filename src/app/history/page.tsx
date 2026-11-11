@@ -8,7 +8,7 @@ export default async function HistoryPage() {
 
   return (
     <main className="pt-12 pb-16">
-      <HistoryList runs={runs} />
+      <HistoryList runs={runs} now={Date.now()} />
     </main>
   );
 }

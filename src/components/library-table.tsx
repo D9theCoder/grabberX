@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { updateAccount, updateAll } from "@/app/library/actions";
-import { FolderIcon } from "@/components/icons";
+import { FolderIcon, MoreIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
@@ -28,6 +28,117 @@ const LAYOUT_NAMES: Record<DetectedLayout, string> = {
   unknown: "Mixed",
 };
 
+const MENU_WIDTH = 176;
+
+interface RowAction {
+  label: string;
+  href?: string;
+  onSelect?: () => void;
+  disabled?: boolean;
+}
+
+/** The overflow menu sits in the top layer: the table's scroll container would clip an absolute panel. */
+function RowMenu({ label, actions }: { label: string; actions: RowAction[] }) {
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const open = position !== null;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setPosition(null);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      close();
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+
+  function toggle() {
+    if (open) {
+      setPosition(null);
+      return;
+    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const height = actions.length * 40 + 8;
+    const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
+    const top = rect.bottom + height + 4 > window.innerHeight ? rect.top - height - 4 : rect.bottom + 4;
+    setPosition({ top, left });
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={toggle}
+        className="inline-flex size-10 items-center justify-center rounded-sm text-ink hover:bg-sunken"
+      >
+        <MoreIcon strokeWidth={2.5} className="size-3.5" />
+      </button>
+      {open ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={label}
+          style={{ top: position.top, left: position.left, width: MENU_WIDTH }}
+          className="fixed z-30 rounded-md border border-line-strong bg-surface py-1"
+        >
+          {actions.map((action) =>
+            action.href ? (
+              <Link
+                key={action.label}
+                href={action.href}
+                role="menuitem"
+                onClick={() => setPosition(null)}
+                className="flex h-10 items-center px-3 text-label text-ink hover:bg-sunken"
+              >
+                {action.label}
+              </Link>
+            ) : (
+              <button
+                key={action.label}
+                type="button"
+                role="menuitem"
+                disabled={action.disabled}
+                onClick={() => {
+                  setPosition(null);
+                  action.onSelect?.();
+                }}
+                className="flex h-10 w-full items-center px-3 text-left text-label text-ink hover:bg-sunken disabled:cursor-not-allowed disabled:text-ink-3"
+              >
+                {action.label}
+              </button>
+            ),
+          )}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function compare(sort: SortKey, stats: Record<string, AccountStats>) {
   return (a: Row, b: Row) => {
     if (sort === "name") return a.entry.folder.localeCompare(b.entry.folder);
@@ -36,18 +147,28 @@ function compare(sort: SortKey, stats: Record<string, AccountStats>) {
   };
 }
 
-export function LibraryTable({ rows }: { rows: Row[] }) {
+export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
   const [stats, setStats] = useState<Record<string, AccountStats>>({});
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("lastRun");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
+  const [nowMs, setNowMs] = useState(now);
   const [, startTransition] = useTransition();
+
+  // The server's clock is the first frame's clock, so hydration matches; after mount, catch up.
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, [now]);
+
+  const relative = (iso: string) => formatRelative(iso, new Date(nowMs));
 
   useEffect(() => {
     let cancelled = false;
     for (const row of rows) {
-      row.stats
+      // A promise passed from a Server Component arrives as a Flight thenable whose `then` returns
+      // undefined, so chaining onto it directly throws; Promise.resolve gives back a real promise.
+      Promise.resolve(row.stats)
         .then((loaded) => {
           if (!cancelled) setStats((current) => ({ ...current, [row.entry.folder]: loaded }));
         })
@@ -113,7 +234,7 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="m-0 text-display">Library</h1>
-        <Button variant="primary" loading={busy === "*"} disabled={rows.length === 0 || busy !== null} onClick={updateEverything}>
+        <Button variant="secondary" loading={busy === "*"} disabled={rows.length === 0 || busy !== null} onClick={updateEverything}>
           Update all
         </Button>
       </div>
@@ -146,8 +267,58 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
 
           {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-left">
+          {/* Below md the table cannot show every column, so each account becomes a stacked row. */}
+          <div className="md:hidden">
+            {visible.map(({ entry }) => {
+              const loaded = stats[entry.folder];
+              return (
+                <div key={entry.folder} className="flex flex-col gap-2 border-b border-line py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-mono text-code">{entry.folder}</span>
+                    <RowMenu
+                      label={`Actions for ${entry.folder}`}
+                      actions={[
+                        { label: "Update", disabled: busy !== null, onSelect: () => update(entry.folder) },
+                        { label: "Open folder", onSelect: () => openFolder(entry.folder) },
+                        {
+                          label: "Use as new run",
+                          href: `/?account=${encodeURIComponent(entry.folder)}`,
+                        },
+                      ]}
+                    />
+                  </div>
+                  <dl className="m-0 grid grid-cols-3 gap-2">
+                    <div>
+                      <dt className="text-small text-ink-2">Images</dt>
+                      <dd className={cn("m-0 text-label tabular-nums", !loaded && "text-ink-3")}>
+                        {loaded ? formatCount(loaded.images) : "…"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-small text-ink-2">Videos</dt>
+                      <dd className={cn("m-0 text-label tabular-nums", !loaded && "text-ink-3")}>
+                        {loaded ? formatCount(loaded.videos) : "…"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-small text-ink-2">Size</dt>
+                      <dd className={cn("m-0 text-label tabular-nums", !loaded && "text-ink-3")}>
+                        {loaded ? formatBytes(loaded.bytes) : "…"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-small text-ink-2">
+                    <span>{entry.lastRunAt ? `Last run ${relative(entry.lastRunAt)}` : "No runs yet"}</span>
+                    <span>{LAYOUT_NAMES[entry.layout]}</span>
+                    {busy === entry.folder ? <span className="text-warn">Starting…</span> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[680px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-line-strong text-small text-ink-2">
                   <th className="py-2 pr-4 font-medium">Account</th>
@@ -177,7 +348,7 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
                         {loaded ? formatBytes(loaded.bytes) : "…"}
                       </td>
                       <td className="py-3 pr-4 text-small text-ink-2">
-                        {entry.lastRunAt ? formatRelative(entry.lastRunAt) : "—"}
+                        {entry.lastRunAt ? relative(entry.lastRunAt) : "—"}
                       </td>
                       <td className="py-3 pr-4 text-small text-ink-2">{LAYOUT_NAMES[entry.layout]}</td>
                       <td className="py-3">
@@ -195,12 +366,15 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
                             <FolderIcon />
                             Open folder
                           </Button>
-                          <Link
-                            href={`/?account=${encodeURIComponent(entry.folder)}`}
-                            className="inline-flex h-8 items-center rounded-sm px-3 text-small font-medium text-ink hover:bg-sunken"
-                          >
-                            Use as new run
-                          </Link>
+                          <RowMenu
+                            label={`More actions for ${entry.folder}`}
+                            actions={[
+                              {
+                                label: "Use as new run",
+                                href: `/?account=${encodeURIComponent(entry.folder)}`,
+                              },
+                            ]}
+                          />
                         </div>
                       </td>
                     </tr>

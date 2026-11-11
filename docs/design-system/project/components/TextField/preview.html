@@ -9,7 +9,7 @@
   var G = window.Gather, h = React.createElement;
   ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
   h(G.TextField, { label: 'Account', prefix: '@', mono: true, defaultValue: 'username', hint: 'On disk · 1,204 files · 3.1 GB · last run 3 days ago' }),
-  h(G.TextField, { label: 'Account', prefix: '@', mono: true, defaultValue: 'acct main!', error: 'X handles are 1–15 letters, numbers or _' }),
+  h(G.TextField, { label: 'Account', prefix: '@', mono: true, defaultValue: 'bad handle!', error: 'X handles are 1–15 letters, numbers or _' }),
   h(G.TextField, { label: 'Wait between pages', defaultValue: '0', hint: 'Seconds. The only setting that helps against rate limits.' }),
   h(G.TextField, { label: 'From', type: 'date', defaultValue: '2025-01-01' })));
 </script>

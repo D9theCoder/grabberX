@@ -21,7 +21,7 @@ export function RunAgainButton({ runId }: { runId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col items-start gap-3">
       <Button variant="primary" loading={pending} onClick={onClick}>
         Run again
       </Button>

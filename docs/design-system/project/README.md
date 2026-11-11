@@ -47,7 +47,7 @@ gather is a quiet, local front end for `gallery-dl`. It should feel like a well-
 
 ## Iconography
 
-- No icon library. About ten inline SVG icons drawn on a 24px grid with a 1.75px stroke, round caps, `currentColor`: check, cross, chevron, copy, folder, clock, alert, stop, play, external.
+- No icon library. About ten inline SVG icons drawn on a 24px grid with a 1.75px stroke, round caps, `currentColor`: check, cross, chevron, copy, folder, clock, alert, info, stop, play, external, gear, more.
 - Icons sit next to words, never instead of them, except the copy button (`aria-label="Copy command"`).
 - No emoji, no logos of the sites gallery-dl supports. Sites are named in plain text.
 

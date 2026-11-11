@@ -109,9 +109,9 @@ describe("updateAll", () => {
     expect(mocks.listRuns).toHaveBeenCalledTimes(1);
     expect(mocks.listRuns).toHaveBeenCalledWith(Number.MAX_SAFE_INTEGER);
     expect(mocks.enqueue.mock.calls.map(([spec]) => spec.account)).toEqual([
-      "username",
       "alice",
       "bob",
+      "username",
     ]);
     expect(mocks.revalidatePath).toHaveBeenCalledTimes(1);
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/history");

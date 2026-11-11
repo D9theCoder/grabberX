@@ -16,8 +16,18 @@ Local front end that builds the `gallery-dl` commands below from a form and runs
 npm run dev        # next dev -H 127.0.0.1 -p 3210
 npm run build; npm start   # production, same host and port
 npm test           # vitest: pure logic, runner (fake exe), queue, routes
+npm run test:e2e   # playwright: real pages in Chromium against a dev server
 npm run typecheck  # next typegen && tsc --noEmit
 ```
+
+- E2E tests live in `e2e/` and drive the running app with Playwright (dev dependency). The config
+  starts `npm run dev` itself and reuses an already-running server on `127.0.0.1:3210`. First run on a
+  new machine needs `npx playwright install chromium` (browsers live outside the repo, in
+  `%USERPROFILE%\AppData\Local\ms-playwright`). Traces and reports go to git-ignored folders.
+- Playwright exists because a page can render correct HTML on the server and still crash in the
+  browser: `e2e/pages.spec.ts` asserts no `pageerror` and no Next `global-error` fallback ("This page
+  couldn't load") on Run, Library, History and Settings. Add a case there whenever a component starts
+  or stops receiving a new prop shape, and use it to reproduce any report that `curl` cannot.
 
 - It binds to `127.0.0.1:3210` only. `src/proxy.ts` rejects any other `Host`. With a `src/` folder,
   Next ignores a `proxy.ts` at the repo root, so keep it inside `src/`.
@@ -26,6 +36,13 @@ npm run typecheck  # next typegen && tsc --noEmit
   `.gather/` (git-ignored); the app never opens an `archive.sqlite3` for writing.
 - Cache Components is off on purpose (ADR-8). Every page that reads live state exports
   `dynamic = "force-dynamic"`, otherwise Next prerenders it at build time.
+- A promise passed from a Server Component to a Client Component arrives as a Flight thenable whose
+  `then()` returns `undefined` and which has no `.catch()`. Read it with `use()` or wrap it in
+  `Promise.resolve()` before chaining; chaining directly crashes the page on hydration (the Library
+  stats did exactly that).
+- Relative timestamps must come from a `now` value the page passes down, not from `new Date()` inside
+  a client component: server render and hydration land on different minutes and React reports a
+  hydration mismatch. Library and History take `now={Date.now()}` and refresh it after mount.
 - `buildCommand` output for the default settings must equal the commands under "Command shape"
   (`src/lib/command.test.ts` checks this). Change one, change the other.
 - Stop runs `taskkill /T /F` on the gallery-dl process tree, then deletes `*.part` files; do not

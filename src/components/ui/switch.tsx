@@ -1,11 +1,17 @@
 "use client";
 
 import { useId, useState } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 export interface SwitchProps {
   label: string;
-  hint?: string;
+  hint?: ReactNode;
+  /** Color the hint like a warning the user must read, e.g. "Overwrite existing files". */
+  hintTone?: "default" | "danger";
+  /** Shows "Changed · Reset" after the hint while the value differs from the default. */
+  changed?: boolean;
+  onReset?: () => void;
   checked?: boolean;
   defaultChecked?: boolean;
   onChange?: (checked: boolean) => void;
@@ -13,7 +19,18 @@ export interface SwitchProps {
   className?: string;
 }
 
-export function Switch({ label, hint, checked, defaultChecked = false, onChange, disabled, className }: SwitchProps) {
+export function Switch({
+  label,
+  hint,
+  hintTone = "default",
+  changed = false,
+  onReset,
+  checked,
+  defaultChecked = false,
+  onChange,
+  disabled,
+  className,
+}: SwitchProps) {
   const id = useId();
   const [inner, setInner] = useState(defaultChecked);
   const current = checked ?? inner;
@@ -30,7 +47,22 @@ export function Switch({ label, hint, checked, defaultChecked = false, onChange,
         <label htmlFor={id} className="text-label text-ink">
           {label}
         </label>
-        {hint ? <span className="text-small text-ink-2">{hint}</span> : null}
+        {hint || changed ? (
+          <span className={cn("text-small", hintTone === "danger" ? "text-danger" : "text-ink-2")}>
+            {hint}
+            {changed ? (
+              <>
+                {hint ? " " : null}
+                <span className="text-ink-2">
+                  Changed ·{" "}
+                  <button type="button" onClick={onReset} className="underline underline-offset-2 hover:text-ink">
+                    Reset
+                  </button>
+                </span>
+              </>
+            ) : null}
+          </span>
+        ) : null}
       </div>
       <button
         id={id}

@@ -34,4 +34,7 @@ export const InfoIcon = createIcon("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v6
 export const StopIcon = createIcon("M7 7h10v10H7z");
 export const PlayIcon = createIcon("M8 5.5v13l10-6.5z");
 export const ExternalIcon = createIcon("M14 4h6v6M20 4l-9 9M18 14v5H5V6h5");
-export const SlidersIcon = createIcon("M4 7h9M17 7h3M4 17h3M11 17h9M15 4v6M9 14v6");
+export const GearIcon = createIcon(
+  "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+);
+export const MoreIcon = createIcon("M5 12h.01M12 12h.01M19 12h.01");

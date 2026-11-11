@@ -198,6 +198,8 @@ A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the
   ending in a backtick (PowerShell's line continuation). Values in `ink`, flags in `ink-2`. Copy sits
   top-right and reads "Copied" with a check for 1.5 s, announced politely.
 - When Media is **All**, the block shows two tabs, `1 · images` and `2 · videos`.
+- Long values scroll horizontally inside the block rather than wrapping, so every flag keeps its own
+  line and its trailing backtick.
 - **Actions:** `Preview files` (`secondary`: runs `--simulate`, lists what would download without
   writing anything) and `Download` (`primary`, ink fill). Both are full-width in a 2-column row.
 - **Disabled reasons** show as a hint under the buttons, never as a silent disabled button:
@@ -277,10 +279,13 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
   (`src`, `public`, `node_modules`…) never appear.
 - Empty state: "No accounts yet. Your first download will show up here."
 - `Update all` button top-right runs every account one after another (queued).
+- Below 768 px the table becomes a stacked list: account, the three counters, last run, layout, and
+  an overflow menu with the row actions.
 
 ## 7. History (`/history`, `/history/[id]`)
 
 - List: `Status`, account, media, started, duration, saved/skipped/failed.
+- Below 768 px each run becomes a stacked line with the same fields, since the eight columns cannot fit.
 - Detail: the settings used (read-only summary), the exact commands, full log (with
   `content-visibility: auto` for long logs), and `Run again`.
 
@@ -288,7 +293,8 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
 
 Plain form, saved on blur with a quiet "Saved" tick:
 gallery-dl path (with a `Check` button that runs `--version`) · Media root (default: the app folder)
-· Cookie browser + profile · Default media / folder layout · History retention (default 200 runs).
+· Cookie browser + profile · Default media / folder layout · History retention (default 200 runs)
+· Runs at the same time (1–3, default 1; two runs on the same account are always refused).
 
 ---
 

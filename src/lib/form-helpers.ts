@@ -1,5 +1,5 @@
 import { DEFAULT_ADVANCED } from "@/lib/spec";
-import type { Advanced, DetectedLayout, Layout } from "@/lib/spec";
+import type { Advanced, DetectedLayout, Layout, Media } from "@/lib/spec";
 
 export type DatePreset = "all" | "30d" | "year" | "custom";
 
@@ -30,6 +30,12 @@ export const LAYOUT_LABELS: Record<LayoutKind, string> = {
   byMonth: "By year / month",
   flat: "Flat",
   custom: "Custom template",
+};
+
+export const MEDIA_LABELS: Record<Media, string> = {
+  images: "Images",
+  videos: "Videos",
+  all: "All",
 };
 
 const SAMPLE = { tweetId: "1834220145", year: "2025", month: "03", day: "14" };

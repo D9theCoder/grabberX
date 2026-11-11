@@ -232,6 +232,8 @@ describe("RunQueue", () => {
     const queue = makeQueue(media, start);
     const enqueued = await queue.enqueue(spec("username"));
     await waitFor(() => queue.get(enqueued.id)?.status === "done");
+    // The queue marks the run done in memory before the final record write lands.
+    await waitUntil(async () => (await storeModule.getRun(enqueued.id))?.status === "done");
 
     const run = queue.get(enqueued.id);
     expect(run).toBeDefined();

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SlidersIcon } from "@/components/icons";
+import { GearIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 
 const LINKS = [
@@ -54,7 +54,7 @@ export function TopBar() {
             isActive(pathname, "/settings") ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink",
           )}
         >
-          <SlidersIcon className="size-5" />
+          <GearIcon className="size-5" />
         </Link>
       </nav>
     </header>

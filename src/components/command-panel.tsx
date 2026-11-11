@@ -39,7 +39,7 @@ export function CommandPanel(props: CommandPanelProps) {
         type="button"
         onClick={() => setShowCommand((value) => !value)}
         aria-expanded={showCommand}
-        className="self-start text-small text-ink-2 underline underline-offset-2 hover:text-ink sm:hidden"
+        className="inline-flex min-h-10 items-center self-start text-small text-ink-2 underline underline-offset-2 hover:text-ink sm:hidden"
       >
         {showCommand ? "Hide command" : "Show command"}
       </button>

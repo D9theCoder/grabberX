@@ -25,7 +25,6 @@ const DEFAULT_TEMPLATE = "{date:%Y}";
 
 interface RunScreenProps {
   settings: Settings;
-  knownAccounts: string[];
   galleryDlFound: boolean;
   initialRunId: string | null;
   /** Prefills the account field, e.g. from the Library's "Use as new run". */
@@ -38,7 +37,6 @@ function layoutFor(kind: LayoutKind, templateText: string): Layout {
 
 export function RunScreen({
   settings,
-  knownAccounts,
   galleryDlFound,
   initialRunId,
   initialAccount,
@@ -228,7 +226,6 @@ export function RunScreen({
           accountError={accountError}
           hint={hint}
           folderName={folderName}
-          knownAccounts={knownAccounts}
           onSite={(next: SiteId) => patchSpec({ site: next })}
           onAccountInput={onAccountInput}
           onMedia={(media) => patchSpec({ media })}
@@ -247,7 +244,9 @@ export function RunScreen({
           folderError={folderError}
           onFolderChange={setFolderOverride}
           caughtUp={caughtUp}
+          caughtUpChanged={caughtUp !== defaultCaughtUp}
           onCaughtUpChange={setCaughtUpChoice}
+          onCaughtUpReset={() => setCaughtUpChoice(null)}
           advancedChanged={advancedChanged}
         />
 

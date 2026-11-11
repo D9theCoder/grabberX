@@ -81,7 +81,7 @@ describe("listAccounts", () => {
     await touch(join(media, "loose-file.txt"));
 
     const accounts = await listAccounts();
-    expect(accounts.map((entry) => entry.folder)).toEqual(["username", "flatacct", "tyearacct"]);
+    expect(accounts.map((entry) => entry.folder)).toEqual(["flatacct", "tyearacct", "username"]);
     const byFolder = new Map(accounts.map((entry) => [entry.folder, entry]));
     expect(byFolder.get("username")?.layout).toBe("byType");
     expect(byFolder.get("tyearacct")?.layout).toBe("byTypeYear");
