@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, shell, utilityProcess } = require("electron");
 const lib = require("./lib.cjs");
 
 const repoRoot = path.join(__dirname, "..");
@@ -26,6 +26,8 @@ let server = null;
 let serverExited = false;
 let origin = null;
 let quitting = false;
+/** Windows drops a notification whose object is garbage-collected before it is clicked. */
+let scheduledNotice = null;
 
 function pageHtml(title, body) {
   const html = `<!doctype html><meta charset="utf-8"><title>gather</title>
@@ -39,6 +41,24 @@ function showWindow() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/** The scheduled pass that just finished, as the server described it. Clicking opens History. */
+function showScheduledNotice(body) {
+  log.line(`automatic updates: ${body}`);
+  if (!Notification.isSupported()) return;
+  scheduledNotice = new Notification({ title: "gather", body, icon: iconPath });
+  scheduledNotice.on("click", () => {
+    showWindow();
+    if (win && origin) void win.loadURL(`${origin}/history`);
+  });
+  scheduledNotice.show();
+}
+
+function handleServerMessage(message) {
+  const event = lib.parseServerMessage(message);
+  if (!event) return;
+  if (event.kind === "scheduled-pass") showScheduledNotice(event.body);
 }
 
 function createWindow() {
@@ -116,6 +136,7 @@ function startServerProcess(port) {
   });
   child.stdout?.on("data", (chunk) => log.write(chunk.toString()));
   child.stderr?.on("data", (chunk) => log.write(chunk.toString()));
+  child.on("message", handleServerMessage);
   child.on("exit", (code) => {
     serverExited = true;
     log.line(`server exited with code ${code}`);

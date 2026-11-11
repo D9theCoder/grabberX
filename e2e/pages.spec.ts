@@ -48,6 +48,27 @@ test("no page scrolls sideways at 390 px", async ({ page }) => {
   }
 });
 
+test("the automatic updates group saves its switch without a client error", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { level: 2, name: "Automatic updates" })).toBeVisible();
+  await expect(
+    page.getByText("gather must be running (in the tray) for updates to happen."),
+  ).toBeVisible();
+
+  // Flipping it saves through a server action; the page must survive the round trip.
+  const toggle = page.getByRole("switch", { name: "Automatic updates" });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  // Back off, so the shared settings file keeps automatic updates off for every other test.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+  expect(errors).toEqual([]);
+});
+
 test("library rows fill in their stats instead of staying on the spinner", async ({ page }) => {
   const errors: Error[] = [];
   page.on("pageerror", (error) => errors.push(error));

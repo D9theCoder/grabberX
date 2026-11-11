@@ -15,6 +15,7 @@ import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
 import { killTreeWindows } from "@/server/runner";
+import { refreshScheduler } from "@/server/scheduler";
 import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store";
 
 const VERSION_TIMEOUT_MS = 8000;
@@ -309,4 +310,81 @@ export async function updateGalleryDl(): Promise<ActionResult<{ version: string 
   const version = await checkGalleryDl(settings.galleryDlPath);
   revalidatePath("/settings");
   return version.ok ? { ok: true, data: { version: version.data.version } } : version;
+}
+
+const scheduleInput = z.object({
+  enabled: z.boolean(),
+  frequency: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("daily"),
+      time: z
+        .string()
+        .trim()
+        .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "Enter a time like 03:00."),
+    }),
+    z.object({
+      kind: z.literal("everyHours"),
+      hours: z
+        .number()
+        .int("Enter whole hours.")
+        .min(1, "Run at least every hour.")
+        .max(168, "Run at most every 168 hours."),
+    }),
+  ]),
+});
+
+/** A changed schedule takes effect at once instead of after the next heartbeat. */
+async function applySchedule(): Promise<void> {
+  await refreshScheduler().catch((error: unknown) => {
+    console.error("gather: could not re-plan the automatic updates.", error);
+  });
+}
+
+export async function saveScheduleAction(input: unknown): Promise<ActionResult<Settings>> {
+  const parsed = scheduleInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those settings aren't valid." };
+  }
+  try {
+    const settings = await saveSettings({ schedule: parsed.data });
+    await applySchedule();
+    revalidatePath("/settings");
+    revalidatePath("/library");
+    return { ok: true, data: settings };
+  } catch (error) {
+    console.error("gather: could not save the automatic updates.", error);
+    return { ok: false, error: settingsError(error) };
+  }
+}
+
+export async function pausedAccountList(): Promise<string[]> {
+  const settings = await getSettings().catch(() => undefined);
+  return settings?.pausedAccounts ?? [];
+}
+
+const pauseInput = z.object({
+  folder: z.string().trim().min(1, "That account isn't in the library."),
+  paused: z.boolean(),
+});
+
+/** Pauses or resumes one account for automatic updates. Returns the whole pause list. */
+export async function setAccountPausedAction(input: unknown): Promise<ActionResult<string[]>> {
+  const parsed = pauseInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That account isn't in the library." };
+  }
+  const folder = parsed.data.folder;
+  try {
+    const settings = await getSettings();
+    const key = folder.toLowerCase();
+    const others = settings.pausedAccounts.filter((name) => name.toLowerCase() !== key);
+    const saved = await saveSettings({
+      pausedAccounts: parsed.data.paused ? [...others, folder] : others,
+    });
+    revalidatePath("/library");
+    return { ok: true, data: saved.pausedAccounts };
+  } catch (error) {
+    console.error("gather: could not change the pause for an account.", error);
+    return { ok: false, error: settingsError(error) };
+  }
 }

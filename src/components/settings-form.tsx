@@ -9,6 +9,7 @@ import {
   saveSettingsAction,
   updateGalleryDl,
 } from "@/app/actions";
+import { AutomaticUpdatesForm } from "@/components/automatic-updates-form";
 import { CheckIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
@@ -313,6 +314,8 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
           </span>
         </div>
       </Group>
+
+      <AutomaticUpdatesForm initial={settings} />
 
       <Group title="About">
         <p className="m-0 text-label">gather {appVersion}</p>
