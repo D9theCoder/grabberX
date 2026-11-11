@@ -2,7 +2,7 @@ import "server-only";
 import { buildCommand } from "@/lib/command";
 import { classifyError } from "@/lib/parse-line";
 import { isActiveStatus } from "@/lib/run-copy";
-import { compareRunIds } from "@/lib/run-order";
+import { compareRunIdsOldestFirst } from "@/lib/run-order";
 import { folderNameFor } from "@/lib/sites";
 import type {
   ErrorKind,
@@ -214,7 +214,7 @@ export class RunQueue {
   private queuedInOrder(): Run[] {
     return [...this.runs.values()]
       .filter((run) => run.status === "queued")
-      .sort((a, b) => compareRunIds(b.id, a.id));
+      .sort((a, b) => compareRunIdsOldestFirst(a.id, b.id));
   }
 
   subscribe(id: string, listener: (event: StreamEvent) => void): () => void {
@@ -322,8 +322,8 @@ export class RunQueue {
         this.failUnexpected(active, settings, error),
       ),
     );
+    this.active.set(run.id, active);
     try {
-      this.active.set(run.id, active);
       await this.setStatus(run, "running");
     } finally {
       openGate();

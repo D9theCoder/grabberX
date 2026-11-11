@@ -39,6 +39,11 @@ function naturalCompare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** Queue order: the run the user asked for first starts first. */
+export function compareRunIdsOldestFirst(a: string, b: string): number {
+  return naturalCompare(a, b);
+}
+
 /**
  * Newest first. Run ids are allocated at enqueue time in local time (`2026-11-11T14-30-00_acct`), so
  * the id is chronological. `startedAt` is UTC and queued runs have none, so it cannot be mixed in.

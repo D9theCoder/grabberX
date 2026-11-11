@@ -80,9 +80,9 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
   const entry = context.accounts.find((account) => folderKey(account.folder) === folderKey(folder));
   if (!entry) return { ok: false, error: "This account isn't in the library." };
 
-  // One folder needs only its latest run, which is almost always among the newest records. Read the
-  // whole history only when it is not, e.g. an account last run long ago.
-  if (runsForFolder(entry.folder, context.runs).length === 0) {
+  // One folder needs only its latest real run, which is almost always among the newest records. Read
+  // the whole history only when it is not, e.g. an account last run long ago, or only previews since.
+  if (!runsForFolder(entry.folder, context.runs).some((run) => !run.spec.simulate)) {
     try {
       context = { ...context, runs: await listRuns(ALL_RUNS) };
     } catch (error) {
@@ -126,6 +126,14 @@ export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
     a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
   );
   for (const entry of entries) {
+    // Before the spec is built: a folder that is already running is a harmless skip, even when gather
+    // could not rebuild its spec.
+    const running = runQueue.findActive(entry.folder);
+    if (running) {
+      skipped.push({ folder: entry.folder, reason: activeSkipReason(running.status) });
+      continue;
+    }
+
     const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
     if (!built.ok) {
       skipped.push({ folder: entry.folder, reason: built.error });

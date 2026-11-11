@@ -133,6 +133,15 @@ describe("updateAll", () => {
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
+  it("reports a running folder as running even when its site could not be guessed", async () => {
+    mocks.listAccounts.mockResolvedValue([entry("john.doe")]);
+    mocks.findActive.mockReturnValue(runFor(specFor("john.doe"), "2026-11-11T09-00-00_john.doe", "running"));
+
+    const result = await updateAll();
+
+    expect(okData(result).skipped).toEqual([{ folder: "john.doe", reason: "already running" }]);
+  });
+
   it("refuses a folder it cannot place on X and still queues the others", async () => {
     mocks.listAccounts.mockResolvedValue([entry("john.doe"), entry("alice", "byTypeYear")]);
 
@@ -240,6 +249,18 @@ describe("updateAccount", () => {
 
     expect(mocks.listRuns).toHaveBeenCalledTimes(1);
     expect(mocks.listRuns).toHaveBeenCalledWith(200);
+  });
+
+  it("reads the whole history when the recent runs for the folder are only previews", async () => {
+    mocks.listAccounts.mockResolvedValue([entry("username")]);
+    mocks.listRuns.mockResolvedValueOnce([
+      runFor(specFor("username", { simulate: true }), "2026-11-10T09-00-00_username", "done"),
+    ]);
+
+    await updateAccount("username");
+
+    expect(mocks.listRuns).toHaveBeenCalledTimes(2);
+    expect(mocks.listRuns).toHaveBeenLastCalledWith(Number.MAX_SAFE_INTEGER);
   });
 
   it("reads the whole history when the recent runs hold nothing for the folder", async () => {
