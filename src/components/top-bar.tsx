@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GearIcon } from "@/components/icons";
+import { useEffect, useState } from "react";
+import { DownloadIcon, GearIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
+
+const RELEASES_URL = "https://github.com/D9theCoder/grabberX/releases/latest";
 
 const LINKS = [
   { href: "/", label: "Run" },
@@ -17,6 +20,9 @@ function isActive(pathname: string, href: string) {
 
 export function TopBar() {
   const pathname = usePathname();
+  const [inBrowser, setInBrowser] = useState(false);
+  // Checked after mount so the server render and hydration match; the desktop app is already the download.
+  useEffect(() => setInBrowser(window.gatherShell === undefined), []);
 
   return (
     <header className="border-b border-line">
@@ -45,12 +51,24 @@ export function TopBar() {
             );
           })}
         </div>
+        {inBrowser && (
+          <a
+            href={RELEASES_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto flex items-center gap-2 self-center rounded-md border border-line px-3 py-1.5 text-label text-ink-2 transition-colors duration-120 hover:text-ink"
+          >
+            <DownloadIcon className="size-4" />
+            Get the desktop app
+          </a>
+        )}
         <Link
           href="/settings"
           aria-label="Settings"
           aria-current={isActive(pathname, "/settings") ? "page" : undefined}
           className={cn(
-            "ml-auto flex min-w-10 items-center justify-center border-b-2 px-2 transition-colors duration-120",
+            !inBrowser && "ml-auto",
+            "flex min-w-10 items-center justify-center border-b-2 px-2 transition-colors duration-120",
             isActive(pathname, "/settings") ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink",
           )}
         >
