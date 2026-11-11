@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { ActionResult, LibraryEntry, Run, RunStatus, Settings } from "@/lib/spec";
 import { activeSkipReason } from "@/lib/update-messages";
-import { buildUpdateSpec, folderKey } from "@/lib/update-spec";
+import { buildUpdateSpec, folderKey, runsForFolder } from "@/lib/update-spec";
 import type { UpdateAccountData, UpdateAllResult, UpdatePlan, UpdateSkip } from "@/lib/update-spec";
 import { listAccounts } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
@@ -11,6 +11,8 @@ import { getSettings, listRuns } from "@/server/store";
 
 /** History retention caps runs at 2000, so one read for the whole update beats one read per folder. */
 const ALL_RUNS = Number.MAX_SAFE_INTEGER;
+/** Enough to hold the latest run of the accounts someone updates regularly. */
+const RECENT_RUNS = 200;
 
 interface UpdateContext {
   settings: Settings;
@@ -29,11 +31,11 @@ function alreadyActive(folder: string): string {
   return `An update for ${folder} is already queued or running.`;
 }
 
-async function loadContext(): Promise<UpdateContext> {
+async function loadContext(runLimit: number): Promise<UpdateContext> {
   const [settings, accounts, runs] = await Promise.all([
     getSettings(),
     listAccounts(),
-    listRuns(ALL_RUNS),
+    listRuns(runLimit),
   ]);
   return { settings, accounts, runs };
 }
@@ -69,7 +71,7 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
 
   let context: UpdateContext;
   try {
-    context = await loadContext();
+    context = await loadContext(RECENT_RUNS);
   } catch (error) {
     console.error("gather: could not read the library.", error);
     return { ok: false, error: "The library couldn't be read." };
@@ -77,6 +79,17 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
 
   const entry = context.accounts.find((account) => folderKey(account.folder) === folderKey(folder));
   if (!entry) return { ok: false, error: "This account isn't in the library." };
+
+  // One folder needs only its latest run, which is almost always among the newest records. Read the
+  // whole history only when it is not, e.g. an account last run long ago.
+  if (runsForFolder(entry.folder, context.runs).length === 0) {
+    try {
+      context = { ...context, runs: await listRuns(ALL_RUNS) };
+    } catch (error) {
+      console.error("gather: could not read the run history.", error);
+      return { ok: false, error: "The library couldn't be read." };
+    }
+  }
 
   const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
   if (!built.ok) return built;
@@ -97,7 +110,7 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
 export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
   let context: UpdateContext;
   try {
-    context = await loadContext();
+    context = await loadContext(ALL_RUNS);
   } catch (error) {
     console.error("gather: could not read the library.", error);
     return { ok: false, error: "The library couldn't be read." };

@@ -2,6 +2,7 @@ import "server-only";
 import { buildCommand } from "@/lib/command";
 import { classifyError } from "@/lib/parse-line";
 import { isActiveStatus } from "@/lib/run-copy";
+import { compareRunIds } from "@/lib/run-order";
 import { folderNameFor } from "@/lib/sites";
 import type {
   ErrorKind,
@@ -202,9 +203,18 @@ export class RunQueue {
   }
 
   queuePosition(id: string): number {
-    const queued = [...this.runs.values()].filter((run) => run.status === "queued");
-    const index = queued.findIndex((run) => run.id === id);
+    const index = this.queuedInOrder().findIndex((run) => run.id === id);
     return index === -1 ? 0 : index + 1;
+  }
+
+  /**
+   * Oldest id first. A run joins `runs` only after its record is saved, so two enqueues that overlap
+   * can register in the opposite order of their ids; the id is the order the user asked for.
+   */
+  private queuedInOrder(): Run[] {
+    return [...this.runs.values()]
+      .filter((run) => run.status === "queued")
+      .sort((a, b) => compareRunIds(b.id, a.id));
   }
 
   subscribe(id: string, listener: (event: StreamEvent) => void): () => void {
@@ -276,8 +286,7 @@ export class RunQueue {
           return;
         }
         const running = [...this.active.values()].map((entry) => entry.run);
-        for (const run of [...this.runs.values()]) {
-          if (run.status !== "queued") continue;
+        for (const run of this.queuedInOrder()) {
           if (!canStart(run, running, settings.concurrency)) continue;
           await this.beginRun(run, settings);
           running.push(run);
@@ -313,8 +322,8 @@ export class RunQueue {
         this.failUnexpected(active, settings, error),
       ),
     );
-    this.active.set(run.id, active);
     try {
+      this.active.set(run.id, active);
       await this.setStatus(run, "running");
     } finally {
       openGate();

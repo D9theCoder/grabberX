@@ -230,6 +230,27 @@ describe("updateAccount", () => {
     expect(queued.advanced.abortAfterSkipped).toBe(20);
   });
 
+  it("reads only the recent runs when the folder's latest run is among them", async () => {
+    mocks.listAccounts.mockResolvedValue([entry("username")]);
+    mocks.listRuns.mockResolvedValue([
+      runFor(specFor("username", { simulate: false }), "2026-11-10T09-00-00_username", "done"),
+    ]);
+
+    await updateAccount("username");
+
+    expect(mocks.listRuns).toHaveBeenCalledTimes(1);
+    expect(mocks.listRuns).toHaveBeenCalledWith(200);
+  });
+
+  it("reads the whole history when the recent runs hold nothing for the folder", async () => {
+    mocks.listAccounts.mockResolvedValue([entry("username")]);
+
+    await updateAccount("username");
+
+    expect(mocks.listRuns).toHaveBeenCalledTimes(2);
+    expect(mocks.listRuns).toHaveBeenLastCalledWith(Number.MAX_SAFE_INTEGER);
+  });
+
   it("refuses while that folder is already queued or running, without loading the library", async () => {
     mocks.findActive.mockReturnValue(runFor(specFor("username"), "2026-11-11T09-00-00_username", "queued"));
 

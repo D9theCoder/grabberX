@@ -14,7 +14,11 @@ import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
+import { compareRunIds } from "@/lib/run-order";
 import type { Counts, Run, Settings } from "@/lib/spec";
+
+/** Run records read at once; History keeps up to 2000, and opening all of them together is needless. */
+const LIST_BATCH = 100;
 
 /** A History page never needs more of a log than this, and a run can write many megabytes. */
 const LOG_TAIL_BYTES = 512 * 1024;
@@ -247,16 +251,6 @@ export async function getRun(id: string): Promise<Run | undefined> {
   }
 }
 
-/**
- * Ordering key. Run ids are allocated at enqueue time in local time (`2026-11-11T14-30-00_acct`), so
- * the id alone is chronological. `startedAt` is UTC, and mixing the two put runs hours apart, which
- * also made pruning delete the wrong records.
- */
-function compareRuns(a: Run, b: Run): number {
-  if (a.id === b.id) return 0;
-  return a.id < b.id ? 1 : -1;
-}
-
 export async function listRuns(limit = 200): Promise<Run[]> {
   let names: string[];
   try {
@@ -268,10 +262,17 @@ export async function listRuns(limit = 200): Promise<Run[]> {
     .filter((name) => name.endsWith(".json"))
     .map((name) => name.slice(0, -".json".length))
     .filter((id) => isValidRunId(id));
-  const loaded = await Promise.all(ids.map((id) => getRun(id)));
-  const runs = loaded.filter((run): run is Run => run !== undefined);
-  runs.sort(compareRuns);
-  return typeof limit === "number" && runs.length > limit ? runs.slice(0, limit) : runs;
+  // The id is the order (see compareRunIds), so reading stops once `limit` readable records are found;
+  // a corrupt file in the newest window is skipped and the next one takes its place.
+  ids.sort(compareRunIds);
+  const runs: Run[] = [];
+  for (let from = 0; from < ids.length && runs.length < limit; from += LIST_BATCH) {
+    const batch = await Promise.all(ids.slice(from, from + LIST_BATCH).map((id) => getRun(id)));
+    for (const run of batch) {
+      if (run && runs.length < limit) runs.push(run);
+    }
+  }
+  return runs;
 }
 
 export async function appendLog(id: string, chunk: string): Promise<void> {

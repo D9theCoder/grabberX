@@ -9,6 +9,7 @@ import type {
   Settings,
 } from "@/lib/spec";
 import { createDefaultSpec } from "@/lib/spec";
+import { compareRunIds } from "@/lib/run-order";
 import { parseJobSpec } from "@/lib/spec-schema";
 import { folderNameFor, validateAccount } from "@/lib/sites";
 
@@ -42,6 +43,13 @@ export function folderKey(folder: string): string {
   return process.platform === "win32" ? folder.toLowerCase() : folder;
 }
 
+/** The folder's runs, newest first. Queued runs have no startedAt, so the id decides the order. */
+export function runsForFolder(folder: string, runs: readonly Run[]): Run[] {
+  return runs
+    .filter((run) => folderKey(folderNameFor(run.spec)) === folderKey(folder))
+    .sort((a, b) => compareRunIds(a.id, b.id));
+}
+
 /**
  * The spec behind a Library "Update": the account's preferences from its latest run, minus everything
  * that belonged to that one run (preview, --range, date window, --no-skip).
@@ -52,10 +60,7 @@ export function buildUpdateSpec(
   runs: readonly Run[],
   settings: Settings,
 ): ActionResult<UpdatePlan> {
-  const history = runs
-    .filter((run) => folderKey(folderNameFor(run.spec)) === folderKey(folder))
-    // Run ids are the History order (see compareRuns in the store); queued runs have no startedAt.
-    .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+  const history = runsForFolder(folder, runs);
   // A preview never downloads, but it is still the best record of where the account lives.
   const previous = history.find((run) => !run.spec.simulate) ?? history[0];
 
