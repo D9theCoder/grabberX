@@ -21,8 +21,6 @@ export interface SegmentedProps {
   defaultValue?: string;
   onChange?: (value: string) => void;
   size?: "md" | "sm";
-  /** Scroll horizontally on narrow screens instead of wrapping. */
-  scrollOnNarrow?: boolean;
   className?: string;
 }
 
@@ -33,7 +31,6 @@ export function Segmented({
   defaultValue,
   onChange,
   size = "md",
-  scrollOnNarrow = false,
   className,
 }: SegmentedProps) {
   const normalized = options.map((option) =>
@@ -73,10 +70,9 @@ export function Segmented({
       role="radiogroup"
       aria-label={label}
       className={cn(
-        "inline-flex w-fit max-w-full gap-0.5 rounded-md border border-line-strong bg-surface p-0.5",
-        scrollOnNarrow
-          ? "snap-x overflow-x-auto sm:flex-wrap sm:overflow-visible"
-          : "flex-wrap",
+        // One height for every segmented control (A8), and a taller touch target on phones.
+        // Every option wraps instead of being clipped: the site list is the long one (A4).
+        "flex min-h-control w-fit max-w-full flex-wrap items-center gap-0.5 rounded-md border border-line-strong bg-surface p-0.5 max-sm:min-h-touch",
         className,
       )}
     >
@@ -94,16 +90,16 @@ export function Segmented({
             onClick={() => select(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "relative inline-flex flex-none snap-start items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
-              // Stretch the hit area to 40px tall without changing the visual track height.
+              "relative inline-flex h-8 flex-none items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
+              // Stretch the hit area to a 44px touch target without changing the visual height.
               "after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']",
               "transition-colors duration-120 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-ink-3",
-              size === "sm" ? "h-7 px-2.5 text-small" : "h-[34px] px-3.5 text-label",
+              size === "sm" ? "px-2.5 text-small" : "px-3.5 text-label",
               on ? "bg-ink text-on-ink hover:bg-ink-hover" : "text-ink-2 hover:bg-sunken hover:text-ink",
             )}
           >
             {option.label}
-            {option.tag ? <span className="text-xs font-normal opacity-80">{option.tag}</span> : null}
+            {option.tag ? <span className="text-xs font-normal">{option.tag}</span> : null}
           </button>
         );
       })}

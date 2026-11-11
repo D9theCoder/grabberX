@@ -27,15 +27,16 @@ gather is a quiet, local front end for `gallery-dl`. It should feel like a well-
 ## Space, size and shape
 
 - 4px base: `space-1` … `space-12`. Sections are separated by `space-8` and a `line` hairline, not by boxes.
-- Controls are 40px tall (32px for `size="sm"`). Touch targets are never under 40px.
+- Controls are 40px tall (`--spacing-control`), including every `Segmented` track at either size; 44px touch height on phones.
 - Corners: `radius-md` on controls, `radius-lg` on the command block and run panel, `radius-sm` on segment options. Nothing is pill-shaped.
 - Run screen: 1120px max container. The form column is fluid, the command/run column is 400px and sticky. Below 1024px it's one column, with a sticky bottom bar holding the two run buttons.
+- Page containers: 1120px on Run, Library and History; the title row keeps one fixed height on every page. Settings is deliberately narrow (max 672px), read one field at a time.
 
 ## States
 
 - Hover: borders darken to `ink-2`. Ghost buttons and segment options get a `sunken` fill.
 - Focus: `focus` outline, 2px solid, 2px offset, on every interactive element. Never removed.
-- Disabled: `sunken` fill, `ink-3` text, no border, `cursor: not-allowed`. Always explain why in a hint next to it.
+- Disabled: `sunken` fill, `ink-3` text, no border, `cursor: not-allowed`. Always explain why in a hint next to it. A disabled `primary` keeps a 15% ink fill and ink text (about 13:1), so it still reads as the primary action.
 - Loading: a 12px ring spinner in `currentColor` replaces nothing. It sits before the label, and the button keeps its width.
 - Motion: 120ms for hover/press, 200ms for disclosure. Only the spinner loops. Everything is off under `prefers-reduced-motion`.
 
@@ -57,9 +58,11 @@ Use the components in this system (`window.Gather` in previews; in the app, Reac
 
 - `Button`: `primary` once per view (Download), `secondary` for the alternative (Preview files), `ghost` for low-weight actions, `danger` for Stop/Cancel.
 - `TextField`: account, numbers, dates. Optional `prefix` (e.g. `@`) and `mono`.
-- `Segmented`: one choice from a short set (site, media, date preset). Wraps when it runs out of room.
+- `Segmented`: one choice from a short set (site, media, date preset). Wraps when it runs out of room, on phones too, so no option is clipped. One height at every size.
 - `ChoiceList`: one choice where each option needs a second line (folder layouts).
 - `Switch`: on/off settings in Advanced.
 - `Disclosure`: the folded Advanced section, with a count of changed values.
 - `CommandBlock`: the command preview with Copy.
 - `Status`, `Stat`, `LogView`, `Notice`: the run panel.
+- `Breadcrumb`, `FolderCard`, `Thumbnail`: browsing an account's media (`/library/[account]`).
+- `Toolbar`, `Lightbox`: viewing one file. The only place the `stage` token (near-black, with `on-ink` controls) appears. It is a documented exception for looking at media, not a dark theme.

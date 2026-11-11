@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { DownloadIcon, GearIcon } from "@/components/icons";
+import { GearIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 
 const RELEASES_URL = "https://github.com/D9theCoder/grabberX/releases/latest";
@@ -51,29 +51,31 @@ export function TopBar() {
             );
           })}
         </div>
-        {inBrowser && (
-          <a
-            href={RELEASES_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto flex items-center gap-2 self-center rounded-md border border-line px-3 py-1.5 text-label text-ink-2 transition-colors duration-120 hover:text-ink"
-          >
-            <DownloadIcon className="size-4" />
-            Get the desktop app
-          </a>
-        )}
-        <Link
-          href="/settings"
-          aria-label="Settings"
-          aria-current={isActive(pathname, "/settings") ? "page" : undefined}
-          className={cn(
-            !inBrowser && "ml-auto",
-            "flex min-w-10 items-center justify-center border-b-2 px-2 transition-colors duration-120",
-            isActive(pathname, "/settings") ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink",
+        <div className="ml-auto flex items-stretch gap-4">
+          {inBrowser && (
+            // A quiet link on one line: at 390 px the old bordered button wrapped to three lines
+            // and pushed the page wider than the screen, so it waits for 640 px.
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden self-center text-small text-ink-2 underline underline-offset-2 transition-colors duration-120 hover:text-ink sm:inline"
+            >
+              Get the desktop app
+            </a>
           )}
-        >
-          <GearIcon className="size-5" />
-        </Link>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            aria-current={isActive(pathname, "/settings") ? "page" : undefined}
+            className={cn(
+              "flex min-w-10 items-center justify-center border-b-2 px-2 transition-colors duration-120",
+              isActive(pathname, "/settings") ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink",
+            )}
+          >
+            <GearIcon className="size-5" />
+          </Link>
+        </div>
       </nav>
     </header>
   );

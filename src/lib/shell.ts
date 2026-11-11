@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 export interface GatherShell {
   pickFolder(defaultPath?: string): Promise<string | null>;
   openLogs(): Promise<void>;
+  /** Moves one media file to the Recycle Bin. False when the shell refused or the move failed. */
+  trashItem(path: string): Promise<boolean>;
 }
 
 declare global {

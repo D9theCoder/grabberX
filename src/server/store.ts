@@ -16,8 +16,14 @@ import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
 import { retryTransient } from "@/server/fs-retry";
 import { compareRunIds } from "@/lib/run-order";
+import {
+  DEFAULT_SCHEDULE,
+  MAX_INTERVAL_HOURS,
+  MIN_INTERVAL_HOURS,
+  type ScheduleState,
+} from "@/lib/schedule";
 import { envAppDir, envGalleryDl, envHome, envMediaRoot, isPackaged } from "@/server/env";
-import { assertSafeMediaRoot, isDeviceName } from "@/server/paths";
+import { assertSafeMediaRoot, isDeviceName, isValidFolderName } from "@/server/paths";
 import type { Counts, Run, Settings } from "@/lib/spec";
 
 /** A History page never needs more of a log than this, and a run can write many megabytes. */
@@ -48,6 +54,32 @@ const cookiesSchema = z.object({
   profile: z.string().trim().min(1).optional(),
 });
 
+const timeOfDaySchema = z
+  .string()
+  .trim()
+  .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "Enter a time like 03:00.");
+
+const frequencySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("daily"), time: timeOfDaySchema }),
+  z.object({
+    kind: z.literal("everyHours"),
+    hours: z
+      .number()
+      .int("Enter whole hours.")
+      .min(MIN_INTERVAL_HOURS, "Run at least every hour.")
+      .max(MAX_INTERVAL_HOURS, "Run at most every 168 hours."),
+  }),
+]);
+
+const scheduleSchema = z.object({
+  enabled: z.boolean(),
+  frequency: frequencySchema,
+});
+
+const pausedAccountsSchema = z
+  .array(z.string().trim().min(1, "Choose an account.").max(64, "That folder name is too long."))
+  .max(1000, "That is too many paused accounts.");
+
 const settingsShape = z.object({
   galleryDlPath: z.string().trim().min(1, "Enter the path to gallery-dl."),
   mediaRoot: z.string().trim().min(1, "Enter the media folder."),
@@ -64,6 +96,8 @@ const settingsShape = z.object({
     .int()
     .min(1, "Run one account at a time or more.")
     .max(3, "At most three runs at a time."),
+  schedule: scheduleSchema,
+  pausedAccounts: pausedAccountsSchema,
 });
 
 const settingsPatchSchema = settingsShape.partial().strict();
@@ -101,6 +135,10 @@ function runsDir(): string {
 
 function settingsFile(): string {
   return join(gatherHome(), "settings.json");
+}
+
+function scheduleFile(): string {
+  return join(gatherHome(), "schedule.json");
 }
 
 function queueLockFile(): string {
@@ -152,6 +190,9 @@ function defaults(): Settings {
     defaultLayout: { kind: "byType" },
     historyRetention: 200,
     concurrency: 1,
+    // A copy, so a caller that changes the returned settings cannot change the constant.
+    schedule: { ...DEFAULT_SCHEDULE, frequency: { ...DEFAULT_SCHEDULE.frequency } },
+    pausedAccounts: [],
   };
 }
 
@@ -205,6 +246,8 @@ export async function getSettings(): Promise<Settings> {
       defaultLayout: saved.defaultLayout ?? fallback.defaultLayout,
       historyRetention: saved.historyRetention ?? fallback.historyRetention,
       concurrency: saved.concurrency ?? fallback.concurrency,
+      schedule: saved.schedule ?? fallback.schedule,
+      pausedAccounts: saved.pausedAccounts ?? fallback.pausedAccounts,
     };
   } catch (error) {
     warnAboutSettings(messageOf(error));
@@ -228,6 +271,22 @@ function salvageSettings(json: unknown): Partial<Settings> {
   return settingsFileSchema.parse(valid);
 }
 
+function normalizePausedAccounts(accounts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const raw of accounts) {
+    const folder = raw.trim();
+    // Folder names are case-insensitive on Windows, so one pause per folder. Anything that is not a
+    // folder name cannot match a Library row anyway.
+    if (!isValidFolderName(folder)) continue;
+    const key = folder.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(folder);
+  }
+  return kept;
+}
+
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
   const parsed = settingsPatchSchema.safeParse(patch);
   if (!parsed.success) {
@@ -243,6 +302,10 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
     defaultLayout: saved.defaultLayout ?? current.defaultLayout,
     historyRetention: saved.historyRetention ?? current.historyRetention,
     concurrency: saved.concurrency ?? current.concurrency,
+    schedule: saved.schedule ?? current.schedule,
+    pausedAccounts: saved.pausedAccounts
+      ? normalizePausedAccounts(saved.pausedAccounts)
+      : current.pausedAccounts,
   };
   const root = await stat(next.mediaRoot).catch(() => null);
   if (!root?.isDirectory()) {
@@ -264,6 +327,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The scheduler's own note of when it is due next, kept apart from the user's settings so it can be
+ * rewritten on every pass without touching settings.json. A missing or unreadable file reads as "no
+ * plan yet", which the scheduler treats as "start counting from now".
+ */
+export async function getScheduleState(): Promise<ScheduleState> {
+  let raw: string;
+  try {
+    raw = await readFile(scheduleFile(), "utf8");
+  } catch {
+    return {};
+  }
+  try {
+    const json: unknown = JSON.parse(raw);
+    if (!isRecord(json)) return {};
+    return {
+      ...(typeof json.nextDueAt === "string" ? { nextDueAt: json.nextDueAt } : {}),
+      ...(typeof json.frequency === "string" ? { frequency: json.frequency } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function saveScheduleState(state: ScheduleState): Promise<void> {
+  const next: ScheduleState = {
+    ...(state.nextDueAt ? { nextDueAt: state.nextDueAt } : {}),
+    ...(state.frequency ? { frequency: state.frequency } : {}),
+  };
+  await writeAtomic(scheduleFile(), `${JSON.stringify(next, null, 2)}\n`);
+}
+
 function isCounts(value: unknown): value is Counts {
   if (!isRecord(value)) return false;
   return (
@@ -282,6 +377,7 @@ function isRunRecord(value: unknown): value is Run {
   }
   if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex)) return false;
   if (!isCounts(counts)) return false;
+  if (value.scheduled !== undefined && typeof value.scheduled !== "boolean") return false;
   if (!isRecord(spec) || typeof spec.account !== "string") return false;
   if (!Array.isArray(steps)) return false;
   return steps.every(

@@ -16,6 +16,9 @@
   --color-warn: #8a5a00;
   --color-focus: var(--color-ink);
 
+  /* Only behind the lightbox. A documented exception, not a dark theme. */
+  --color-stage: #0e0e0e;
+
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -41,6 +44,13 @@
   --text-code--line-height: 20px;
   --text-log: 12px;
   --text-log--line-height: 18px;
+
+  /* The height of one control: fields, buttons and the segmented track all sit on it. */
+  --spacing-control: 40px;
+  /* A phone touch target. */
+  --spacing-touch: 44px;
+  /* The title row every page starts with, whatever sits beside it. */
+  --spacing-page-header: 40px;
 
   --shadow-*: initial;
 }
@@ -71,6 +81,16 @@ body {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/*
+ * One title row on every page. Library puts Update all beside its title, and that 40px control
+ * would otherwise push its heading lower than the headings on Run, History and Settings.
+ */
+main h1 {
+  display: flex;
+  min-height: var(--spacing-page-header);
+  align-items: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

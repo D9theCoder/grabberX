@@ -13,5 +13,5 @@
   "assetGroups": {},
   "blobs": {},
   "docs": { "readme": "project/README.md", "sections": [] },
-  "lastChange": { "by": "author", "at": "2026-11-11T11:00:00Z", "via": "Claude Code", "note": "First version: tokens, brand book, 11 components, cover." }
+  "lastChange": { "by": "author", "at": "2026-11-11T11:00:00Z", "via": "Claude Code", "note": "First version: tokens, brand book, 11 components, cover. Added the gallery: Breadcrumb, FolderCard, Thumbnail, Toolbar, Lightbox and the stage token." }
 }

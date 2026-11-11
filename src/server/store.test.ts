@@ -7,6 +7,7 @@ import {
   claimQueueLock,
   appendLog,
   getRun,
+  getScheduleState,
   getSettings,
   isConfigured,
   isValidRunId,
@@ -14,6 +15,7 @@ import {
   pruneRuns,
   readLogTail,
   saveRun,
+  saveScheduleState,
   saveSettings,
 } from "@/server/store";
 
@@ -90,6 +92,46 @@ describe("getSettings", () => {
     expect(settings.defaultLayout).toEqual({ kind: "byType" });
     expect(settings.historyRetention).toBe(200);
     expect(settings.concurrency).toBe(1);
+    expect(settings.schedule).toEqual({ enabled: false, frequency: { kind: "daily", time: "03:00" } });
+    expect(settings.pausedAccounts).toEqual([]);
+  });
+
+  it("reads an older settings file and adds the new fields with their defaults", async () => {
+    // A settings.json written before automatic updates existed: no schedule, no paused accounts.
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({
+        galleryDlPath: "C:\\tools\\gallery-dl.exe",
+        mediaRoot: "D:\\Photos\\p\\scrapper",
+        cookies: { browser: "firefox" },
+        defaultMedia: "images",
+        defaultLayout: { kind: "byTypeYear" },
+        historyRetention: 50,
+        concurrency: 2,
+      }),
+      "utf8",
+    );
+    const settings = await getSettings();
+    expect(settings.defaultMedia).toBe("images");
+    expect(settings.concurrency).toBe(2);
+    expect(settings.schedule.enabled).toBe(false);
+    expect(settings.schedule.frequency).toEqual({ kind: "daily", time: "03:00" });
+    expect(settings.pausedAccounts).toEqual([]);
+  });
+
+  it("keeps a saved schedule and pause list", async () => {
+    await writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({
+        mediaRoot: "D:\\Photos\\p\\scrapper",
+        schedule: { enabled: true, frequency: { kind: "everyHours", hours: 6 } },
+        pausedAccounts: ["username"],
+      }),
+      "utf8",
+    );
+    const settings = await getSettings();
+    expect(settings.schedule).toEqual({ enabled: true, frequency: { kind: "everyHours", hours: 6 } });
+    expect(settings.pausedAccounts).toEqual(["username"]);
   });
 
   it("keeps the valid settings when one field is out of range", async () => {
@@ -172,6 +214,48 @@ describe("saveSettings", () => {
   it("rejects unknown keys instead of storing them", async () => {
     const patch = { nope: true } as unknown as Partial<Settings>;
     await expect(saveSettings(patch)).rejects.toThrow();
+  });
+
+  it("saves the schedule and validates its frequency", async () => {
+    const saved = await saveSettings({
+      schedule: { enabled: true, frequency: { kind: "everyHours", hours: 6 } },
+    });
+    expect(saved.schedule).toEqual({ enabled: true, frequency: { kind: "everyHours", hours: 6 } });
+    expect((await getSettings()).schedule.enabled).toBe(true);
+
+    const nightly = await saveSettings({
+      schedule: { enabled: true, frequency: { kind: "daily", time: "21:30" } },
+    });
+    expect(nightly.schedule.frequency).toEqual({ kind: "daily", time: "21:30" });
+  });
+
+  it("refuses a schedule that could never run", async () => {
+    await expect(
+      saveSettings({ schedule: { enabled: true, frequency: { kind: "daily", time: "3am" } } }),
+    ).rejects.toThrow(/time like 03:00/);
+    await expect(
+      saveSettings({ schedule: { enabled: true, frequency: { kind: "everyHours", hours: 0 } } }),
+    ).rejects.toThrow(/every hour/);
+    await expect(
+      saveSettings({ schedule: { enabled: true, frequency: { kind: "everyHours", hours: 169 } } }),
+    ).rejects.toThrow(/168 hours/);
+    await expect(
+      saveSettings({ schedule: { enabled: true, frequency: { kind: "everyHours", hours: 2.5 } } }),
+    ).rejects.toThrow(/whole hours/);
+  });
+
+  it("keeps one pause per folder, trimmed and without repeats", async () => {
+    const saved = await saveSettings({
+      pausedAccounts: [" username ", "username", "other", "../escape"],
+    });
+    expect(saved.pausedAccounts).toEqual(["username", "other"]);
+    expect((await getSettings()).pausedAccounts).toEqual(["username", "other"]);
+
+    // A later save of another field leaves the pause list alone.
+    await saveSettings({ concurrency: 2 });
+    expect((await getSettings()).pausedAccounts).toEqual(["username", "other"]);
+
+    expect((await saveSettings({ pausedAccounts: [] })).pausedAccounts).toEqual([]);
   });
 });
 
@@ -300,6 +384,46 @@ describe("history order", () => {
       "2026-11-11T09-00-00_a-2",
       "2026-11-11T09-00-00_a",
     ]);
+  });
+});
+
+describe("schedule state", () => {
+  it("round-trips the due time the scheduler is waiting for", async () => {
+    expect(await getScheduleState()).toEqual({});
+    await saveScheduleState({ nextDueAt: "2026-11-13T03:00:00.000Z", frequency: "daily:03:00" });
+    expect(await getScheduleState()).toEqual({
+      nextDueAt: "2026-11-13T03:00:00.000Z",
+      frequency: "daily:03:00",
+    });
+    const names = await readdir(home);
+    expect(names).toContain("schedule.json");
+    expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("reads a corrupt or unexpected file as no plan", async () => {
+    await writeFile(join(home, "schedule.json"), "{ not json", "utf8");
+    expect(await getScheduleState()).toEqual({});
+    await writeFile(join(home, "schedule.json"), JSON.stringify({ nextDueAt: 42, frequency: true }), "utf8");
+    expect(await getScheduleState()).toEqual({});
+    await writeFile(join(home, "schedule.json"), JSON.stringify([1, 2]), "utf8");
+    expect(await getScheduleState()).toEqual({});
+  });
+
+  it("marks a run as scheduled and keeps the marker on disk", async () => {
+    const run: Run = { ...makeRun("2026-11-11T09-14-02_username"), scheduled: true };
+    await saveRun(run);
+    expect((await getRun(run.id))?.scheduled).toBe(true);
+  });
+
+  it("refuses a run record whose scheduled marker is not a boolean", async () => {
+    await mkdir(join(home, "runs"), { recursive: true });
+    const id = "2026-11-11T09-14-02_username";
+    await writeFile(
+      join(home, "runs", `${id}.json`),
+      JSON.stringify({ ...makeRun(id), scheduled: "yes" }),
+      "utf8",
+    );
+    expect(await getRun(id)).toBeUndefined();
   });
 });
 

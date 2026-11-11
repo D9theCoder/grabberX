@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 
 test("secondary buttons keep their hairline border", async ({ page }) => {
   await page.goto("/settings");
-  await expect(page.getByRole("button", { name: "Check" })).toHaveCSS(
+  await expect(page.getByRole("button", { name: "Check", exact: true })).toHaveCSS(
     "border-top-color",
     "rgb(201, 201, 201)",
   );
@@ -34,7 +34,7 @@ test("advanced switches offer Changed · Reset and warn in danger", async ({ pag
 test("the Settings button aligns with its field", async ({ page }) => {
   await page.goto("/settings");
   const field = page.getByLabel("gallery-dl path");
-  const button = page.getByRole("button", { name: "Check" });
+  const button = page.getByRole("button", { name: "Check", exact: true });
   const fieldBox = await field.boundingBox();
   const buttonBox = await button.boundingBox();
   expect(Math.abs((fieldBox?.y ?? 0) - (buttonBox?.y ?? 0))).toBeLessThanOrEqual(1);

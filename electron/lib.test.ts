@@ -13,6 +13,7 @@ const lib = require("./lib.cjs") as {
   createLog(dir: string, maxBytes?: number): { file: string; write(text: string): void; line(message: string): void };
   seedGalleryDl(seed: string, target: string): string;
   isOwnOrigin(url: string, origin: string): boolean;
+  parseServerMessage(message: unknown): { kind: "scheduled-pass"; body: string } | null;
 };
 
 let sandbox = "";
@@ -105,6 +106,40 @@ describe("isOwnOrigin", () => {
     expect(lib.isOwnOrigin("http://127.0.0.1:4000.evil.com/", origin)).toBe(false);
     expect(lib.isOwnOrigin("https://x.com", origin)).toBe(false);
     expect(lib.isOwnOrigin("not a url", origin)).toBe(false);
+  });
+});
+
+describe("parseServerMessage", () => {
+  it("takes the finished pass's line and nothing else", () => {
+    expect(lib.parseServerMessage({ kind: "scheduled-pass", body: "12 new files from 3 accounts" })).toEqual({
+      kind: "scheduled-pass",
+      body: "12 new files from 3 accounts",
+    });
+    expect(lib.parseServerMessage({ kind: "scheduled-pass", body: "  Update failed.  " })).toEqual({
+      kind: "scheduled-pass",
+      body: "Update failed.",
+    });
+  });
+
+  it("ignores shutdown replies, empty lines and junk", () => {
+    for (const message of [
+      "shutdown-done",
+      null,
+      undefined,
+      42,
+      [],
+      { kind: "something-else", body: "hi" },
+      { kind: "scheduled-pass" },
+      { kind: "scheduled-pass", body: "   " },
+      { kind: "scheduled-pass", body: 12 },
+    ]) {
+      expect(lib.parseServerMessage(message), JSON.stringify(message)).toBeNull();
+    }
+  });
+
+  it("caps a runaway line", () => {
+    const body = lib.parseServerMessage({ kind: "scheduled-pass", body: "x".repeat(5000) });
+    expect(body?.body).toHaveLength(300);
   });
 });
 

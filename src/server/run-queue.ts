@@ -127,7 +127,7 @@ export class RunQueue {
     return this.ready;
   }
 
-  async enqueue(spec: JobSpec): Promise<Run> {
+  async enqueue(spec: JobSpec, options: { scheduled?: boolean } = {}): Promise<Run> {
     await this.ready;
     const settings = await this.deps.getSettings();
     const steps = buildCommand(spec, {
@@ -143,6 +143,7 @@ export class RunQueue {
       status: "queued",
       stepIndex: 0,
       counts: { saved: 0, skipped: 0, failed: 0 },
+      ...(options.scheduled ? { scheduled: true } : {}),
     };
     // Persist before registering. A record that fails to save must leave nothing in memory, or a
     // later pump starts a download the user was told could not start.
@@ -268,6 +269,28 @@ export class RunQueue {
       ({ t: "status", status: run.status, stepIndex: run.stepIndex } satisfies RunEvent);
     events.push(status);
     return { run: cloneRun(run), events };
+  }
+
+  /**
+   * Resolves with the run once it reaches a terminal status. The scheduler uses it to know when a
+   * whole pass has finished, without polling. An unknown or already finished run resolves at once.
+   */
+  waitFor(id: string): Promise<Run | undefined> {
+    const finished = this.runs.get(id);
+    if (!finished || isTerminalStatus(finished.status)) {
+      return Promise.resolve(finished ? cloneRun(finished) : undefined);
+    }
+    return new Promise<Run | undefined>((resolve) => {
+      const settle = (): void => {
+        const run = this.runs.get(id);
+        if (run && !isTerminalStatus(run.status)) return;
+        unsubscribe();
+        resolve(run ? cloneRun(run) : undefined);
+      };
+      const unsubscribe = this.subscribe(id, settle);
+      // The status can change between the read above and the subscription.
+      settle();
+    });
   }
 
   /** Serialized so two enqueues in the same tick cannot both claim the same id. */

@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import {
+  checkCookies,
   checkGalleryDl,
   checkGalleryDlUpdate,
   saveSettingsAction,
   updateGalleryDl,
 } from "@/app/actions";
+import { AutomaticUpdatesForm } from "@/components/automatic-updates-form";
 import { CheckIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { TextField } from "@/components/ui/text-field";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
+import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
+import type { CookieCheckKind } from "@/lib/cookie-check";
 import { useShell } from "@/lib/shell";
 import type { CookieBrowser, Media, Settings } from "@/lib/spec";
 
@@ -53,12 +57,28 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [check, setCheck] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const [checking, startCheck] = useTransition();
+  const [installed, setInstalled] = useState<string | null>(null);
+  const [cookieCheck, setCookieCheck] = useState<CookieCheckKind | null>(null);
+  const [checkingCookies, startCookieCheck] = useTransition();
+  const versionAsked = useRef(false);
 
   useEffect(() => {
     if (!saved) return;
     const timer = setTimeout(() => setSaved(null), 1500);
     return () => clearTimeout(timer);
   }, [saved]);
+
+  // The installed version sits beside the update button, so show it without asking for a click.
+  // A missing or broken path stays quiet here; pressing Check is what reports it.
+  useEffect(() => {
+    if (versionAsked.current) return;
+    versionAsked.current = true;
+    void checkGalleryDl()
+      .then((result) => {
+        if (result.ok) setInstalled(result.data.version);
+      })
+      .catch(() => undefined);
+  }, []);
 
   async function save(key: FieldKey, patch: Partial<Settings>) {
     const result = await saveSettingsAction(patch);
@@ -75,11 +95,12 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
     setCheck(null);
     startCheck(async () => {
       const result = await checkGalleryDl(draft.galleryDlPath);
-      setCheck(
-        result.ok
-          ? { tone: "info", text: `Found gallery-dl ${result.data.version}.` }
-          : { tone: "danger", text: result.error },
-      );
+      if (!result.ok) {
+        setCheck({ tone: "danger", text: result.error });
+        return;
+      }
+      setInstalled(result.data.version);
+      setCheck({ tone: "info", text: `Found gallery-dl ${result.data.version}.` });
     });
   }
 
@@ -110,8 +131,25 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
           ? { tone: "info", text: `Updated. Now running gallery-dl ${result.data.version}.` }
           : { tone: "danger", text: result.error },
       );
+      if (result.ok) setInstalled(result.data.version);
     });
   }
+
+  function onCheckCookies() {
+    setCookieCheck(null);
+    startCookieCheck(async () => {
+      const result = await checkCookies();
+      setCookieCheck(result.ok ? result.data.kind : "unknown");
+    });
+  }
+
+  const cookieMessage = cookieCheck
+    ? cookieNotice(cookieCheck, {
+        browser: browserLabel(settings.cookies.browser),
+        // Settings has no account to check, so the probe uses X, the primary site.
+        site: cookieSiteLabel("x"),
+      })
+    : null;
 
   return (
     <div className="flex max-w-2xl flex-col gap-8">
@@ -134,6 +172,18 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
           </Button>
         </div>
         {check ? <Notice tone={check.tone}>{check.text}</Notice> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
+            Look for updates
+          </Button>
+          {update?.canUpdate ? (
+            <Button variant="primary" loading={updating} onClick={onUpdate}>
+              Update now
+            </Button>
+          ) : null}
+          {installed ? <span className="text-small text-ink-2">gallery-dl {installed}</span> : null}
+        </div>
+        {update ? <Notice tone={update.tone}>{update.text}</Notice> : null}
         <div className="flex items-start gap-2">
           <TextField
             label="Media root"
@@ -151,39 +201,36 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
             </Button>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
-            Look for updates
-          </Button>
-          {update?.canUpdate ? (
-            <Button variant="primary" loading={updating} onClick={onUpdate}>
-              Update now
-            </Button>
-          ) : null}
-        </div>
-        {update ? <Notice tone={update.tone}>{update.text}</Notice> : null}
       </Group>
 
       <Group title="Session">
         <div className="flex flex-col gap-1.5">
           <span className="text-label">Cookies from</span>
-          <Segmented
-            label="Cookies from"
-            size="sm"
-            value={settings.cookies.browser}
-            onChange={(browser) =>
-              save("cookies", { cookies: { ...settings.cookies, browser: browser as CookieBrowser } })
-            }
-            options={[
-              { value: "firefox", label: "Firefox" },
-              { value: "chrome", label: "Chrome" },
-              { value: "edge", label: "Edge" },
-              { value: "none", label: "None" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Segmented
+              label="Cookies from"
+              size="sm"
+              value={settings.cookies.browser}
+              onChange={(browser) =>
+                save("cookies", { cookies: { ...settings.cookies, browser: browser as CookieBrowser } })
+              }
+              options={[
+                { value: "firefox", label: "Firefox" },
+                { value: "chrome", label: "Chrome" },
+                { value: "edge", label: "Edge" },
+                { value: "none", label: "None" },
+              ]}
+            />
+            {settings.cookies.browser === "none" ? null : (
+              <Button variant="secondary" loading={checkingCookies} onClick={onCheckCookies}>
+                Check cookies
+              </Button>
+            )}
+          </div>
           <span className="text-small text-ink-2">
             {saved === "cookies" ? <Saved /> : "Sign in to the site in this browser first. gallery-dl reads its cookies on every run."}
           </span>
+          {cookieMessage ? <Notice tone="warning">{cookieMessage}</Notice> : null}
         </div>
         <TextField
           label="Browser profile"
@@ -234,21 +281,6 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
         </div>
       </Group>
 
-      <Group title="About">
-        <p className="m-0 text-label">gather {appVersion}</p>
-        {shell ? (
-          <div>
-            <Button variant="secondary" onClick={() => void shell.openLogs()}>
-              Open the logs folder
-            </Button>
-          </div>
-        ) : null}
-        <span className="text-small text-ink-2">
-          gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
-          gather runs it for you and does not change it.
-        </span>
-      </Group>
-
       <Group title="Runs">
         <TextField
           label="History retention (runs)"
@@ -281,6 +313,23 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
             )}
           </span>
         </div>
+      </Group>
+
+      <AutomaticUpdatesForm initial={settings} />
+
+      <Group title="About">
+        <p className="m-0 text-label">gather {appVersion}</p>
+        {shell ? (
+          <div>
+            <Button variant="secondary" onClick={() => void shell.openLogs()}>
+              Open the logs folder
+            </Button>
+          </div>
+        ) : null}
+        <span className="text-small text-ink-2">
+          gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
+          gather runs it for you and does not change it.
+        </span>
       </Group>
     </div>
   );

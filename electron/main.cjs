@@ -1,5 +1,6 @@
+const fs = require("node:fs");
 const path = require("node:path");
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, shell, utilityProcess } = require("electron");
 const lib = require("./lib.cjs");
 
 const repoRoot = path.join(__dirname, "..");
@@ -26,6 +27,8 @@ let server = null;
 let serverExited = false;
 let origin = null;
 let quitting = false;
+/** Windows drops a notification whose object is garbage-collected before it is clicked. */
+let scheduledNotice = null;
 
 function pageHtml(title, body) {
   const html = `<!doctype html><meta charset="utf-8"><title>gather</title>
@@ -39,6 +42,24 @@ function showWindow() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/** The scheduled pass that just finished, as the server described it. Clicking opens History. */
+function showScheduledNotice(body) {
+  log.line(`automatic updates: ${body}`);
+  if (!Notification.isSupported()) return;
+  scheduledNotice = new Notification({ title: "gather", body, icon: iconPath });
+  scheduledNotice.on("click", () => {
+    showWindow();
+    if (win && origin) void win.loadURL(`${origin}/history`);
+  });
+  scheduledNotice.show();
+}
+
+function handleServerMessage(message) {
+  const event = lib.parseServerMessage(message);
+  if (!event) return;
+  if (event.kind === "scheduled-pass") showScheduledNotice(event.body);
 }
 
 function createWindow() {
@@ -116,6 +137,7 @@ function startServerProcess(port) {
   });
   child.stdout?.on("data", (chunk) => log.write(chunk.toString()));
   child.stderr?.on("data", (chunk) => log.write(chunk.toString()));
+  child.on("message", handleServerMessage);
   child.on("exit", (code) => {
     serverExited = true;
     log.line(`server exited with code ${code}`);
@@ -228,6 +250,24 @@ function registerIpc() {
   ipcMain.handle("gather:open-logs", async (event) => {
     if (!fromApp(event)) return;
     await shell.openPath(path.dirname(log.file));
+  });
+
+  // Only a media file inside the library folder may be trashed, whatever the page asks for.
+  ipcMain.handle("gather:trash-item", async (event, filePath) => {
+    if (!fromApp(event) || typeof filePath !== "string" || !path.isAbsolute(filePath)) return false;
+    if (!/\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$/i.test(filePath)) return false;
+    try {
+      const settings = JSON.parse(fs.readFileSync(path.join(home, "settings.json"), "utf8"));
+      const root = path.resolve(typeof settings.mediaRoot === "string" ? settings.mediaRoot : process.env.GATHER_MEDIA_ROOT);
+      const target = path.resolve(filePath);
+      const inside = path.relative(root, target);
+      if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) return false;
+      await shell.trashItem(target);
+      return true;
+    } catch (error) {
+      log.line(`could not move a file to the Recycle Bin: ${error.message}`);
+      return false;
+    }
   });
 }
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
+import { pausedAccountList, setAccountPausedAction } from "@/app/actions";
 import { moveAccount, updateAccount, updateAll } from "@/app/library/actions";
 import { FolderIcon, MoreIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -161,8 +162,41 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
   const [moveFor, setMoveFor] = useState<string | null>(null);
   const [moveName, setMoveName] = useState("");
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [paused, setPaused] = useState<string[] | null>(null);
   const [nowMs, setNowMs] = useState(now);
   const [, startTransition] = useTransition();
+
+  // The scheduler's account pauses live in the settings. One read for the whole table, before the
+  // row toggles mean anything.
+  useEffect(() => {
+    let cancelled = false;
+    pausedAccountList()
+      .then((list) => {
+        if (!cancelled) setPaused(list);
+      })
+      .catch(() => {
+        if (!cancelled) setPaused([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isPaused = (folder: string) =>
+    (paused ?? []).some((name) => name.toLowerCase() === folder.toLowerCase());
+
+  function togglePause(folder: string) {
+    const next = !isPaused(folder);
+    startTransition(async () => {
+      try {
+        const result = await setAccountPausedAction({ folder, paused: next });
+        if (result.ok) setPaused(result.data);
+        else setMessage({ tone: "danger", text: result.error });
+      } catch {
+        setMessage({ tone: "danger", text: "That account's pause couldn't be changed." });
+      }
+    });
+  }
 
   // The server's clock is the first frame's clock, so hydration matches; after mount, catch up.
   useEffect(() => {
@@ -368,10 +402,15 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
               return (
                 <div key={entry.folder} className="flex flex-col gap-2 border-b border-line py-4">
                   <div className="flex items-start justify-between gap-3">
-                    <span className="font-mono text-code">{entry.folder}</span>
+                    <Link href={`/library/${encodeURIComponent(entry.folder)}`} className="font-mono text-code underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link>
                     <RowMenu
                       label={`Actions for ${entry.folder}`}
                       actions={[
+                        {
+                          label: isPaused(entry.folder) ? "Resume updates" : "Pause updates",
+                          disabled: busy !== null || paused === null,
+                          onSelect: () => togglePause(entry.folder),
+                        },
                         { label: "Update", disabled: busy !== null, onSelect: () => update(entry.folder) },
                         { label: "Open folder", onSelect: () => openFolder(entry.folder) },
                         { label: "Move", disabled: busy !== null, onSelect: () => startMove(entry.folder) },
@@ -406,6 +445,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-small text-ink-2">
                     <span>{entry.lastRunAt ? `Last run ${relative(entry.lastRunAt)}` : "No runs yet"}</span>
                     <span>{LAYOUT_NAMES[entry.layout]}</span>
+                    {isPaused(entry.folder) ? <span>Updates paused</span> : null}
                     {busy === entry.folder ? <span className="text-warn">Starting…</span> : null}
                   </div>
                 </div>
@@ -434,7 +474,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                   return (
                     <Fragment key={entry.folder}>
                       <tr className="border-b border-line">
-                        <td className="py-3 pr-4 font-mono text-code">{entry.folder}</td>
+                        <td className="py-3 pr-4 font-mono text-code"><Link href={`/library/${encodeURIComponent(entry.folder)}`} className="underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link></td>
                         <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
                           {loaded ? formatCount(loaded.images) : "…"}
                         </td>
@@ -450,6 +490,16 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                         <td className="py-3 pr-4 text-small text-ink-2">{LAYOUT_NAMES[entry.layout]}</td>
                         <td className="py-3">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Automatic updates for ${entry.folder}`}
+                              aria-pressed={isPaused(entry.folder)}
+                              disabled={paused === null || busy !== null}
+                              onClick={() => togglePause(entry.folder)}
+                            >
+                              {isPaused(entry.folder) ? "Paused" : "Pause"}
+                            </Button>
                             <Button
                               size="sm"
                               variant="secondary"

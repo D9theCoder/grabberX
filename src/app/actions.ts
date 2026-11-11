@@ -5,19 +5,26 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { AccountHint, ActionResult, JobSpec, Settings } from "@/lib/spec";
+import type { AccountHint, ActionResult, JobSpec, Settings, SiteId } from "@/lib/spec";
+import { classifyCookieCheck } from "@/lib/cookie-check";
+import type { CookieCheckKind } from "@/lib/cookie-check";
 import { parseJobSpec } from "@/lib/spec-schema";
-import { folderNameFor, validateAccount } from "@/lib/sites";
+import { folderNameFor, siteDef, validateAccount } from "@/lib/sites";
 import { lastLine, runGalleryDl } from "@/server/gallery-dl";
 import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
 import { killTreeWindows } from "@/server/runner";
+import { refreshScheduler } from "@/server/scheduler";
 import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store";
 
 const VERSION_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_TIMEOUT_MS = 30_000;
 const UPDATE_TIMEOUT_MS = 180_000;
+const COOKIE_CHECK_TIMEOUT_MS = 20_000;
+
+/** The probe account does not have to exist: a signed-out session fails before any lookup. */
+const PROBE_ACCOUNT = "example_user";
 
 const hintInput = z.object({
   site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]),
@@ -185,6 +192,56 @@ export async function checkGalleryDl(path?: string): Promise<ActionResult<{ vers
   });
 }
 
+const cookieCheckInput = z.object({
+  site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]).optional(),
+  account: z.string().optional(),
+  // The browser this run will use, which Advanced can set apart from Settings.
+  cookies: z
+    .object({ browser: z.enum(["firefox", "chrome", "edge", "none"]), profile: z.string().max(200).optional() })
+    .optional(),
+});
+
+/**
+ * A cheap, read-only probe: one simulated file against the account's page. gallery-dl has to read
+ * the browser cookies and authenticate before it lists anything, so its exit code and the lines it
+ * printed say whether the session works. Nothing blocks the run; the answer is only a hint.
+ */
+export async function checkCookies(
+  input?: unknown,
+): Promise<ActionResult<{ kind: CookieCheckKind }>> {
+  const parsed = cookieCheckInput.safeParse(input ?? {});
+  if (!parsed.success) return { ok: false, error: "That check isn't valid." };
+  const settings = await getSettings().catch(() => undefined);
+  if (!settings) return { ok: false, error: "Those settings couldn't be read." };
+  const cookies = parsed.data.cookies ?? settings.cookies;
+  if (cookies.browser === "none") return { ok: true, data: { kind: "skipped" } };
+
+  const site: SiteId = parsed.data.site ?? "x";
+  const accountInput = parsed.data.account?.trim() ?? "";
+  const validated = accountInput ? validateAccount(site, accountInput) : null;
+  const probeUrl = validated?.ok
+    ? siteDef(site).urlFor(validated.account)
+    : `https://x.com/${PROBE_ACCOUNT}/media`;
+
+  const browser = cookies.browser;
+  const profile = cookies.profile?.trim();
+  const result = await runGalleryDl(
+    settings.galleryDlPath,
+    [
+      "--simulate",
+      "--range",
+      "1",
+      "--no-colors",
+      "--cookies-from-browser",
+      profile ? `${browser}:${profile}` : browser,
+      probeUrl,
+    ],
+    COOKIE_CHECK_TIMEOUT_MS,
+  );
+  // The output can name the user's profile path, so only the classification leaves this function.
+  return { ok: true, data: { kind: classifyCookieCheck(result) } };
+}
+
 export async function accountHint(input: unknown): Promise<AccountHint> {
   const parsed = hintInput.safeParse(input);
   if (!parsed.success) return { kind: "empty" };
@@ -258,4 +315,81 @@ export async function updateGalleryDl(): Promise<ActionResult<{ version: string 
   const version = await checkGalleryDl(settings.galleryDlPath);
   revalidatePath("/settings");
   return version.ok ? { ok: true, data: { version: version.data.version } } : version;
+}
+
+const scheduleInput = z.object({
+  enabled: z.boolean(),
+  frequency: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("daily"),
+      time: z
+        .string()
+        .trim()
+        .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "Enter a time like 03:00."),
+    }),
+    z.object({
+      kind: z.literal("everyHours"),
+      hours: z
+        .number()
+        .int("Enter whole hours.")
+        .min(1, "Run at least every hour.")
+        .max(168, "Run at most every 168 hours."),
+    }),
+  ]),
+});
+
+/** A changed schedule takes effect at once instead of after the next heartbeat. */
+async function applySchedule(): Promise<void> {
+  await refreshScheduler().catch((error: unknown) => {
+    console.error("gather: could not re-plan the automatic updates.", error);
+  });
+}
+
+export async function saveScheduleAction(input: unknown): Promise<ActionResult<Settings>> {
+  const parsed = scheduleInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those settings aren't valid." };
+  }
+  try {
+    const settings = await saveSettings({ schedule: parsed.data });
+    await applySchedule();
+    revalidatePath("/settings");
+    revalidatePath("/library");
+    return { ok: true, data: settings };
+  } catch (error) {
+    console.error("gather: could not save the automatic updates.", error);
+    return { ok: false, error: settingsError(error) };
+  }
+}
+
+export async function pausedAccountList(): Promise<string[]> {
+  const settings = await getSettings().catch(() => undefined);
+  return settings?.pausedAccounts ?? [];
+}
+
+const pauseInput = z.object({
+  folder: z.string().trim().min(1, "That account isn't in the library."),
+  paused: z.boolean(),
+});
+
+/** Pauses or resumes one account for automatic updates. Returns the whole pause list. */
+export async function setAccountPausedAction(input: unknown): Promise<ActionResult<string[]>> {
+  const parsed = pauseInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That account isn't in the library." };
+  }
+  const folder = parsed.data.folder;
+  try {
+    const settings = await getSettings();
+    const key = folder.toLowerCase();
+    const others = settings.pausedAccounts.filter((name) => name.toLowerCase() !== key);
+    const saved = await saveSettings({
+      pausedAccounts: parsed.data.paused ? [...others, folder] : others,
+    });
+    revalidatePath("/library");
+    return { ok: true, data: saved.pausedAccounts };
+  } catch (error) {
+    console.error("gather: could not change the pause for an account.", error);
+    return { ok: false, error: settingsError(error) };
+  }
 }

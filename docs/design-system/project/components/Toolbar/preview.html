@@ -1,0 +1,13 @@
+<!-- @dsCard group="Viewer" height=130 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Toolbar — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo g-demo--col"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { background: 'var(--stage)', padding: 8, borderRadius: 8 } }, h(G.Toolbar, { label: 'Viewer actions', actions: [{ label: 'Details (I)', icon: 'info', pressed: true }, { label: 'Open in Explorer', icon: 'folder' }, { label: 'Copy path', icon: 'copy' }, { label: 'Delete', icon: 'trash' }, { label: 'Fullscreen (F)', icon: 'expand' }, { label: 'Close (Esc)', icon: 'cross' }] })));
+</script>
+</body>
+</html>
