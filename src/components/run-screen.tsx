@@ -225,7 +225,7 @@ export function RunScreen({
     : null;
 
   return (
-    <main onKeyDown={onKeyDown} className="pt-12 pb-32 lg:pb-16">
+    <main onKeyDown={onKeyDown} className="pt-12 pb-40 lg:pb-16">
       {!galleryDlFound ? (
         <Notice
           tone="danger"

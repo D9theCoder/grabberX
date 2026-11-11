@@ -53,14 +53,13 @@ export function CommandPanel(props: CommandPanelProps) {
         )}
       </div>
 
-      {props.notice}
-
       <div
         className={cn(
           "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-10 max-lg:border-t max-lg:border-line max-lg:bg-paper",
           "max-lg:px-4 max-lg:py-3 sm:max-lg:px-8",
         )}
       >
+        {props.notice ? <div className="mb-2">{props.notice}</div> : null}
         {props.barSummary ? (
           <button
             type="button"
