@@ -8,7 +8,7 @@ import { LogView } from "@/components/ui/log-view";
 import { Notice } from "@/components/ui/notice";
 import { Stat } from "@/components/ui/stat";
 import { Status } from "@/components/ui/status";
-import type { RunStreamState } from "@/components/use-run-stream";
+import type { RunStreamState } from "@/components/run-stream-reducer";
 import { useNow } from "@/components/use-now";
 import { cn } from "@/lib/cn";
 import { formatElapsed, truncateMiddle } from "@/lib/format";

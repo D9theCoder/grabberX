@@ -1,71 +1,17 @@
 "use client";
 
-import { useEffect, useReducer } from "react";
-import type { LogLine } from "@/components/ui/log-view";
-import type { Counts, Run, RunStatus, StreamEvent } from "@/lib/spec";
+import { useEffect, useReducer, useState } from "react";
+import type { RunStreamState } from "@/components/run-stream-reducer";
+import { EMPTY, isTerminalStatus, reduceEvents } from "@/components/run-stream-reducer";
+import type { StreamEvent } from "@/lib/spec";
 
-const MAX_LINES = 500;
-const TERMINAL: RunStatus[] = ["done", "failed", "stopped", "interrupted"];
-
-export interface RunWait {
-  until: number;
-  attempt: number;
-  of: number;
-}
-
-export interface RunStreamState {
-  run?: Run;
-  counts: Counts;
-  currentFile?: string;
-  lines: LogLine[];
-  wait?: RunWait;
-}
-
-const EMPTY: RunStreamState = { counts: { saved: 0, skipped: 0, failed: 0 }, lines: [] };
+export type { RunStreamState, RunWait } from "@/components/run-stream-reducer";
 
 type Action = { type: "reset" } | { type: "batch"; events: StreamEvent[] };
 
-function pushLine(lines: LogLine[], line: LogLine): LogLine[] {
-  const next = lines.length >= MAX_LINES ? lines.slice(lines.length - MAX_LINES + 1) : lines.slice();
-  next.push(line);
-  return next;
-}
-
-function apply(state: RunStreamState, event: StreamEvent): RunStreamState {
-  switch (event.t) {
-    case "run":
-      return { ...state, run: event.run, counts: event.run.counts };
-    case "status":
-      return {
-        ...state,
-        run: state.run && { ...state.run, status: event.status, stepIndex: event.stepIndex },
-        wait: event.status === "running" ? state.wait : undefined,
-      };
-    case "counts":
-      return { ...state, counts: { saved: event.saved, skipped: event.skipped, failed: event.failed } };
-    case "file":
-      return {
-        ...state,
-        currentFile: event.path,
-        wait: undefined,
-        lines: pushLine(state.lines, {
-          text: event.kind === "skipped" ? `# ${event.path}` : event.path,
-          level: event.kind === "skipped" ? "skip" : "info",
-        }),
-      };
-    case "log":
-      return {
-        ...state,
-        lines: pushLine(state.lines, { text: event.line, level: event.level }),
-      };
-    case "wait":
-      return { ...state, wait: { until: Date.now() + event.seconds * 1000, attempt: event.attempt, of: event.of } };
-  }
-}
-
 function reducer(state: RunStreamState, action: Action): RunStreamState {
   if (action.type === "reset") return EMPTY;
-  return action.events.reduce(apply, state);
+  return reduceEvents(state, action.events);
 }
 
 /**
@@ -75,8 +21,17 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
 export function useRunStream(runId: string | null): RunStreamState {
   const [state, dispatch] = useReducer(reducer, EMPTY);
 
-  useEffect(() => {
+  // React re-renders immediately when a component updates its own state during render, so the previous
+  // run's panel never paints for a frame after "Run again" swaps the id. An effect would run too late.
+  // The previous id lives in state, not a ref: a render React throws away (StrictMode, interruptions) must
+  // not leave a half-applied "already reset" marker behind.
+  const [builtFor, setBuiltFor] = useState(runId);
+  if (builtFor !== runId) {
+    setBuiltFor(runId);
     dispatch({ type: "reset" });
+  }
+
+  useEffect(() => {
     if (!runId) return;
 
     let queue: StreamEvent[] = [];
@@ -100,7 +55,7 @@ export function useRunStream(runId: string | null): RunStreamState {
       queue.push(event);
       if (!frame) frame = requestAnimationFrame(flush);
       // The server closes the stream after a final status; without this EventSource would reconnect forever.
-      if (event.t === "status" && TERMINAL.includes(event.status)) source.close();
+      if (event.t === "status" && isTerminalStatus(event.status)) source.close();
     };
 
     return () => {

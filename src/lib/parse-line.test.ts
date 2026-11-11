@@ -159,6 +159,9 @@ describe("parseLine", () => {
       ["Waiting for 31 seconds until 10:00:00 (429 Too Many Requests)", 31],
       ["Waiting for 2 minutes until 14:32:10 (rate limit)", 120],
       ["Waiting for 1h 5min until 15:00:00 (rate limit)", 3900],
+      ["Waiting for 1 hour 5 minutes until 15:00:00 (rate limit)", 3900],
+      ["Waiting for 90s until 10:00:00 (rate limit)", 90],
+      ["Waiting for 45 sec until 10:00:00 (429)", 45],
     ];
     for (const [message, seconds] of cases) {
       expect(parseLine("stderr", `[twitter][info] ${message}`)).toEqual({
@@ -169,6 +172,21 @@ describe("parseLine", () => {
         of: 0,
       });
     }
+  });
+
+  it("falls back to a log line when the wait is implausibly long", () => {
+    const line = "[twitter][warning] Waiting for 2 days until 10:00:00 (rate limit)";
+    expect(parseLine("stderr", line)).toEqual({ t: "log", level: "warning", line });
+  });
+
+  it("does not read the hours of a wait that is counted in days", () => {
+    const line = "[twitter][warning] Waiting for 1 day 5 hours until 10:00:00 (rate limit)";
+    expect(parseLine("stderr", line)).toEqual({ t: "log", level: "warning", line });
+  });
+
+  it("keeps an error-level retry line as an error", () => {
+    const line = "[twitter][error] Waiting for 2 minutes until 14:32:10 (rate limit)";
+    expect(parseLine("stderr", line)).toEqual({ t: "log", level: "error", line });
   });
 
   it("keeps an unrelated wait as a log line", () => {
@@ -199,11 +217,61 @@ describe("classifyError", () => {
     ["[twitter][info] rate limit reached", "rateLimit"],
     ["[download][error] OSError: [Errno 28] No space left on device", "diskFull"],
     ["[download][error] Disk full while writing", "diskFull"],
+    ["[twitter][error] Failed to download https://pbs.twimg.com/media/403.jpg", null],
+    ["[twitter][error] Failed to fetch https://x.com/i/api/graphql/401/abc", null],
     ["[cookies][info] Extracted 129 cookies from Firefox", null],
     ["[twitter][error] Failed to download https://pbs.twimg.com/media/x.jpg", null],
   ];
 
   it.each(cases)("classifies %s", (line, expected) => {
     expect(classifyError(line)).toBe(expected);
+  });
+});
+
+describe("classifyError specificity", () => {
+  const authFailures = [
+    "[twitter][error] AuthRequired: authenticated cookies needed to access this timeline",
+    "[twitter][error] AuthenticationError: Invalid login credentials",
+    "[twitter][error] AuthorizationError: Invalid or expired cookies",
+    "[twitter][error] auth",
+    "[twitter][error] Unauthorized",
+    "[twitter][error] unauthenticated request",
+    "[twitter][info] Please log in again",
+    "[cookies][warning] cookies needed for this timeline",
+    "[twitter][warning] '401 Unauthorized' for 'https://x.com/i/api/graphql/x'",
+  ];
+
+  it.each(authFailures)("reads %s as auth", (line) => {
+    expect(classifyError(line)).toBe("auth");
+  });
+
+  // The old rule was /auth|log ?in/, so every one of these told the user to sign in again.
+  const lookalikes = [
+    "[twitter][error] Unable to retrieve Tweets from this timeline (author: @someone)",
+    "[twitter][error] authority check failed",
+    "[twitter][error] authored by @someone",
+    "[twitter][info] blogin is not a word",
+    "[twitter][info] plugin loaded",
+  ];
+
+  it.each(lookalikes)("leaves %s unclassified", (line) => {
+    expect(classifyError(line)).toBeNull();
+  });
+
+  it("lets the unambiguous cause outrank a lookalike word", () => {
+    expect(classifyError("[twitter][error] NotFoundError: Requested user could not be found")).toBe("notFound");
+    expect(classifyError("[twitter][error] NotFoundError: could not be found (author: @someone)")).toBe(
+      "notFound",
+    );
+    expect(classifyError("[twitter][warning] '429 Too Many Requests' for 'https://x.com/x'")).toBe("rateLimit");
+    expect(classifyError("[download][error] No space left on device (auth token cache)")).toBe("diskFull");
+    expect(classifyError("[twitter][error] 403 Forbidden: this account does not exist")).toBe("notFound");
+  });
+
+  it("keeps the unverified fixtures apart", () => {
+    expect(classifyError(linesOf("x-auth-error-unverified.stderr.txt")[1])).toBe("auth");
+    expect(classifyError(linesOf("x-error-notfound.stderr.txt")[1])).toBe("notFound");
+    expect(classifyError(linesOf("x-rate-limit-unverified.stderr.txt")[1])).toBe("rateLimit");
+    expect(classifyError(linesOf("x-disk-full-unverified.stderr.txt")[0])).toBe("diskFull");
   });
 });
