@@ -1,6 +1,7 @@
 import "server-only";
 import { buildCommand } from "@/lib/command";
-import { errorKindFor } from "@/lib/error-kind";
+import { pickErrorKind } from "@/lib/error-kind";
+import { classifyError } from "@/lib/parse-line";
 import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
@@ -81,7 +82,8 @@ interface ActiveRun {
   stopRequested: boolean;
   handle?: ProcessHandle;
   finished: Promise<void>;
-  errorLines: string[];
+  /** Kinds seen so far, not the lines: a verbose run can log error lines without end. */
+  errorKinds: Set<ErrorKind>;
   logBuffer: string[];
   logBytes: number;
   logChain: Promise<void>;
@@ -321,7 +323,7 @@ export class RunQueue {
       run,
       stopRequested: false,
       finished: Promise.resolve(),
-      errorLines: [],
+      errorKinds: new Set(),
       logBuffer: [],
       logBytes: 0,
       logChain: Promise.resolve(),
@@ -372,7 +374,7 @@ export class RunQueue {
       }
       if (result.exitCode !== 0) {
         await this.finalize(active, settings, "failed", {
-          errorKind: errorKindFor(active.errorLines),
+          errorKind: pickErrorKind(active.errorKinds),
         });
         return;
       }
@@ -399,7 +401,8 @@ export class RunQueue {
       case "log":
         if (event.level === "error") {
           run.counts.failed += 1;
-          active.errorLines.push(event.line);
+          const kind = classifyError(event.line);
+          if (kind) active.errorKinds.add(kind);
         }
         this.buffer(run.id, event);
         this.emit(run.id, event);
@@ -431,7 +434,6 @@ export class RunQueue {
           active.lateFlush = undefined;
           void this.flushLog(active);
         }, LOG_FLUSH_MS);
-        active.lateFlush.unref?.();
       }
       return;
     }
