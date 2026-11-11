@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import {
   checkGalleryDl,
@@ -53,12 +53,26 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [check, setCheck] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const [checking, startCheck] = useTransition();
+  const [installed, setInstalled] = useState<string | null>(null);
+  const versionAsked = useRef(false);
 
   useEffect(() => {
     if (!saved) return;
     const timer = setTimeout(() => setSaved(null), 1500);
     return () => clearTimeout(timer);
   }, [saved]);
+
+  // The installed version sits beside the update button, so show it without asking for a click.
+  // A missing or broken path stays quiet here; pressing Check is what reports it.
+  useEffect(() => {
+    if (versionAsked.current) return;
+    versionAsked.current = true;
+    void checkGalleryDl()
+      .then((result) => {
+        if (result.ok) setInstalled(result.data.version);
+      })
+      .catch(() => undefined);
+  }, []);
 
   async function save(key: FieldKey, patch: Partial<Settings>) {
     const result = await saveSettingsAction(patch);
@@ -75,11 +89,11 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
     setCheck(null);
     startCheck(async () => {
       const result = await checkGalleryDl(draft.galleryDlPath);
-      setCheck(
-        result.ok
-          ? { tone: "info", text: `Found gallery-dl ${result.data.version}.` }
-          : { tone: "danger", text: result.error },
-      );
+      if (result.ok) {
+        setInstalled(result.data.version);
+        return;
+      }
+      setCheck({ tone: "danger", text: result.error });
     });
   }
 
@@ -134,6 +148,18 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
           </Button>
         </div>
         {check ? <Notice tone={check.tone}>{check.text}</Notice> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
+            Look for updates
+          </Button>
+          {update?.canUpdate ? (
+            <Button variant="primary" loading={updating} onClick={onUpdate}>
+              Update now
+            </Button>
+          ) : null}
+          {installed ? <span className="text-small text-ink-2">gallery-dl {installed}</span> : null}
+        </div>
+        {update ? <Notice tone={update.tone}>{update.text}</Notice> : null}
         <div className="flex items-start gap-2">
           <TextField
             label="Media root"
@@ -151,17 +177,6 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
             </Button>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
-            Look for updates
-          </Button>
-          {update?.canUpdate ? (
-            <Button variant="primary" loading={updating} onClick={onUpdate}>
-              Update now
-            </Button>
-          ) : null}
-        </div>
-        {update ? <Notice tone={update.tone}>{update.text}</Notice> : null}
       </Group>
 
       <Group title="Session">
@@ -234,21 +249,6 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
         </div>
       </Group>
 
-      <Group title="About">
-        <p className="m-0 text-label">gather {appVersion}</p>
-        {shell ? (
-          <div>
-            <Button variant="secondary" onClick={() => void shell.openLogs()}>
-              Open the logs folder
-            </Button>
-          </div>
-        ) : null}
-        <span className="text-small text-ink-2">
-          gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
-          gather runs it for you and does not change it.
-        </span>
-      </Group>
-
       <Group title="Runs">
         <TextField
           label="History retention (runs)"
@@ -281,6 +281,21 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
             )}
           </span>
         </div>
+      </Group>
+
+      <Group title="About">
+        <p className="m-0 text-label">gather {appVersion}</p>
+        {shell ? (
+          <div>
+            <Button variant="secondary" onClick={() => void shell.openLogs()}>
+              Open the logs folder
+            </Button>
+          </div>
+        ) : null}
+        <span className="text-small text-ink-2">
+          gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
+          gather runs it for you and does not change it.
+        </span>
       </Group>
     </div>
   );
