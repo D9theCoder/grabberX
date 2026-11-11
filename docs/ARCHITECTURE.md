@@ -294,7 +294,7 @@ D:\Photos\p\scrapper\
 │  ├─ lib/                   shared, no Node APIs: spec.ts, sites.ts, command.ts, parse-line.ts, format.ts
 │  └─ server/                'server-only': run-queue.ts, runner.ts, store.ts, library.ts, paths.ts
 ├─ public/                   favicon only
-├─ proxy.ts                  Host-header guard (see §7)
+├─ (src/proxy.ts)            Host-header guard (see §7). Must sit inside src/, or Next ignores it.
 ├─ next.config.ts  tsconfig.json  postcss.config.mjs  package.json
 ├─ .gather/                  runtime state (git-ignored)
 ├─ .next/  node_modules/     (git-ignored)
@@ -308,7 +308,7 @@ the workspace root stays readable and `.gitignore` only needs to re-include `src
 | Risk | Mitigation |
 |---|---|
 | `next build` output tracing follows a dynamic `fs` path and pulls account folders into the trace | Media paths come from `settings.mediaRoot` at runtime, never from `path.join(process.cwd(), …)` in module scope. Add `outputFileTracingExcludes: { '*': ['./*/Image/**', './*/Video/**', './**/*.sqlite3'] }` in `next.config.ts` (rule `bundle-analyzable-paths`). |
-| Dev server file watcher walks the media folders | `tsconfig.json` `include: ["src", "proxy.ts", "next-env.d.ts", …]`, not `**/*`. Turbopack only follows the import graph. Verify in step 1 by watching CPU on `next dev`. |
+| Dev server file watcher walks the media folders | `tsconfig.json` `include: ["src", "next-env.d.ts", …]`, not `**/*`. Turbopack only follows the import graph. Verify in step 1 by watching CPU on `next dev`. |
 | An X handle equal to an app folder (`src`, `public`, `docs`, `node_modules`, `.next`, `.gather`) | `paths.ts` has a `RESERVED` set; such runs require the *Folder name* override. Library only lists folders that contain `archive.sqlite3`. |
 | Path traversal through the account or folder field | Handle validated by the site regex. Folder override must match `^[A-Za-z0-9_.-]{1,64}$`. Final path is resolved and must start with `mediaRoot + sep`. |
 | `.gitignore` rule `/*/` hides the new source folders | Add `!/src/`, `!/public/`, `!/docs/` (`docs/` is already done). |
