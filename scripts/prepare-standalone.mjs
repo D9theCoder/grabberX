@@ -1,5 +1,5 @@
 // Copies the assets `next build` leaves out of .next/standalone, so server.js can serve them itself.
-import { cp, mkdir, stat } from "node:fs/promises";
+import { cp, mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -12,6 +12,12 @@ async function exists(path) {
 if (!(await exists(join(standalone, "server.js")))) {
   console.error("No .next/standalone/server.js. Run `next build` first.");
   process.exit(1);
+}
+
+// The tracer can pull these in (instrumentation.ts, or a build that ran the queue in the project folder).
+// .gather holds run history and must never reach an installer; the rest is source the server does not read.
+for (const folder of [".gather", "src", "docs", "e2e", "scripts", "electron", "build", "release"]) {
+  await rm(join(standalone, folder), { recursive: true, force: true });
 }
 
 await mkdir(join(standalone, ".next"), { recursive: true });

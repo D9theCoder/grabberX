@@ -15,8 +15,10 @@ files:
 extraResources:
   - from: .next/standalone
     to: server
+    # The .next folder is a dot-folder and needs its own pattern. node_modules is copied by scripts/after-pack.cjs.
     filter:
       - "**/*"
+      - ".next/**/*"
   - from: build/gallery-dl
     to: gallery-dl
     filter:
@@ -24,6 +26,8 @@ extraResources:
       - LICENSE.txt
 
 asar: true
+
+afterPack: scripts/after-pack.cjs
 
 win:
   target:
