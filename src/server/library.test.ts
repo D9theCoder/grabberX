@@ -72,8 +72,8 @@ describe("listAccounts", () => {
   it("lists top-level folders that hold an archive and detects their layout", async () => {
     await touch(join(media, "username", "archive.sqlite3"));
     await touch(join(media, "username", "Image", "a.jpg"));
-    await touch(join(media, "tyearacct", "archive.sqlite3"));
-    await touch(join(media, "tyearacct", "Image", "2025", "b.jpg"));
+    await touch(join(media, "yearacct", "archive.sqlite3"));
+    await touch(join(media, "yearacct", "Image", "2025", "b.jpg"));
     await touch(join(media, "flatacct", "archive.sqlite3"));
     await touch(join(media, "flatacct", "c.jpg"));
     await touch(join(media, "src", "archive.sqlite3"));
@@ -81,10 +81,10 @@ describe("listAccounts", () => {
     await touch(join(media, "loose-file.txt"));
 
     const accounts = await listAccounts();
-    expect(accounts.map((entry) => entry.folder)).toEqual(["flatacct", "tyearacct", "username"]);
+    expect(accounts.map((entry) => entry.folder)).toEqual(["flatacct", "username", "yearacct"]);
     const byFolder = new Map(accounts.map((entry) => [entry.folder, entry]));
     expect(byFolder.get("username")?.layout).toBe("byType");
-    expect(byFolder.get("tyearacct")?.layout).toBe("byTypeYear");
+    expect(byFolder.get("yearacct")?.layout).toBe("byTypeYear");
     expect(byFolder.get("flatacct")?.layout).toBe("flat");
     expect(byFolder.get("username")?.lastRunAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });

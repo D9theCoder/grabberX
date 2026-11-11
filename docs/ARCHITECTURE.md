@@ -276,7 +276,7 @@ process-wide by design, not per-request.)
 ```
 D:\Photos\p\scrapper\
 ├─ AGENTS.md  skills-lock.json  .agents/  .claude/        (existing tooling, unchanged)
-├─ username/  yearacct/  …                              (media, git-ignored, never touched by the build)
+├─ username/  yearacct/  …                                 (media, git-ignored, never touched by the build)
 ├─ docs/                     DESIGN.md · ARCHITECTURE.md · design-system/ (tokens, brand book, component specs)
 ├─ src/
 │  ├─ app/

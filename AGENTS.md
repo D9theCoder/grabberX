@@ -65,13 +65,13 @@ npm run typecheck  # next typegen && tsc --noEmit
 
 ```
 <account>/
-  Image/            images (flat, or <YYYY>/ subfolders for yearacct)
+  Image/            images (flat, or <YYYY>/ subfolders for a year-grouped account)
   Video/            videos (always flat)
   archive.sqlite3   gallery-dl download ledger, one per account
 ```
 
-- `yearacct` = `Image\{2024,2025,2026}\` + flat `Video\`.
-- All `acct_*` and newer accounts = flat `Image\`, flat `Video\`.
+- A year-grouped account (e.g. `yearacct`) = `Image\{2024,2025,2026}\` + flat `Video\`.
+- All other accounts = flat `Image\`, flat `Video\`.
 - Filenames are `{tweet_id}_{n}.{ext}` — collision-free across any regrouping, so merging/renaming
   folders is safe and needs no de-duplication pass.
 
