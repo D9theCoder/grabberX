@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
+import { isUnchangedFolderName, updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
 
 describe("updateAllMessage", () => {
   it("counts the queued updates and names the folders that are already running", () => {
@@ -88,5 +88,16 @@ describe("updateAccountMessage", () => {
       tone: "info",
       text: "Update for username is queued. Follow it on the Run page.",
     });
+  });
+});
+
+describe("isUnchangedFolderName", () => {
+  it("lets a case-only rename through to the server", () => {
+    expect(isUnchangedFolderName("username", "Username")).toBe(false);
+  });
+
+  it("flags only an identical name as unchanged", () => {
+    expect(isUnchangedFolderName("username", "username")).toBe(true);
+    expect(isUnchangedFolderName("username", "other")).toBe(false);
   });
 });

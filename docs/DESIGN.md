@@ -274,7 +274,10 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
 - Sort by last run (default), name, or size. A search box filters as you type.
 - Row actions: `Update` (starts a run with the account's saved settings and "Stop when caught up"
   on, but only when the account's last real run finished `done` without a range; after a failed or
-  stopped run it walks the whole account so the backlog is not skipped), `Open folder`, and an overflow menu with "Use as new run" (fills the form).
+  stopped run it walks the whole account so the backlog is not skipped), `Open folder`, and an
+  overflow menu with `Move` (inline rename form; refuses while a run is queued or running for
+  either name, and when the target exists — files and the archive never re-download after a move)
+  and "Use as new run" (fills the form).
 - Accounts are detected as top-level folders that contain `archive.sqlite3`, so app folders
   (`src`, `public`, `node_modules`…) never appear.
 - Empty state: "No accounts yet. Your first download will show up here."

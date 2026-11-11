@@ -1,5 +1,5 @@
 import "server-only";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   AccountHint,
@@ -154,6 +154,82 @@ export async function getAccountStats(folder: string): Promise<AccountStats> {
   const settings = await getSettings();
   const dir = resolveAccountDir(settings.mediaRoot, folder);
   return accountStats(folder, dir);
+}
+
+/** Windows refuses a rename while something holds the folder open (Explorer, an indexer); usually transient. */
+const RENAME_BACKOFF_MS = [0, 150, 450];
+
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  let lastError: unknown = new Error("rename never ran");
+  for (const delay of RENAME_BACKOFF_MS) {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (code !== "EPERM" && code !== "EBUSY") throw error;
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Renames an account folder inside the media root. A same-drive rename is instant even for
+ * gigabytes, and the archive ledger is path-independent, so a moved account never re-downloads.
+ * Throws messages meant to be shown to the user as-is.
+ */
+export async function moveAccountFolder(from: string, to: string): Promise<void> {
+  const source = from.trim();
+  const target = to.trim();
+  if (source === target) {
+    throw new Error(`"${target}" is already this folder's name. Type a different name.`);
+  }
+  if (!isValidFolderName(source) || isReserved(source)) {
+    throw new Error(`"${source}" isn't a folder in the library.`);
+  }
+  if (!isValidFolderName(target)) throw new Error(FOLDER_NAME_MESSAGE);
+  if (isReserved(target)) {
+    throw new Error(`"${target}" is used by the app itself. Choose a different folder name.`);
+  }
+
+  const settings = await getSettings();
+  const sourceDir = resolveAccountDir(settings.mediaRoot, source);
+  const targetDir = resolveAccountDir(settings.mediaRoot, target);
+
+  // A run writing into either name would strand its files, or reopen the old archive, on one side
+  // of the move. A run caught between its enqueue claim and its queue registration could still slip
+  // past this check; that window is a single request, not worth a cross-module lock yet.
+  for (const folder of [source, target]) {
+    if (runQueue.findActive(folder)) {
+      throw new Error(
+        `An update for ${folder} is queued or running. Wait for it to finish, then move again.`,
+      );
+    }
+  }
+
+  if (!(await isDirectory(sourceDir))) {
+    throw new Error(`"${source}" isn't a folder in the library anymore. Refresh and try again.`);
+  }
+
+  // A case-only rename would trip the existence check on Windows, where asking for the target
+  // finds the source. The file system treats it as a rename regardless.
+  const caseOnly = source.toLowerCase() === target.toLowerCase();
+  if (!caseOnly && (await isDirectory(targetDir))) {
+    throw new Error(`"${target}" already exists. Choose a different folder name.`);
+  }
+
+  try {
+    await renameWithRetry(sourceDir, targetDir);
+  } catch (error) {
+    console.error(`gather: could not move ${source} to ${target}.`, error);
+    throw new Error(`"${source}" couldn't be moved. Close anything using the folder and try again.`);
+  } finally {
+    // Both keys, in case an earlier folder held cached stats under the target's name.
+    statsCache.delete(source);
+    statsCache.delete(target);
+  }
 }
 
 interface FolderState {
