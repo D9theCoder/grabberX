@@ -105,7 +105,6 @@ export function RunForm(props: RunFormProps) {
       <Section title="Source">
         <Segmented
           label="Site"
-          scrollOnNarrow
           value={spec.site}
           onChange={(value) => props.onSite(value as SiteId)}
           options={SITES.map((entry) => ({
@@ -218,9 +217,15 @@ export function RunForm(props: RunFormProps) {
             </div>
           </div>
         ) : null}
-        <p className="m-0 truncate font-mono text-code text-ink" title={layoutPathPreview(spec.layout, props.folderName, "image")}>
-          {truncateMiddle(layoutPathPreview(spec.layout, props.folderName, "image"), 56)}
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-small text-ink-2">Example file</span>
+          <span
+            className="min-w-0 truncate font-mono text-code text-ink"
+            title={layoutPathPreview(spec.layout, props.folderName, "image")}
+          >
+            {truncateMiddle(layoutPathPreview(spec.layout, props.folderName, "image"), 56)}
+          </span>
+        </div>
         {layoutMismatch ? (
           <Notice tone="warning">
             Existing files use a different layout. They won&apos;t be moved. New files go to the new layout, and
