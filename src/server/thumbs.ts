@@ -17,7 +17,11 @@ let sharpModule: Promise<Sharp | null> | null = null;
 /** sharp ships native binaries. If they fail to load, thumbnails switch off and the grid scales the original. */
 function loadSharp(): Promise<Sharp | null> {
   sharpModule ??= import("sharp")
-    .then((module) => module.default)
+    .then((module) => {
+      // sharp keeps decoded files in a cache and holds their handles; on Windows that blocks deleting or moving them.
+      module.default.cache(false);
+      return module.default;
+    })
     .catch((error: unknown) => {
       console.error("gather: sharp could not be loaded, thumbnails are off.", error);
       return null;
