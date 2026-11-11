@@ -12,7 +12,12 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatCount, formatRelative } from "@/lib/format";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import type { AccountStats, DetectedLayout, LibraryEntry } from "@/lib/spec";
-import { moveAccountMessage, updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
+import {
+  isUnchangedFolderName,
+  moveAccountMessage,
+  updateAccountMessage,
+  updateAllMessage,
+} from "@/lib/update-messages";
 
 interface Row {
   entry: LibraryEntry;
@@ -251,7 +256,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
       setMoveError("Enter a folder name.");
       return;
     }
-    if (target.toLowerCase() === folder.toLowerCase()) {
+    if (isUnchangedFolderName(folder, target)) {
       setMoveError("That's already this folder's name.");
       return;
     }

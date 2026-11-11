@@ -29,6 +29,14 @@ export function updateAccountMessage(folder: string, data: UpdateAccountData): U
   };
 }
 
+/**
+ * True when the requested name is exactly the current one. Case matters on purpose: the server supports a
+ * case-only rename (`acct` to `Acct`) even though Windows treats both names as the same folder.
+ */
+export function isUnchangedFolderName(current: string, requested: string): boolean {
+  return current === requested;
+}
+
 /** Copy for a Library move, shared by the table so tests can pin the wording. */
 export function moveAccountMessage(from: string, to: string): UpdateMessage {
   return { tone: "info", text: `Moved ${from} to ${to}.` };
