@@ -8,6 +8,7 @@ import {
   appendLog,
   getRun,
   getSettings,
+  isConfigured,
   isValidRunId,
   listRuns,
   pruneRuns,
@@ -58,7 +59,28 @@ function makeRun(id: string, startedAt?: string, status: RunStatus = "done"): Ru
   };
 }
 
+describe("isConfigured", () => {
+  it("is false until settings are saved, then true", async () => {
+    expect(await isConfigured()).toBe(false);
+    await saveSettings({ concurrency: 2 });
+    expect(await isConfigured()).toBe(true);
+  });
+});
+
 describe("getSettings", () => {
+  it("takes the default paths from the environment the shell provides", async () => {
+    process.env.GATHER_MEDIA_ROOT = join(sandbox, "library");
+    process.env.GATHER_GALLERY_DL = join(sandbox, "bin", "gallery-dl.exe");
+    try {
+      const settings = await getSettings();
+      expect(settings.mediaRoot).toBe(join(sandbox, "library"));
+      expect(settings.galleryDlPath).toBe(join(sandbox, "bin", "gallery-dl.exe"));
+    } finally {
+      delete process.env.GATHER_MEDIA_ROOT;
+      delete process.env.GATHER_GALLERY_DL;
+    }
+  });
+
   it("returns the documented defaults when nothing is saved", async () => {
     const settings = await getSettings();
     expect(settings.galleryDlPath).toBe("C:\\tools\\gallery-dl.exe");

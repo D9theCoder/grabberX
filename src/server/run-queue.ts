@@ -1,4 +1,5 @@
 import "server-only";
+import { mkdir } from "node:fs/promises";
 import { buildCommand } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
@@ -313,6 +314,8 @@ export class RunQueue {
   }
 
   private async beginRun(run: Run, settings: Settings): Promise<void> {
+    // spawn() reports a missing working directory as ENOENT, which would read as "gallery-dl not found".
+    await mkdir(settings.mediaRoot, { recursive: true }).catch(() => {});
     run.status = "running";
     run.startedAt = new Date().toISOString();
     run.stepIndex = 0;

@@ -15,7 +15,8 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
 import { compareRunIds } from "@/lib/run-order";
-import { isDeviceName } from "@/server/paths";
+import { envAppDir, envGalleryDl, envHome, envMediaRoot } from "@/server/env";
+import { assertSafeMediaRoot, isDeviceName } from "@/server/paths";
 import type { Counts, Run, Settings } from "@/lib/spec";
 
 /** A History page never needs more of a log than this, and a run can write many megabytes. */
@@ -82,9 +83,15 @@ function assertRunId(id: string): void {
   }
 }
 
-function gatherHome(): string {
+export function gatherHome(): string {
   // The app only runs locally via `next start`; there is no deployment bundle for the tracer to size.
-  return resolve(/*turbopackIgnore: true*/ process.env.GATHER_HOME ?? join(process.cwd(), ".gather"));
+  return resolve(/*turbopackIgnore: true*/ envHome() ?? join(process.cwd(), ".gather"));
+}
+
+/** False until the first settings save, so the UI can send a new user to the setup screen. */
+export async function isConfigured(): Promise<boolean> {
+  const info = await stat(settingsFile()).catch(() => null);
+  return info?.isFile() ?? false;
 }
 
 function runsDir(): string {
@@ -137,8 +144,8 @@ function logFile(id: string): string {
 
 function defaults(): Settings {
   return {
-    galleryDlPath: "C:\\tools\\gallery-dl.exe",
-    mediaRoot: process.cwd(),
+    galleryDlPath: envGalleryDl() ?? "C:\\tools\\gallery-dl.exe",
+    mediaRoot: envMediaRoot() ?? process.cwd(),
     cookies: { browser: "firefox" },
     defaultMedia: "all",
     defaultLayout: { kind: "byType" },
@@ -240,6 +247,10 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
   if (!root?.isDirectory()) {
     throw new Error(`The media folder ${next.mediaRoot} doesn't exist.`);
   }
+  assertSafeMediaRoot(
+    next.mediaRoot,
+    [envAppDir(), gatherHome()].filter((dir): dir is string => dir !== undefined),
+  );
   await writeAtomic(settingsFile(), `${JSON.stringify(next, null, 2)}\n`);
   return next;
 }

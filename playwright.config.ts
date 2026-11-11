@@ -5,6 +5,10 @@ import { defineConfig, devices } from "@playwright/test";
  * fine on the server and still crash in the browser (e.g. a bad promise prop), which neither
  * `npm test` nor `curl` would catch.
  */
+// Point E2E_BASE_URL at an already-running server (for example the packaged app) to skip the dev server.
+const externalBaseURL = process.env.E2E_BASE_URL;
+const baseURL = externalBaseURL ?? "http://127.0.0.1:3210";
+
 export default defineConfig({
   testDir: "./e2e",
   // A cold Turbopack dev server compiles each route on first request; give that room before failing.
@@ -16,14 +20,16 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:3210",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run dev",
-    url: "http://127.0.0.1:3210",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: externalBaseURL
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 });

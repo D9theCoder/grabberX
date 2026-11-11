@@ -37,6 +37,18 @@ export function isReserved(folder: string): boolean {
 }
 
 /**
+ * Throws when `mediaRoot` is a place downloads must never go: somewhere an update or uninstall
+ * would wipe, or somewhere that mixes media with the app's own state. `protectedDirs` are the
+ * install directory and the state folder (GATHER_HOME) when the shell provides them.
+ */
+export function assertSafeMediaRoot(mediaRoot: string, protectedDirs: readonly string[]): void {
+  // TODO(human): decide which locations are unsafe and throw an Error with a message the Settings
+  // page can show as-is.
+  void mediaRoot;
+  void protectedDirs;
+}
+
+/**
  * The one place a media path is turned into an absolute path. Throws instead of returning a
  * path outside `mediaRoot`, so a bad handle can never write outside the media tree.
  */
