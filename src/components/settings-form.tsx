@@ -153,7 +153,7 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
-            Check for gallery-dl updates
+            Look for updates
           </Button>
           {update?.canUpdate ? (
             <Button variant="primary" loading={updating} onClick={onUpdate}>

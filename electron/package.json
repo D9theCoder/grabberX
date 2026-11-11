@@ -1,0 +1,12 @@
+{
+  "name": "gather",
+  "productName": "Gather",
+  "version": "0.1.0",
+  "description": "A local front end for gallery-dl.",
+  "author": "gather",
+  "private": true,
+  "main": "main.cjs",
+  "dependencies": {
+    "electron-updater": "^6.8.0"
+  }
+}

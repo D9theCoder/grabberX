@@ -16,6 +16,8 @@
 /.next/
 /out/
 /release/
+/electron/node_modules/
+/build/gallery-dl/
 *.tsbuildinfo
 next-env.d.ts
 .env*

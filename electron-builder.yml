@@ -1,0 +1,49 @@
+appId: app.gather.desktop
+productName: Gather
+copyright: gather
+
+directories:
+  app: electron
+  buildResources: build
+  output: release
+
+# Only the shell goes into app.asar. The Next server and gallery-dl travel as plain files in resources/.
+files:
+  - "**/*"
+  - "!**/*.test.*"
+
+extraResources:
+  - from: .next/standalone
+    to: server
+    filter:
+      - "**/*"
+  - from: build/gallery-dl
+    to: gallery-dl
+    filter:
+      - gallery-dl.exe
+      - LICENSE.txt
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.ico
+  # Unsigned builds show a SmartScreen warning. Add a certificate (CSC_LINK, CSC_KEY_PASSWORD) before wide release.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  # The library and %APPDATA%\gather hold the user's downloads and settings: an uninstall must never delete them.
+  deleteAppDataOnUninstall: false
+  artifactName: Gather-Setup-${version}.${ext}
+
+# To enable auto-update, publish releases to GitHub and add:
+# publish:
+#   provider: github
+#   owner: <account>
+#   repo: <repository>
