@@ -33,6 +33,21 @@ for (const { path, heading } of [
   });
 }
 
+test("no page scrolls sideways at 390 px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  for (const path of ["/", "/library", "/history", "/settings"]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    // A single wide element (the old top-bar link, a segmented control) pushes the whole page
+    // sideways on a phone; nothing should ever be wider than the viewport.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(overflow, `${path} is wider than the viewport`).toBeLessThanOrEqual(0);
+  }
+});
+
 test("library rows fill in their stats instead of staying on the spinner", async ({ page }) => {
   const errors: Error[] = [];
   page.on("pageerror", (error) => errors.push(error));
@@ -46,5 +61,32 @@ test("library rows fill in their stats instead of staying on the spinner", async
   if (await empty.isVisible()) return;
 
   await expect(page.getByRole("cell", { name: "…" })).toHaveCount(0, { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test("the cookie warning renders without a client error", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+
+  await page.goto("/settings");
+  const check = page.getByRole("button", { name: "Check cookies" });
+  test.skip((await check.count()) === 0, "cookies are turned off in this profile");
+
+  // The probe is a server action; wait for its POST and for the button to leave its busy state,
+  // otherwise the notice may not have rendered yet.
+  const replied = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().includes("/settings"),
+  );
+  await check.click();
+  await replied;
+  await expect(check).not.toHaveAttribute("aria-busy", "true");
+
+  // A readable browser with a signed-in site shows no warning at all; either outcome is healthy.
+  const warning = page.getByText(/can't read .*cookies|look signed out/);
+  if ((await warning.count()) === 0) {
+    test.skip(true, "this browser's cookies are readable and signed in");
+  }
+
+  await expect(warning.first()).toBeVisible();
   expect(errors).toEqual([]);
 });

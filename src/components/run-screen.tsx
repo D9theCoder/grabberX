@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import type { KeyboardEvent } from "react";
-import { accountHint, runAgain, startRun } from "@/app/actions";
+import { accountHint, checkCookies, runAgain, startRun } from "@/app/actions";
 import { CommandPanel } from "@/components/command-panel";
 import { RunForm } from "@/components/run-form";
 import { RunPanel } from "@/components/run-panel";
@@ -11,6 +11,8 @@ import { Notice } from "@/components/ui/notice";
 import { Status } from "@/components/ui/status";
 import { useRunStream } from "@/components/use-run-stream";
 import { buildCommand, formatCommand } from "@/lib/command";
+import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
+import type { CookieCheckKind } from "@/lib/cookie-check";
 import { changedAdvancedKeys, datePresetRange, templateToSegments } from "@/lib/form-helpers";
 import type { DatePreset, LayoutKind } from "@/lib/form-helpers";
 import { formatCount } from "@/lib/format";
@@ -54,6 +56,7 @@ export function RunScreen({
   const [queuedAhead, setQueuedAhead] = useState<number | null>(null);
   const [pending, setPending] = useState<"preview" | "download" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cookieCheck, setCookieCheck] = useState<CookieCheckKind | null>(null);
   const [, startSubmit] = useTransition();
   const [runAgainPending, startRunAgain] = useTransition();
 
@@ -154,9 +157,22 @@ export function RunScreen({
     if (spec.layout.kind === "custom") patchSpec({ layout: layoutFor("custom", text) });
   }
 
+  // Runs beside the run request, never in front of it: the warning appears when it arrives, and
+  // the run still starts because public accounts work without a login.
+  function probeCookies() {
+    if (settings.cookies.browser === "none" || !account) return;
+    void checkCookies({ site: spec.site, account })
+      .then((result) => {
+        if (result.ok) setCookieCheck(result.data.kind);
+      })
+      .catch(() => undefined);
+  }
+
   function submit(simulate: boolean) {
     if (reason !== null || pending !== null) return;
     setError(null);
+    setCookieCheck(null);
+    probeCookies();
     setPending(simulate ? "preview" : "download");
     startSubmit(async () => {
       const result = await startRun({ ...effectiveSpec, simulate });
@@ -201,8 +217,15 @@ export function RunScreen({
       </>
     ) : null;
 
+  const cookieMessage = cookieCheck
+    ? cookieNotice(cookieCheck, {
+        browser: browserLabel(settings.cookies.browser),
+        site: cookieSiteLabel(spec.site),
+      })
+    : null;
+
   return (
-    <main onKeyDown={onKeyDown} className="pt-12 pb-32 lg:pb-16">
+    <main onKeyDown={onKeyDown} className="pt-12 pb-40 lg:pb-16">
       {!galleryDlFound ? (
         <Notice
           tone="danger"
@@ -258,6 +281,22 @@ export function RunScreen({
             pending={pending}
             error={error}
             queuedNote={queuedNote}
+            notice={
+              cookieMessage ? (
+                <Notice
+                  tone="warning"
+                  action={
+                    cookieCheck === "unreadable" ? (
+                      <Link href="/settings" className="font-medium underline underline-offset-2">
+                        Open Settings
+                      </Link>
+                    ) : undefined
+                  }
+                >
+                  {cookieMessage}
+                </Notice>
+              ) : undefined
+            }
             barSummary={barSummary}
             onPreview={() => submit(true)}
             onDownload={() => submit(false)}
