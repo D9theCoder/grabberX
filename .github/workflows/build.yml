@@ -29,6 +29,19 @@ jobs:
           npx playwright install chromium
           npm run test:e2e
 
+      # Every push to main is a release: bump the patch version in all four files, commit it back, then build with it.
+      # The bump commit is pushed with GITHUB_TOKEN, which GitHub never re-triggers a workflow for, so there is no loop.
+      - name: Bump the version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com"
+          npm version patch --no-git-tag-version
+          (cd electron && npm version "$(node -p "require('../package.json').version")" --no-git-tag-version --allow-same-version)
+          git commit -am "Release $(node -p "require('./package.json').version")"
+          git push
+
       # The update target is this repository, so no owner or name is hardcoded. Without the signing secrets the
       # empty values below mean "unsigned"; add CSC_LINK (base64 .pfx) and CSC_KEY_PASSWORD to sign the installer.
       - name: Build the installer
@@ -59,10 +72,18 @@ jobs:
             release/Gather-Setup-*.exe.blockmap
             release/latest.yml
 
-      - name: Publish a release for a version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish a release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # latest.yml and the blockmap are what the installed app reads to find and download an update.
-        run: gh release create "${{ github.ref_name }}" (Get-ChildItem release\Gather-Setup-*.exe, release\Gather-Setup-*.exe.blockmap, release\latest.yml) --generate-notes
+        # On main the tag is created here, pointing at the bump commit; a pushed v* tag is released as it is.
+        run: |
+          $version = node -p "require('./package.json').version"
+          $files = Get-ChildItem release\Gather-Setup-*.exe, release\Gather-Setup-*.exe.blockmap, release\latest.yml
+          if ("${{ github.ref }}" -like 'refs/tags/v*') {
+            gh release create "${{ github.ref_name }}" $files --generate-notes
+          } else {
+            gh release create "v$version" $files --generate-notes --target (git rev-parse HEAD)
+          }

@@ -58,7 +58,7 @@ npm run test:e2e:packaged
 ```
 
 How it is packaged is written up in [docs/PACKAGING.md](docs/PACKAGING.md), and the design decisions are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Releases are built by GitHub Actions when a `v*` tag is pushed.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Every push to `main` is built by GitHub Actions, which bumps the patch version and publishes a release.
 
 ## Responsible use
 
