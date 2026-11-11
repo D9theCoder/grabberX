@@ -60,7 +60,8 @@ function directoryFor(
     case "byType":
       return [folder, typeFolder];
     case "byTypeYear":
-      return [folder, typeFolder, "{date:%Y}"];
+      // Videos stay flat, as in the existing year-grouped accounts (yearacct) and the layout previews.
+      return media === "videos" ? [folder, typeFolder] : [folder, typeFolder, "{date:%Y}"];
     case "byMonth":
       return [folder, "{date:%Y-%m}"];
     case "flat":

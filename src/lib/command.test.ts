@@ -128,7 +128,7 @@ describe("buildCommand: layout", () => {
     [
       { kind: "byTypeYear" },
       ["username", "Image", "{date:%Y}"],
-      ["username", "Video", "{date:%Y}"],
+      ["username", "Video"],
     ],
     [
       { kind: "byMonth" },
