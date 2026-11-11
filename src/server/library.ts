@@ -36,32 +36,6 @@ async function mtimeMsOrZero(path: string): Promise<number> {
   return info?.mtimeMs ?? 0;
 }
 
-async function walk(dir: string): Promise<{ files: number; bytes: number }> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return { files: 0, bytes: 0 };
-  }
-  let files = 0;
-  let bytes = 0;
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const nested = await walk(full);
-      files += nested.files;
-      bytes += nested.bytes;
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    const info = await stat(full).catch(() => null);
-    if (!info) continue;
-    files += 1;
-    bytes += info.size;
-  }
-  return { files, bytes };
-}
-
 async function detectLayout(dir: string): Promise<DetectedLayout> {
   if (await isDirectory(join(dir, "Image"))) {
     const entries = await readdir(join(dir, "Image"), { withFileTypes: true }).catch(() => []);
@@ -79,7 +53,11 @@ async function detectLayout(dir: string): Promise<DetectedLayout> {
 const IMAGE_EXTENSION = /\.(jpe?g|png|webp)$/i;
 const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v)$/i;
 
-/** For layouts without Image/ and Video/ folders (flat, by month, custom): count by file extension. */
+/**
+ * The one counting rule for every layout. Counting by extension keeps `.json` sidecars (`--write-metadata`)
+ * and `.part` leftovers out, so a by-type account and a flat account with the same media report the same
+ * numbers.
+ */
 async function walkByExtension(dir: string): Promise<AccountStats> {
   const totals: AccountStats = { images: 0, videos: 0, bytes: 0 };
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -131,10 +109,16 @@ async function accountStats(folder: string, dir: string): Promise<AccountStats> 
   const cached = statsCache.get(folder);
   if (cached && cached.signature === signature) return cached.stats;
 
+  // Typed accounts count only their Image/ and Video/ folders: the cache signature covers just those,
+  // and anything else under the account folder (a manual export, a backup) is not downloaded media.
   let stats: AccountStats;
   if (typed) {
-    const [images, videos] = await Promise.all([walk(imageDir), walk(videoDir)]);
-    stats = { images: images.files, videos: videos.files, bytes: images.bytes + videos.bytes };
+    const [images, videos] = await Promise.all([walkByExtension(imageDir), walkByExtension(videoDir)]);
+    stats = {
+      images: images.images + videos.images,
+      videos: images.videos + videos.videos,
+      bytes: images.bytes + videos.bytes,
+    };
   } else {
     stats = await walkByExtension(dir);
   }

@@ -210,4 +210,48 @@ describe("getAccountStats: layouts and cache", () => {
 
     await expect(getAccountStats("year_acct")).resolves.toMatchObject({ images: 2 });
   });
+
+  it("counts only media in a by-type account, ignoring .json and .part files", async () => {
+    const typed = join(media, "typed_extras");
+    await touch(join(typed, "Image", "1_1.jpg"), "aaaa");
+    await touch(join(typed, "Image", "1_1.jpg.json"), "{}");
+    await touch(join(typed, "Image", "2_1.jpg.part"), "xx");
+    await touch(join(typed, "Image", "3_1.jpg.part-Frag3"), "x");
+    await touch(join(typed, "Video", "4_1.mp4"), "bb");
+    await touch(join(typed, "Video", "4_1.mp4.json"), "{}");
+    await touch(join(typed, "archive.sqlite3"), "db");
+
+    await expect(getAccountStats("typed_extras")).resolves.toEqual({
+      images: 1,
+      videos: 1,
+      bytes: 6,
+    });
+  });
+
+  it("ignores media outside Image/ and Video/ in a by-type account", async () => {
+    const typed = join(media, "typed_backup");
+    await touch(join(typed, "Image", "1_1.jpg"), "aaaa");
+    await touch(join(typed, "Video", "4_1.mp4"), "bb");
+    await touch(join(typed, "export", "old.jpg"), "zzzzzz");
+    await touch(join(typed, "loose.mp4"), "zz");
+
+    await expect(getAccountStats("typed_backup")).resolves.toEqual({ images: 1, videos: 1, bytes: 6 });
+  });
+
+  it("reports the same numbers for the same files in a flat account", async () => {
+    const flat = join(media, "flat_extras");
+    await touch(join(flat, "1_1.jpg"), "aaaa");
+    await touch(join(flat, "1_1.jpg.json"), "{}");
+    await touch(join(flat, "2_1.jpg.part"), "xx");
+    await touch(join(flat, "3_1.jpg.part-Frag3"), "x");
+    await touch(join(flat, "4_1.mp4"), "bb");
+    await touch(join(flat, "4_1.mp4.json"), "{}");
+    await touch(join(flat, "archive.sqlite3"), "db");
+
+    await expect(getAccountStats("flat_extras")).resolves.toEqual({
+      images: 1,
+      videos: 1,
+      bytes: 6,
+    });
+  });
 });
