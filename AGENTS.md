@@ -1,9 +1,37 @@
 # AGENTS.md
 
-Media-scraping workspace, **not a code repo**. No build, tests, or lint. Content is downloaded
-X/Twitter media organized per account. The only tool is `gallery-dl`. Git is initialized solely to
-version `AGENTS.md`, `.agents/`, and `skills-lock.json` — all media folders are git-ignored via
-`/*/` in `.gitignore`, so never `git add -A` media or assume account folders are tracked.
+Media-scraping workspace with a small Next.js app, **gather**, in the same root. Content is downloaded
+X/Twitter media organized per account, using `gallery-dl` (directly in a terminal, or through gather).
+Git versions the app (`src/`, `public/`, `docs/`, config files), `AGENTS.md`, `.agents/`, and
+`skills-lock.json`. All media folders are git-ignored via `/*/` in `.gitignore` (the app folders are
+re-included one by one), so never `git add -A` blindly and never assume account folders are tracked.
+
+## The gather app
+
+Local front end that builds the `gallery-dl` commands below from a form and runs them. Read
+`docs/DESIGN.md` (screens, copy, states), `docs/ARCHITECTURE.md` (data model, ADRs) and
+`docs/design-system/` (tokens and component specs) before changing it.
+
+```powershell
+npm run dev        # next dev -H 127.0.0.1 -p 3210
+npm run build; npm start   # production, same host and port
+npm test           # vitest: pure logic, runner (fake exe), queue, routes
+npm run typecheck  # next typegen && tsc --noEmit
+```
+
+- It binds to `127.0.0.1:3210` only. `src/proxy.ts` rejects any other `Host`. With a `src/` folder,
+  Next ignores a `proxy.ts` at the repo root, so keep it inside `src/`.
+- `src/lib/` is pure and shared with the browser (`command.ts` builds argv, `parse-line.ts` reads
+  output). `src/server/` is `server-only` (queue, runner, `.gather/` state). Run records live in
+  `.gather/` (git-ignored); the app never opens an `archive.sqlite3` for writing.
+- Cache Components is off on purpose (ADR-8). Every page that reads live state exports
+  `dynamic = "force-dynamic"`, otherwise Next prerenders it at build time.
+- `buildCommand` output for the default settings must equal the commands under "Command shape"
+  (`src/lib/command.test.ts` checks this). Change one, change the other.
+- Stop runs `taskkill /T /F` on the gallery-dl process tree, then deletes `*.part` files; do not
+  replace it with `child.kill()` (the PyInstaller bootloader would survive).
+- Account folders and app folders share the root: `src`, `public`, `docs`, `node_modules`, and every
+  dot-folder are reserved names (`src/server/paths.ts`).
 
 ## Environment (verified)
 
@@ -90,3 +118,13 @@ Get-ChildItem "<acct>\Image" -File | ForEach-Object { $i=[System.Drawing.Image]:
 `.claude/skills/gallery-dl`. `skills-lock.json` pins its upstream hash — edit the real file under
 `.agents/`, not the link. Load it before adopting any gallery-dl workflow; its generic advice is a starting
 point, the per-account conventions above override it.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

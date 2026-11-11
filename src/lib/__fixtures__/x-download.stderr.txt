@@ -1,0 +1,2 @@
+[cookies][info] Extracted 129 cookies from Firefox
+[twitter][info] Initializing client transaction keys

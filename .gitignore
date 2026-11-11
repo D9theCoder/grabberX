@@ -3,6 +3,21 @@
 /*/
 !/.agents/
 !/.claude/
+!/docs/
+!/src/
+!/public/
+
+# Next.js app
+/node_modules/
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+.env*
+npm-debug.log*
+
+# gather runtime state (settings, run records, logs)
+/.gather/
 
 # gallery-dl state and debris (belt-and-braces if a folder is un-ignored)
 **/archive.sqlite3

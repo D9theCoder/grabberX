@@ -1,0 +1,19 @@
+<!-- @dsCard group="Run" height=120 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Status — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo" style="gap:12px 28px"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+  h(G.Status, { state: 'queued' }, '1 ahead'),
+  h(G.Status, { state: 'running' }, 'username · 02:14'),
+  h(G.Status, { state: 'done' }, '312 new'),
+  h(G.Status, { state: 'failed' }, 'login needed'),
+  h(G.Status, { state: 'stopped' }),
+  h(G.Status, { state: 'interrupted' })));
+</script>
+</body>
+</html>
