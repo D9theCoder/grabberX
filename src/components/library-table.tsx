@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatCount, formatRelative } from "@/lib/format";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import type { AccountStats, DetectedLayout, LibraryEntry } from "@/lib/spec";
+import { updateAccountMessage, updateAllMessage } from "@/lib/update-messages";
 
 interface Row {
   entry: LibraryEntry;
@@ -65,13 +66,18 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
     setBusy(folder);
     setMessage(null);
     startTransition(async () => {
-      const result = await updateAccount(folder);
-      setMessage(
-        result.ok
-          ? { tone: "info", text: `Update for ${folder} is queued. Follow it on the Run page.` }
-          : { tone: "danger", text: result.error },
-      );
-      setBusy(null);
+      try {
+        const result = await updateAccount(folder);
+        setMessage(
+          result.ok
+            ? updateAccountMessage(folder, result.data)
+            : { tone: "danger", text: result.error },
+        );
+      } catch {
+        setMessage({ tone: "danger", text: "The update couldn't be started." });
+      } finally {
+        setBusy(null);
+      }
     });
   }
 
@@ -79,26 +85,28 @@ export function LibraryTable({ rows }: { rows: Row[] }) {
     setBusy("*");
     setMessage(null);
     startTransition(async () => {
-      const result = await updateAll();
-      if (result.ok) {
-        const { started, skipped } = result.data;
-        setMessage({
-          tone: skipped.length ? "danger" : "info",
-          text:
-            `${formatCount(started)} updates queued.` +
-            (skipped.length ? ` Skipped: ${skipped.join(", ")}.` : ""),
-        });
+      try {
+        const result = await updateAll();
+        setMessage(
+          result.ok
+            ? updateAllMessage(result.data)
+            : { tone: "danger", text: result.error },
+        );
+      } catch {
+        setMessage({ tone: "danger", text: "The updates couldn't be started." });
+      } finally {
+        setBusy(null);
       }
-      setBusy(null);
     });
   }
 
   function openFolder(folder: string) {
+    // A failed open is not worth a message here, but it must not become an unhandled rejection.
     void fetch("/api/open-folder", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder }),
-    });
+    }).catch(() => undefined);
   }
 
   return (

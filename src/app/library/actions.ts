@@ -1,60 +1,137 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { parseJobSpec } from "@/lib/spec-schema";
-import { folderNameFor } from "@/lib/sites";
-import { createDefaultSpec } from "@/lib/spec";
-import type { ActionResult, DetectedLayout, JobSpec, Layout } from "@/lib/spec";
+import type { ActionResult, LibraryEntry, Run, RunStatus, Settings } from "@/lib/spec";
+import { activeSkipReason } from "@/lib/update-messages";
+import { buildUpdateSpec, folderKey } from "@/lib/update-spec";
+import type { UpdateAccountData, UpdateAllResult, UpdatePlan, UpdateSkip } from "@/lib/update-spec";
 import { listAccounts } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
 import { getSettings, listRuns } from "@/server/store";
 
-const CAUGHT_UP_AFTER = 20;
+/** History retention caps runs at 2000, so one read for the whole update beats one read per folder. */
+const ALL_RUNS = Number.MAX_SAFE_INTEGER;
 
-function layoutFromDisk(detected: DetectedLayout): Layout {
-  return detected === "unknown" ? { kind: "byType" } : { kind: detected };
+interface UpdateContext {
+  settings: Settings;
+  accounts: LibraryEntry[];
+  runs: Run[];
 }
 
-async function specForUpdate(folder: string): Promise<ActionResult<JobSpec>> {
-  const [settings, accounts, runs] = await Promise.all([getSettings(), listAccounts(), listRuns()]);
-  const entry = accounts.find((account) => account.folder === folder);
+/** Folders with an enqueue in flight: the queue does not see a run until enqueue has created it. */
+const enqueueing = new Set<string>();
+
+type QueueOutcome =
+  | { ok: true; runId: string }
+  | { ok: false; active: RunStatus | null };
+
+function alreadyActive(folder: string): string {
+  return `An update for ${folder} is already queued or running.`;
+}
+
+async function loadContext(): Promise<UpdateContext> {
+  const [settings, accounts, runs] = await Promise.all([
+    getSettings(),
+    listAccounts(),
+    listRuns(ALL_RUNS),
+  ]);
+  return { settings, accounts, runs };
+}
+
+/** Claims the folder while enqueue awaits, so a double click cannot queue the same update twice. */
+async function queueUpdate(folder: string, plan: UpdatePlan): Promise<QueueOutcome> {
+  const key = folderKey(folder);
+  const active = runQueue.findActive(folder);
+  if (active || enqueueing.has(key)) {
+    return { ok: false, active: active?.status ?? "queued" };
+  }
+
+  enqueueing.add(key);
+  try {
+    const run = await runQueue.enqueue(plan.spec);
+    return { ok: true, runId: run.id };
+  } catch (error) {
+    console.error(`gather: could not queue the update for ${folder}.`, error);
+    return { ok: false, active: null };
+  } finally {
+    enqueueing.delete(key);
+  }
+}
+
+export async function updateAccount(folder: string): Promise<ActionResult<UpdateAccountData>> {
+  if (typeof folder !== "string" || folder.trim() === "") {
+    return { ok: false, error: "This account isn't in the library." };
+  }
+  // Cheap refusal before the scan: an active run means there is nothing to queue.
+  if (runQueue.findActive(folder)) {
+    return { ok: false, error: alreadyActive(folder) };
+  }
+
+  let context: UpdateContext;
+  try {
+    context = await loadContext();
+  } catch (error) {
+    console.error("gather: could not read the library.", error);
+    return { ok: false, error: "The library couldn't be read." };
+  }
+
+  const entry = context.accounts.find((account) => folderKey(account.folder) === folderKey(folder));
   if (!entry) return { ok: false, error: "This account isn't in the library." };
 
-  const previous = runs.find((run) => folderNameFor(run.spec) === folder);
-  const base: JobSpec = previous
-    ? previous.spec
-    : { ...createDefaultSpec(settings), account: folder, layout: layoutFromDisk(entry.layout) };
+  const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
+  if (!built.ok) return built;
 
-  return parseJobSpec({
-    ...base,
-    simulate: false,
-    advanced: { ...base.advanced, abortAfterSkipped: CAUGHT_UP_AFTER },
-  });
+  const queued = await queueUpdate(entry.folder, built.data);
+  if (!queued.ok) {
+    return {
+      ok: false,
+      error: queued.active ? alreadyActive(entry.folder) : "The update couldn't be started.",
+    };
+  }
+
+  revalidatePath("/history");
+  const assumedSite = built.data.assumedSite;
+  return { ok: true, data: assumedSite ? { runId: queued.runId, assumedSite } : { runId: queued.runId } };
 }
 
-export async function updateAccount(folder: string): Promise<ActionResult<{ runId: string }>> {
-  const spec = await specForUpdate(folder);
-  if (!spec.ok) return spec;
-
+export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
+  let context: UpdateContext;
   try {
-    const run = await runQueue.enqueue(spec.data);
-    revalidatePath("/history");
-    return { ok: true, data: { runId: run.id } };
+    context = await loadContext();
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Couldn't start the update." };
+    console.error("gather: could not read the library.", error);
+    return { ok: false, error: "The library couldn't be read." };
   }
-}
 
-export async function updateAll(): Promise<ActionResult<{ started: number; skipped: string[] }>> {
-  const accounts = await listAccounts();
-  const skipped: string[] = [];
   let started = 0;
+  const skipped: UpdateSkip[] = [];
+  const assumed: string[] = [];
 
-  // One after another on purpose: the queue runs them serially anyway, and a bad account must not stop the rest.
-  for (const account of accounts) {
-    const result = await updateAccount(account.folder);
-    if (result.ok) started += 1;
-    else skipped.push(account.folder);
+  // One after another on purpose: the queue runs them serially anyway, and a bad folder must not stop
+  // the rest. Sorted so every click queues in the same order.
+  const entries = [...context.accounts].sort((a, b) =>
+    a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
+  );
+  for (const entry of entries) {
+    const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
+    if (!built.ok) {
+      skipped.push({ folder: entry.folder, reason: built.error });
+      continue;
+    }
+
+    const queued = await queueUpdate(entry.folder, built.data);
+    if (!queued.ok) {
+      skipped.push({
+        folder: entry.folder,
+        reason: queued.active ? activeSkipReason(queued.active) : "The update couldn't be started.",
+      });
+      continue;
+    }
+
+    started += 1;
+    if (built.data.assumedSite) assumed.push(entry.folder);
   }
-  return { ok: true, data: { started, skipped } };
+
+  if (started > 0) revalidatePath("/history");
+  return { ok: true, data: { started, skipped, assumed } };
 }
