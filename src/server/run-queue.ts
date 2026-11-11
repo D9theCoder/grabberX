@@ -1,4 +1,5 @@
 import "server-only";
+import { mkdir } from "node:fs/promises";
 import { buildCommand } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
@@ -109,6 +110,7 @@ export class RunQueue {
   private readonly finished: string[] = [];
   private idLock: Promise<void> = Promise.resolve();
   private pumping = false;
+  private closing = false;
   private pumpAgain = false;
 
   constructor(deps: QueueDeps = {}) {
@@ -182,6 +184,16 @@ export class RunQueue {
     await active.handle?.stop();
     await active.finished;
     return true;
+  }
+
+  /**
+   * Stops every active run (taskkill on the tree, then the `.part` sweep) and starts nothing new, for when
+   * the app is quitting. Runs still queued keep their record and are cleaned up on the next start.
+   */
+  async shutdown(): Promise<void> {
+    await this.ready;
+    this.closing = true;
+    await Promise.all([...this.active.keys()].map((id) => this.stop(id)));
   }
 
   get(id: string): Run | undefined {
@@ -283,6 +295,7 @@ export class RunQueue {
   }
 
   private async pump(): Promise<void> {
+    if (this.closing) return;
     if (this.pumping) {
       this.pumpAgain = true;
       return;
@@ -313,6 +326,8 @@ export class RunQueue {
   }
 
   private async beginRun(run: Run, settings: Settings): Promise<void> {
+    // spawn() reports a missing working directory as ENOENT, which would read as "gallery-dl not found".
+    await mkdir(settings.mediaRoot, { recursive: true }).catch(() => {});
     run.status = "running";
     run.startedAt = new Date().toISOString();
     run.stepIndex = 0;

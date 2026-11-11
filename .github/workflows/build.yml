@@ -1,0 +1,63 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm ci --prefix electron
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Page tests against the dev server
+        run: |
+          npx playwright install chromium
+          npm run test:e2e
+
+      # The update target is this repository, so no owner or name is hardcoded. Without the signing secrets the
+      # empty values below mean "unsigned"; add CSC_LINK (base64 .pfx) and CSC_KEY_PASSWORD to sign the installer.
+      - name: Build the installer
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        # bash, not the default PowerShell: PowerShell splits `-c.publish.repo=x` at the dot.
+        shell: bash
+        run: |
+          npm run dist --             -c.publish.provider=github             -c.publish.owner=${{ github.repository_owner }}             -c.publish.repo=${{ github.event.repository.name }}
+
+      - name: Smoke test the packaged app
+        shell: pwsh
+        run: |
+          $env:GATHER_EXE = "$PWD\release\win-unpacked\Gather.exe"
+          npm run test:e2e:packaged
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gather-Setup
+          path: |
+            release/Gather-Setup-*.exe
+            release/Gather-Setup-*.exe.blockmap
+            release/latest.yml
+
+      - name: Publish a release for a version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # latest.yml and the blockmap are what the installed app reads to find and download an update.
+        run: gh release create "${{ github.ref_name }}" (Get-ChildItem release\Gather-Setup-*.exe, release\Gather-Setup-*.exe.blockmap, release\latest.yml) --generate-notes

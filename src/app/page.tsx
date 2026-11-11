@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 import { RunScreen } from "@/components/run-screen";
 import { isActiveStatus } from "@/lib/run-copy";
 import { runQueue } from "@/server/run-queue";
+import { requireSetup } from "@/server/setup";
 import { getSettings } from "@/server/store";
 
 // Settings and the active run change between requests; without this Next would prerender the page at build time.
@@ -17,6 +18,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 export default async function RunPage({ searchParams }: PageProps<"/">) {
+  await requireSetup();
   const { account } = await searchParams;
   const settingsPromise = getSettings();
   const [settings, galleryDlFound] = await Promise.all([

@@ -1,6 +1,12 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isReserved, isValidFolderName, RESERVED, resolveAccountDir } from "@/server/paths";
+import {
+  assertSafeMediaRoot,
+  isReserved,
+  isValidFolderName,
+  RESERVED,
+  resolveAccountDir,
+} from "@/server/paths";
 
 const root = process.platform === "win32" ? "C:\\media" : "/media";
 
@@ -80,5 +86,33 @@ describe("resolveAccountDir", () => {
   it("keeps a name that merely looks like the root", () => {
     const dir = resolveAccountDir(root, "media");
     expect(dir).toBe(join(root, "media"));
+  });
+});
+
+describe("assertSafeMediaRoot", () => {
+  const app = join(root, "app");
+  const state = join(root, "state");
+
+  it("accepts a folder outside every protected directory", () => {
+    expect(() => assertSafeMediaRoot(join(root, "library"), [app, state])).not.toThrow();
+    expect(() => assertSafeMediaRoot(join(root, "library"), [])).not.toThrow();
+  });
+
+  it("rejects the protected directory itself and anything inside it", () => {
+    expect(() => assertSafeMediaRoot(app, [app])).toThrow(/inside the app's own folder/);
+    expect(() => assertSafeMediaRoot(join(app, "media"), [app])).toThrow(/inside the app's own folder/);
+    expect(() => assertSafeMediaRoot(join(state, "runs"), [app, state])).toThrow(/inside/);
+  });
+
+  it("rejects a folder that contains a protected directory", () => {
+    expect(() => assertSafeMediaRoot(root, [app])).toThrow(/contain the app's own folder/);
+  });
+
+  it("does not treat a look-alike sibling as inside", () => {
+    expect(() => assertSafeMediaRoot(join(root, "app-media"), [app])).not.toThrow();
+  });
+
+  it.runIf(process.platform === "win32")("compares Windows paths case-insensitively", () => {
+    expect(() => assertSafeMediaRoot(join(root.toUpperCase(), "APP", "x"), [app])).toThrow(/inside/);
   });
 });

@@ -2,13 +2,19 @@
 
 import { useEffect, useState, useTransition } from "react";
 import type { ReactNode } from "react";
-import { checkGalleryDl, saveSettingsAction } from "@/app/actions";
+import {
+  checkGalleryDl,
+  checkGalleryDlUpdate,
+  saveSettingsAction,
+  updateGalleryDl,
+} from "@/app/actions";
 import { CheckIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
 import { TextField } from "@/components/ui/text-field";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
+import { useShell } from "@/lib/shell";
 import type { CookieBrowser, Media, Settings } from "@/lib/spec";
 
 type FieldKey = "galleryDlPath" | "mediaRoot" | "cookies" | "profile" | "defaultMedia" | "defaultLayout" | "historyRetention" | "concurrency";
@@ -31,7 +37,11 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function SettingsForm({ initial }: { initial: Settings }) {
+export function SettingsForm({ initial, appVersion }: { initial: Settings; appVersion: string }) {
+  const shell = useShell();
+  const [update, setUpdate] = useState<{ tone: "info" | "danger"; text: string; canUpdate?: boolean } | null>(null);
+  const [checkingUpdate, startCheckUpdate] = useTransition();
+  const [updating, startUpdate] = useTransition();
   const [settings, setSettings] = useState(initial);
   const [draft, setDraft] = useState({
     galleryDlPath: initial.galleryDlPath,
@@ -73,6 +83,36 @@ export function SettingsForm({ initial }: { initial: Settings }) {
     });
   }
 
+  async function browseMediaRoot() {
+    const picked = await shell?.pickFolder(draft.mediaRoot);
+    if (!picked || picked === settings.mediaRoot) return;
+    setDraft((current) => ({ ...current, mediaRoot: picked }));
+    await save("mediaRoot", { mediaRoot: picked });
+  }
+
+  function onCheckUpdate() {
+    setUpdate(null);
+    startCheckUpdate(async () => {
+      const result = await checkGalleryDlUpdate();
+      setUpdate(
+        result.ok
+          ? { tone: "info", text: result.data.message, canUpdate: !result.data.upToDate }
+          : { tone: "danger", text: result.error },
+      );
+    });
+  }
+
+  function onUpdate() {
+    startUpdate(async () => {
+      const result = await updateGalleryDl();
+      setUpdate(
+        result.ok
+          ? { tone: "info", text: `Updated. Now running gallery-dl ${result.data.version}.` }
+          : { tone: "danger", text: result.error },
+      );
+    });
+  }
+
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <h1 className="m-0 text-display">Settings</h1>
@@ -94,15 +134,34 @@ export function SettingsForm({ initial }: { initial: Settings }) {
           </Button>
         </div>
         {check ? <Notice tone={check.tone}>{check.text}</Notice> : null}
-        <TextField
-          label="Media root"
-          mono
-          value={draft.mediaRoot}
-          error={errors.mediaRoot}
-          hint={saved === "mediaRoot" ? <Saved /> : "Account folders live here. Defaults to the app folder."}
-          onChange={(event) => setDraft({ ...draft, mediaRoot: event.target.value })}
-          onBlur={() => draft.mediaRoot !== settings.mediaRoot && save("mediaRoot", { mediaRoot: draft.mediaRoot })}
-        />
+        <div className="flex items-start gap-2">
+          <TextField
+            label="Media root"
+            mono
+            className="flex-1"
+            value={draft.mediaRoot}
+            error={errors.mediaRoot}
+            hint={saved === "mediaRoot" ? <Saved /> : "Account folders live here. Defaults to the app folder."}
+            onChange={(event) => setDraft({ ...draft, mediaRoot: event.target.value })}
+            onBlur={() => draft.mediaRoot !== settings.mediaRoot && save("mediaRoot", { mediaRoot: draft.mediaRoot })}
+          />
+          {shell ? (
+            <Button variant="secondary" className="mt-[26px]" onClick={browseMediaRoot}>
+              Browse…
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" loading={checkingUpdate} onClick={onCheckUpdate}>
+            Look for updates
+          </Button>
+          {update?.canUpdate ? (
+            <Button variant="primary" loading={updating} onClick={onUpdate}>
+              Update now
+            </Button>
+          ) : null}
+        </div>
+        {update ? <Notice tone={update.tone}>{update.text}</Notice> : null}
       </Group>
 
       <Group title="Session">
@@ -173,6 +232,21 @@ export function SettingsForm({ initial }: { initial: Settings }) {
           />
           {saved === "defaultLayout" ? <span className="text-small"><Saved /></span> : null}
         </div>
+      </Group>
+
+      <Group title="About">
+        <p className="m-0 text-label">gather {appVersion}</p>
+        {shell ? (
+          <div>
+            <Button variant="secondary" onClick={() => void shell.openLogs()}>
+              Open the logs folder
+            </Button>
+          </div>
+        ) : null}
+        <span className="text-small text-ink-2">
+          gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
+          gather runs it for you and does not change it.
+        </span>
       </Group>
 
       <Group title="Runs">

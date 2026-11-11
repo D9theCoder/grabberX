@@ -20,6 +20,11 @@ npm run test:e2e   # playwright: real pages in Chromium against a dev server
 npm run typecheck  # next typegen && tsc --noEmit
 ```
 
+- Packaging (Windows installer): `npm run dist` builds `release\Gather-Setup-<version>.exe`; `npm run pack` makes the
+  unpacked app; `npm run test:e2e:packaged` drives the real Electron app (`GATHER_EXE` points it at a built
+  `Gather.exe`). Read `docs/PACKAGING.md` first. The shell is in `electron/` (own `package.json`, `npm ci
+  --prefix electron`). In the packaged app every path comes from `GATHER_*` variables (`src/server/env.ts`) and a
+  missing one is an error, never a `process.cwd()` fallback.
 - E2E tests live in `e2e/` and drive the running app with Playwright (dev dependency). The config
   starts `npm run dev` itself and reuses an already-running server on `127.0.0.1:3210`. First run on a
   new machine needs `npx playwright install chromium` (browsers live outside the repo, in
