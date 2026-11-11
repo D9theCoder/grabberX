@@ -113,4 +113,24 @@ function isOwnOrigin(url, origin) {
   }
 }
 
-module.exports = { findFreePort, waitForHealth, activeRuns, createLog, seedGalleryDl, isOwnOrigin };
+/**
+ * A message the server sends up from the utility process. Only the finished scheduled pass is used,
+ * and anything else (a shutdown reply, a malformed payload) is ignored rather than shown.
+ */
+function parseServerMessage(message) {
+  if (!message || typeof message !== "object") return null;
+  if (message.kind !== "scheduled-pass") return null;
+  const body = typeof message.body === "string" ? message.body.trim() : "";
+  if (!body) return null;
+  return { kind: "scheduled-pass", body: body.slice(0, 300) };
+}
+
+module.exports = {
+  findFreePort,
+  waitForHealth,
+  activeRuns,
+  createLog,
+  seedGalleryDl,
+  isOwnOrigin,
+  parseServerMessage,
+};
