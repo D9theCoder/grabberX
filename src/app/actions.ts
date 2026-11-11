@@ -195,6 +195,10 @@ export async function checkGalleryDl(path?: string): Promise<ActionResult<{ vers
 const cookieCheckInput = z.object({
   site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]).optional(),
   account: z.string().optional(),
+  // The browser this run will use, which Advanced can set apart from Settings.
+  cookies: z
+    .object({ browser: z.enum(["firefox", "chrome", "edge", "none"]), profile: z.string().max(200).optional() })
+    .optional(),
 });
 
 /**
@@ -209,7 +213,8 @@ export async function checkCookies(
   if (!parsed.success) return { ok: false, error: "That check isn't valid." };
   const settings = await getSettings().catch(() => undefined);
   if (!settings) return { ok: false, error: "Those settings couldn't be read." };
-  if (settings.cookies.browser === "none") return { ok: true, data: { kind: "skipped" } };
+  const cookies = parsed.data.cookies ?? settings.cookies;
+  if (cookies.browser === "none") return { ok: true, data: { kind: "skipped" } };
 
   const site: SiteId = parsed.data.site ?? "x";
   const accountInput = parsed.data.account?.trim() ?? "";
@@ -218,8 +223,8 @@ export async function checkCookies(
     ? siteDef(site).urlFor(validated.account)
     : `https://x.com/${PROBE_ACCOUNT}/media`;
 
-  const browser = settings.cookies.browser;
-  const profile = settings.cookies.profile?.trim();
+  const browser = cookies.browser;
+  const profile = cookies.profile?.trim();
   const result = await runGalleryDl(
     settings.galleryDlPath,
     [

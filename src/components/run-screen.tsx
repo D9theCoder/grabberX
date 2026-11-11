@@ -160,8 +160,8 @@ export function RunScreen({
   // Runs beside the run request, never in front of it: the warning appears when it arrives, and
   // the run still starts because public accounts work without a login.
   function probeCookies() {
-    if (settings.cookies.browser === "none" || !account) return;
-    void checkCookies({ site: spec.site, account })
+    if (spec.advanced.cookies.browser === "none" || !account) return;
+    void checkCookies({ site: spec.site, account, cookies: spec.advanced.cookies })
       .then((result) => {
         if (result.ok) setCookieCheck(result.data.kind);
       })
@@ -219,7 +219,7 @@ export function RunScreen({
 
   const cookieMessage = cookieCheck
     ? cookieNotice(cookieCheck, {
-        browser: browserLabel(settings.cookies.browser),
+        browser: browserLabel(spec.advanced.cookies.browser),
         site: cookieSiteLabel(spec.site),
       })
     : null;
