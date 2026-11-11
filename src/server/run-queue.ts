@@ -2,7 +2,6 @@ import "server-only";
 import { buildCommand } from "@/lib/command";
 import { classifyError } from "@/lib/parse-line";
 import { isActiveStatus } from "@/lib/run-copy";
-import { compareRunIdsOldestFirst } from "@/lib/run-order";
 import { folderNameFor } from "@/lib/sites";
 import type {
   ErrorKind,
@@ -102,6 +101,8 @@ export class RunQueue {
   private readonly runs = new Map<string, Run>();
   /** Ids claimed by an enqueue that has not finished saving yet; see `allocateRunId`. */
   private readonly reserved = new Set<string>();
+  private readonly requestOrder = new Map<string, number>();
+  private requestCount = 0;
   private readonly active = new Map<string, ActiveRun>();
   private readonly buffers = new Map<string, RunEvent[]>();
   private readonly latestCounts = new Map<string, RunEvent>();
@@ -135,6 +136,7 @@ export class RunQueue {
       cookies: settings.cookies,
     });
     const id = await this.nextRunId(folderNameFor(spec));
+    this.requestOrder.set(id, (this.requestCount += 1));
     const run: Run = {
       id,
       spec,
@@ -149,6 +151,7 @@ export class RunQueue {
       await saveRun(run);
     } catch (error) {
       this.reserved.delete(id);
+      this.requestOrder.delete(id);
       throw error;
     }
     // The record is on disk, so `runs` now guards the id and the reservation is no longer needed.
@@ -208,13 +211,20 @@ export class RunQueue {
   }
 
   /**
-   * Oldest id first. A run joins `runs` only after its record is saved, so two enqueues that overlap
-   * can register in the opposite order of their ids; the id is the order the user asked for.
+   * First asked, first started. A run joins `runs` only after its record is saved, so overlapping
+   * enqueues can register in a different order than they were requested; the sequence number keeps
+   * the order of the requests (run ids cannot: two folders in one second sort by name).
    */
   private queuedInOrder(): Run[] {
     return [...this.runs.values()]
       .filter((run) => run.status === "queued")
-      .sort((a, b) => compareRunIdsOldestFirst(a.id, b.id));
+      .sort((a, b) => (this.requestOrder.get(a.id) ?? 0) - (this.requestOrder.get(b.id) ?? 0));
+  }
+
+  /** Starts queued runs that can run now, e.g. after the concurrency limit was raised in Settings. */
+  async resume(): Promise<void> {
+    await this.ready;
+    await this.pump();
   }
 
   subscribe(id: string, listener: (event: StreamEvent) => void): () => void {
@@ -287,6 +297,8 @@ export class RunQueue {
         }
         const running = [...this.active.values()].map((entry) => entry.run);
         for (const run of this.queuedInOrder()) {
+          // The list is a snapshot, and beginRun awaits: a queued run can be stopped meanwhile.
+          if (run.status !== "queued") continue;
           if (!canStart(run, running, settings.concurrency)) continue;
           await this.beginRun(run, settings);
           running.push(run);
@@ -407,7 +419,8 @@ export class RunQueue {
     const chunk = `${line}\n`;
     active.logBuffer.push(chunk);
     active.logBytes += chunk.length;
-    if (active.logBytes >= LOG_FLUSH_BYTES) {
+    // A line that arrives after the run was finalized is written once; a timer armed now would never be cleared.
+    if (active.logBytes >= LOG_FLUSH_BYTES || !this.active.has(active.run.id)) {
       void this.flushLog(active);
       return;
     }
@@ -543,6 +556,7 @@ export class RunQueue {
       this.latestCounts.delete(oldest);
       this.latestStatus.delete(oldest);
       this.statusWrites.delete(oldest);
+      this.requestOrder.delete(oldest);
     }
   }
 

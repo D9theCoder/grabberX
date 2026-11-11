@@ -333,6 +333,51 @@ describe("RunQueue", () => {
     await queue.stop(first.id);
   });
 
+  it("starts runs of different folders in the order they were requested, not by folder name", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    await queue.enqueue(spec("busy_acct"));
+    await waitFor(() => controlled.calls.length === 1);
+    const zeta = await queue.enqueue(spec("zeta"));
+    const alpha = await queue.enqueue(spec("alpha"));
+    expect(queue.queuePosition(zeta.id)).toBe(1);
+    expect(queue.queuePosition(alpha.id)).toBe(2);
+
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => controlled.calls.length === 2);
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => queue.get(zeta.id)?.status === "running");
+    expect(queue.get(alpha.id)?.status).toBe("queued");
+
+    await queue.stop(alpha.id);
+    await queue.stop(zeta.id);
+  });
+
+  it("starts waiting runs when the concurrency limit is raised", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    let limit = 1;
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media, { concurrency: limit }),
+      startProcess: controlled.start,
+    });
+
+    const first = await queue.enqueue(spec("first_acct"));
+    const second = await queue.enqueue(spec("second_acct"));
+    expect(queue.get(second.id)?.status).toBe("queued");
+
+    limit = 2;
+    await queue.resume();
+    await waitFor(() => queue.get(second.id)?.status === "running");
+
+    await queue.stop(second.id);
+    await queue.stop(first.id);
+  });
+
   it("keeps ids distinct when both enqueues are still saving their records", async () => {
     isolationHome();
     const media = await tempDir();

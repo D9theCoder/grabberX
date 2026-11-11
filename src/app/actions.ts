@@ -90,6 +90,9 @@ export async function saveSettingsAction(patch: unknown): Promise<ActionResult<S
   }
   try {
     const settings = await saveSettings(patch as Partial<Settings>);
+    await runQueue.resume().catch((error: unknown) => {
+      console.error("gather: could not start queued runs after saving the settings.", error);
+    });
     revalidatePath("/");
     revalidatePath("/library");
     revalidatePath("/settings");
