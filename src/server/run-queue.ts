@@ -110,6 +110,7 @@ export class RunQueue {
   private readonly finished: string[] = [];
   private idLock: Promise<void> = Promise.resolve();
   private pumping = false;
+  private closing = false;
   private pumpAgain = false;
 
   constructor(deps: QueueDeps = {}) {
@@ -183,6 +184,16 @@ export class RunQueue {
     await active.handle?.stop();
     await active.finished;
     return true;
+  }
+
+  /**
+   * Stops every active run (taskkill on the tree, then the `.part` sweep) and starts nothing new, for when
+   * the app is quitting. Runs still queued keep their record and are cleaned up on the next start.
+   */
+  async shutdown(): Promise<void> {
+    await this.ready;
+    this.closing = true;
+    await Promise.all([...this.active.keys()].map((id) => this.stop(id)));
   }
 
   get(id: string): Run | undefined {
@@ -284,6 +295,7 @@ export class RunQueue {
   }
 
   private async pump(): Promise<void> {
+    if (this.closing) return;
     if (this.pumping) {
       this.pumpAgain = true;
       return;

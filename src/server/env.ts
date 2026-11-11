@@ -53,3 +53,8 @@ export function envGalleryDl(): string | undefined {
 export function envAppDir(): string | undefined {
   return fromEnv("GATHER_APP_DIR");
 }
+
+/** Set by the shell from the installed app's version; "dev" when running from source. */
+export function appVersion(): string {
+  return fromEnv("GATHER_APP_VERSION") ?? "dev";
+}
