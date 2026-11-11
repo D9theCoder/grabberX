@@ -35,10 +35,15 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        # bash, not the default PowerShell: PowerShell splits `-c.publish.repo=x` at the dot.
+        # bash, not the default PowerShell: PowerShell splits `-c.publish.repo=x` at the dot. `--publish never`:
+        # on a push (not a PR) electron-builder would otherwise try to publish itself; the release step below does that.
         shell: bash
         run: |
-          npm run dist --             -c.publish.provider=github             -c.publish.owner=${{ github.repository_owner }}             -c.publish.repo=${{ github.event.repository.name }}
+          npm run dist -- \
+            --publish never \
+            -c.publish.provider=github \
+            -c.publish.owner=${{ github.repository_owner }} \
+            -c.publish.repo=${{ github.event.repository.name }}
 
       - name: Smoke test the packaged app
         shell: pwsh
