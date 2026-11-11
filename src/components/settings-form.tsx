@@ -94,11 +94,12 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
     setCheck(null);
     startCheck(async () => {
       const result = await checkGalleryDl(draft.galleryDlPath);
-      if (result.ok) {
-        setInstalled(result.data.version);
+      if (!result.ok) {
+        setCheck({ tone: "danger", text: result.error });
         return;
       }
-      setCheck({ tone: "danger", text: result.error });
+      setInstalled(result.data.version);
+      setCheck({ tone: "info", text: `Found gallery-dl ${result.data.version}.` });
     });
   }
 
