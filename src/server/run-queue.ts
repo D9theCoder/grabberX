@@ -57,6 +57,7 @@ function sameFolder(a: Run, b: Run): boolean {
  * once "Update all" lands, and a table test is cheaper than a queue test.
  */
 export function canStart(next: Run, running: Run[], limit: number): boolean {
+  // Previews (spec.simulate) wait like downloads: --simulate still opens the account's archive.sqlite3.
   return running.length < limit && !running.some((run) => sameFolder(run, next));
 }
 
