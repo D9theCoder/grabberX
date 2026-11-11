@@ -73,7 +73,8 @@ in the design system is the contract), styled with Tailwind from the tokens:
 ```
 
 Top bar: wordmark on the left, then `Run · Library · History`, with `Settings` as a gear on the right.
-The current page shows an ink underline 2 px thick. No sidebar.
+The current page shows an ink underline 2 px thick. No sidebar. In a browser, a quiet
+`Get the desktop app` text link sits just before the gear and is hidden below 640 px.
 
 ---
 
@@ -114,6 +115,8 @@ The current page shows an ink underline 2 px thick. No sidebar.
   scroll away.
 - Form sections are separated by a `--border` top rule and `--space-8` vertical space, not by
   boxes. Fewer boxes means less visual noise.
+- The page-title row is one fixed height on every page, so Library (with *Update all* beside its
+  title) lands on the same baseline as Run, History and Settings.
 
 ### 5.2 Sections and fields
 
@@ -198,8 +201,8 @@ A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the
   ending in a backtick (PowerShell's line continuation). Values in `ink`, flags in `ink-2`. Copy sits
   top-right and reads "Copied" with a check for 1.5 s, announced politely.
 - When Media is **All**, the block shows two tabs, `1 · images` and `2 · videos`.
-- Long values scroll horizontally inside the block rather than wrapping, so every flag keeps its own
-  line and its trailing backtick.
+- Long values wrap inside the block, so no flag is ever cut off; each flag still starts its own line and
+  keeps its trailing backtick. Copy always copies the unwrapped command.
 - **Actions:** `Preview files` (`secondary`: runs `--simulate`, lists what would download without
   writing anything) and `Download` (`primary`, ink fill). Both are full-width in a 2-column row.
 - **Disabled reasons** show as a hint under the buttons, never as a silent disabled button:
@@ -225,7 +228,9 @@ press Download."
 Hover, focus, selected, disabled and loading states for every component are defined in the design
 system (brand book → States, and each component's guideline). Screen-specific rules:
 
-- Download is never silently disabled: the reason sits under it in `small`.
+- Download is never silently disabled: the reason sits under it in `small`. A disabled Download keeps a
+  15% ink fill and an ink label (about 13:1), so it still reads as the primary action instead of
+  disappearing into the page.
 - While a run is active for the chosen account, Download reads `Queue`.
 - Focus is always the 2px `focus` outline with a 2px offset.
 
@@ -235,15 +240,18 @@ system (brand book → States, and each component's guideline). Screen-specific 
 |---|---|
 | ≥ 1024 px | Two columns, as above |
 | 640–1023 px | One column. The command panel moves under the form. A **sticky bottom bar** (`paper`, `line` top border) holds `Preview files` + `Download`, plus the run status when one is active. Tapping it scrolls to the run panel. |
-| < 640 px | The site `Segmented` scrolls horizontally (scroll-snap, no wrap). Date inputs stack. Command preview is folded behind a "Show command" link. 16 px gutter. No horizontal page scroll. |
+| < 640 px | The site `Segmented` wraps onto a second line, so no option is clipped. Date inputs stack. Command preview is folded behind a "Show command" link. 16 px gutter. No horizontal page scroll. |
 
-Touch targets are at least 40 × 40 px everywhere.
+Touch targets are at least 40 × 40 px everywhere, and the segmented controls reach 44 px tall on phones.
+One control height (`--spacing-control`) applies to every control, whatever its size.
 
 ### 5.10 Edge cases and copy
 
 | Situation | What the user sees |
 |---|---|
 | gallery-dl missing / wrong path | `Notice` (danger) under the top bar: "gallery-dl wasn't found at C:\tools\gallery-dl.exe. **Set the path**". Download is disabled. |
+| Browser cookies cannot be read | `Notice` (warning) above the run buttons: "gather can't read Firefox's cookies. Close Firefox, or pick another browser in Settings." with **Open Settings**. The run still starts. |
+| Cookies look signed out | `Notice` (warning): "Firefox cookies for x.com look signed out. Sign in to x.com in Firefox, then try again." The run still starts, since public accounts need no login. |
 | Firefox not logged in to the site / cookies expired | Run fails with: "X asked for a login. Open x.com in Firefox, sign in, then run again." |
 | Account doesn't exist or is protected | "This account doesn't exist or its posts are protected." |
 | Rate limited, retries exhausted | "X is limiting requests. Wait about 15 minutes, or set *Wait between pages* to 2 s." |
@@ -280,7 +288,8 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
   and "Use as new run" (fills the form).
 - Accounts are detected as top-level folders that contain `archive.sqlite3`, so app folders
   (`src`, `public`, `node_modules`…) never appear.
-- Empty state: "No accounts yet. Your first download will show up here."
+- Empty state: "No accounts yet. Your first download will show up here." followed by a **Start a
+  download** link to Run. `Update all` stays disabled until there is an account.
 - `Update all` button top-right runs every account one after another (queued).
 - Below 768 px the table becomes a stacked list: account, the three counters, last run, layout, and
   an overflow menu with the row actions.
@@ -294,10 +303,15 @@ A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · L
 
 ## 8. Settings (`/settings`)
 
-Plain form, saved on blur with a quiet "Saved" tick:
-gallery-dl path (with a `Check` button that runs `--version`) · Media root (default: the app folder)
-· Cookie browser + profile · Default media / folder layout · History retention (default 200 runs)
-· Runs at the same time (1–3, default 1; two runs on the same account are always refused).
+Plain form, saved on blur with a quiet "Saved" tick, in five groups in this order:
+gallery-dl path (with a `Check` button that runs `--version`, `Look for updates` and the installed
+version beside it) · Media root (default: the app folder) · Session (Cookie browser, profile, and a
+`Check cookies` button) · Defaults for new runs · Runs · About (last). Settings is deliberately
+narrow (max 672 px): it is read one field at a time, while Run, Library and History use the full
+1120 px container.
+
+`Check cookies` probes x.com with the selected browser, since Settings has no account to check. It
+shows the same two warnings as the Run screen, and reads nothing when the browser is **None**.
 
 ---
 
