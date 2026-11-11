@@ -356,6 +356,50 @@ describe("RunQueue", () => {
     await queue.stop(zeta.id);
   });
 
+  it("keeps the requested order when overlapping enqueues finish saving in reverse", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+
+    await queue.enqueue(spec("busy_acct"));
+    await waitFor(() => controlled.calls.length === 1);
+
+    let releaseZeta: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseZeta = resolve;
+    });
+    let zetaSaving: () => void = () => {};
+    const saving = new Promise<void>((resolve) => {
+      zetaSaving = resolve;
+    });
+    storeHooks.beforeSave = async (run) => {
+      if (run.id.endsWith("_zeta") && run.status === "queued") {
+        zetaSaving();
+        await held;
+      }
+    };
+
+    const zetaRequest = queue.enqueue(spec("zeta"));
+    await saving;
+    const alpha = await queue.enqueue(spec("alpha"));
+    releaseZeta();
+    const zeta = await zetaRequest;
+    storeHooks.beforeSave = undefined;
+
+    expect(queue.queuePosition(zeta.id)).toBe(1);
+    expect(queue.queuePosition(alpha.id)).toBe(2);
+
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => controlled.calls.length === 2);
+    controlled.resolveNext({ exitCode: 0 });
+    await waitFor(() => queue.get(zeta.id)?.status === "running");
+    expect(queue.get(alpha.id)?.status).toBe("queued");
+
+    await queue.stop(alpha.id);
+    await queue.stop(zeta.id);
+  });
+
   it("starts waiting runs when the concurrency limit is raised", async () => {
     isolationHome();
     const media = await tempDir();
