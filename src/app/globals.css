@@ -1,26 +1,84 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-paper: #fcfcfc;
+  --color-surface: #ffffff;
+  --color-sunken: #f3f3f3;
+  --color-line: #e5e5e5;
+  --color-line-strong: #c9c9c9;
+  --color-control: #8f8f8f;
+  --color-ink: #141414;
+  --color-ink-hover: #2e2e2e;
+  --color-ink-2: #5c5c5c;
+  --color-ink-3: #8f8f8f;
+  --color-on-ink: #fcfcfc;
+  --color-danger: #b3261e;
+  --color-warn: #8a5a00;
+  --color-focus: var(--color-ink);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --text-display: 28px;
+  --text-display--line-height: 34px;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 700;
+  --text-title: 17px;
+  --text-title--line-height: 24px;
+  --text-title--font-weight: 600;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-label: 14px;
+  --text-label--line-height: 20px;
+  --text-label--font-weight: 500;
+  --text-small: 13px;
+  --text-small--line-height: 18px;
+  --text-stat: 24px;
+  --text-stat--line-height: 28px;
+  --text-stat--font-weight: 600;
+  --text-code: 13px;
+  --text-code--line-height: 20px;
+  --text-log: 12px;
+  --text-log--line-height: 18px;
+
+  --shadow-*: initial;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-fragment), ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: light;
+  --focus: var(--color-ink);
+}
+
+html {
+  background: var(--color-paper);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
 }
