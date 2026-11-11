@@ -8,7 +8,14 @@
     "start": "next start -H 127.0.0.1 -p 3210",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:standalone": "next build && node scripts/prepare-standalone.mjs",
+    "electron:install": "npm install --prefix electron",
+    "fetch:gallery-dl": "node scripts/fetch-gallery-dl.mjs",
+    "electron": "electron electron/main.cjs",
+    "pack": "npm run build:standalone && npm run fetch:gallery-dl && electron-builder --win --dir",
+    "dist": "npm run build:standalone && npm run fetch:gallery-dl && electron-builder --win",
+    "test:e2e:packaged": "playwright test -c playwright.packaged.config.ts"
   },
   "dependencies": {
     "next": "16.4.6",
@@ -23,6 +30,8 @@
     "@types/node": "^22.20.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^45.3.0",
+    "electron-builder": "^26.18.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
     "vitest": "^5.1.0"

@@ -1,5 +1,6 @@
 "use server";
 
+import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { revalidatePath } from "next/cache";
@@ -7,6 +8,7 @@ import { z } from "zod";
 import type { AccountHint, ActionResult, JobSpec, Settings } from "@/lib/spec";
 import { parseJobSpec } from "@/lib/spec-schema";
 import { folderNameFor, validateAccount } from "@/lib/sites";
+import { lastLine, runGalleryDl } from "@/server/gallery-dl";
 import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
@@ -14,6 +16,8 @@ import { killTreeWindows } from "@/server/runner";
 import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store";
 
 const VERSION_TIMEOUT_MS = 8000;
+const UPDATE_CHECK_TIMEOUT_MS = 30_000;
+const UPDATE_TIMEOUT_MS = 180_000;
 
 const hintInput = z.object({
   site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]),
@@ -205,4 +209,53 @@ export async function runAgain(
   const previous = await getRun(id);
   if (!previous) return { ok: false, error: "That run isn't in history any more." };
   return startRun(previous.spec);
+}
+
+const setupInput = z.object({
+  mediaRoot: z.string().trim().min(1, "Choose a folder for your downloads."),
+  browser: z.enum(["firefox", "chrome", "edge", "none"], "Pick a browser."),
+});
+
+/** The first-run screen: creates the library folder and writes the first settings file. */
+export async function completeSetup(input: unknown): Promise<ActionResult<Settings>> {
+  const parsed = setupInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those settings aren't valid." };
+  }
+  try {
+    await mkdir(parsed.data.mediaRoot, { recursive: true });
+    const settings = await saveSettings({
+      mediaRoot: parsed.data.mediaRoot,
+      cookies: { browser: parsed.data.browser },
+    });
+    revalidatePath("/", "layout");
+    return { ok: true, data: settings };
+  } catch (error) {
+    console.error("gather: could not finish the setup.", error);
+    return { ok: false, error: settingsError(error) };
+  }
+}
+
+export async function checkGalleryDlUpdate(): Promise<ActionResult<{ upToDate: boolean; message: string }>> {
+  const settings = await getSettings();
+  const result = await runGalleryDl(settings.galleryDlPath, ["--update-check"], UPDATE_CHECK_TIMEOUT_MS);
+  if (result.spawnError) return { ok: false, error: `gallery-dl wasn't found at ${settings.galleryDlPath}.` };
+  if (result.timedOut) return { ok: false, error: "The update check timed out. Check your connection." };
+  const message = lastLine(result.output);
+  if (result.code !== 0 && message === "") return { ok: false, error: "The update check failed." };
+  return { ok: true, data: { upToDate: /up to date/i.test(message), message } };
+}
+
+export async function updateGalleryDl(): Promise<ActionResult<{ version: string }>> {
+  if (runQueue.list().length > 0) {
+    return { ok: false, error: "A download is running. Update gallery-dl when it has finished." };
+  }
+  const settings = await getSettings();
+  const result = await runGalleryDl(settings.galleryDlPath, ["--update"], UPDATE_TIMEOUT_MS);
+  if (result.spawnError) return { ok: false, error: `gallery-dl wasn't found at ${settings.galleryDlPath}.` };
+  if (result.timedOut) return { ok: false, error: "The update timed out. Check your connection." };
+  if (result.code !== 0) return { ok: false, error: lastLine(result.output) || "The update failed." };
+  const version = await checkGalleryDl(settings.galleryDlPath);
+  revalidatePath("/settings");
+  return version.ok ? { ok: true, data: { version: version.data.version } } : version;
 }

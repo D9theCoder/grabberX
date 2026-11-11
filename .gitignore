@@ -7,11 +7,18 @@
 !/src/
 !/public/
 !/e2e/
+!/scripts/
+!/electron/
+!/build/
+!/.github/
 
 # Next.js app
 /node_modules/
 /.next/
 /out/
+/release/
+/electron/node_modules/
+/build/gallery-dl/
 *.tsbuildinfo
 next-env.d.ts
 .env*

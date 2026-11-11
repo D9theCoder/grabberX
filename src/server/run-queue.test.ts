@@ -402,6 +402,26 @@ describe("RunQueue", () => {
     await queue.stop(zeta.id);
   });
 
+  it("stops active runs on shutdown and starts no queued run afterwards", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media, { concurrency: 1 }),
+      startProcess: controlled.start,
+    });
+
+    const first = await queue.enqueue(spec("first_acct"));
+    const second = await queue.enqueue(spec("second_acct"));
+    expect(queue.get(second.id)?.status).toBe("queued");
+
+    await queue.shutdown();
+
+    expect(queue.get(first.id)?.status).toBe("stopped");
+    expect(queue.get(second.id)?.status).toBe("queued");
+    expect(controlled.calls).toHaveLength(1);
+  });
+
   it("starts waiting runs when the concurrency limit is raised", async () => {
     isolationHome();
     const media = await tempDir();

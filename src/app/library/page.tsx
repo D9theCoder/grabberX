@@ -1,9 +1,11 @@
 import { LibraryTable } from "@/components/library-table";
 import { getAccountStats, listAccounts } from "@/server/library";
+import { requireSetup } from "@/server/setup";
 
 export const dynamic = "force-dynamic";
 
 export default async function LibraryPage() {
+  await requireSetup();
   const accounts = await listAccounts();
   const now = Date.now();
 

@@ -421,7 +421,8 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
 ### ADR-7: Not deployable; local `next start`
 
 - **Decision:** Production mode is `next build && next start -H 127.0.0.1 -p 3210`, started by hand or
-  from a Windows shortcut. No Vercel project.
+  from a Windows shortcut. No Vercel project. End users get the same server inside the Electron
+  installer (ADR-9).
 - **Why:** The app spawns a local exe and writes to a local drive.
 - **Consequence:** `vercel-optimize` does not apply. Performance work follows the Vercel React rules
   in the codebase.
@@ -438,6 +439,21 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
   prerendering or caching across requests.
 - **Revisit if:** the app ever serves slow-changing data worth caching. Then adopt `use cache` per
   function and drop the segment exports from the SSE route.
+
+### ADR-9: Windows installer with Electron
+
+- **Decision:** `electron-builder` (NSIS, per-user) wraps the Next `standalone` output. The Electron main
+  process (`electron/main.cjs`) picks a free loopback port, starts `server.js` as a utility process and
+  loads it in a window. `gallery-dl.exe` ships as a pinned, SHA-256-checked seed and is copied to
+  `%APPDATA%\gatherin` on first run, where `gallery-dl --update` can replace it.
+- **Why:** Users get a double-click install with no Node, no terminal and no `npm run`. The server code is
+  unchanged; only paths, the port and the first-run flow became configurable (`src/server/env.ts`).
+- **Consequences:** App files (`resources/`) are replaced on update and never hold data. State lives in
+  `GATHER_HOME` (`%APPDATA%\gather`), the library in a user-chosen folder; the uninstaller keeps both.
+  Quitting sends the server a `shutdown` message (`src/server/shutdown-hook.ts`) because Windows has no
+  SIGTERM. Packaged mode (`GATHER_PACKAGED=1`) refuses to fall back to `process.cwd()`.
+- **Revisit if:** the size (~150 MB installer) matters; the alternative is a Node-less shell such as Tauri
+  with a smaller sidecar, at the cost of Rust glue.
 
 ## 9. Build order (each step ends with something that works)
 
