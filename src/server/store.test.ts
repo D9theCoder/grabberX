@@ -112,6 +112,33 @@ describe("getSettings", () => {
 });
 
 describe("saveSettings", () => {
+  it("saves an unrelated field when the state folder sits inside the default media root (source layout)", async () => {
+    // From source the media root is the repo root and GATHER_HOME is <repo>/.gather, by design.
+    const root = join(sandbox, "source-root");
+    process.env.GATHER_HOME = join(root, ".gather");
+    await mkdir(root, { recursive: true });
+    await saveSettings({ mediaRoot: root });
+    const saved = await saveSettings({ concurrency: 2 });
+    expect(saved.concurrency).toBe(2);
+    expect(saved.mediaRoot).toBe(root);
+  });
+
+  it("refuses a media folder around the state folder when packaged", async () => {
+    const root = join(sandbox, "packaged-root");
+    await mkdir(root, { recursive: true });
+    process.env.GATHER_HOME = join(root, "state");
+    process.env.GATHER_PACKAGED = "1";
+    process.env.GATHER_MEDIA_ROOT = join(sandbox, "library");
+    process.env.GATHER_GALLERY_DL = join(sandbox, "gallery-dl.exe");
+    try {
+      await expect(saveSettings({ mediaRoot: root })).rejects.toThrow(/own folder/);
+    } finally {
+      delete process.env.GATHER_PACKAGED;
+      delete process.env.GATHER_MEDIA_ROOT;
+      delete process.env.GATHER_GALLERY_DL;
+    }
+  });
+
   it("merges a patch, writes atomically and reads it back", async () => {
     const saved = await saveSettings({ concurrency: 2 });
     expect(saved.concurrency).toBe(2);

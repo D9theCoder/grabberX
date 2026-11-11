@@ -16,7 +16,7 @@ import { z } from "zod";
 import { isActiveStatus } from "@/lib/run-copy";
 import { retryTransient } from "@/server/fs-retry";
 import { compareRunIds } from "@/lib/run-order";
-import { envAppDir, envGalleryDl, envHome, envMediaRoot } from "@/server/env";
+import { envAppDir, envGalleryDl, envHome, envMediaRoot, isPackaged } from "@/server/env";
 import { assertSafeMediaRoot, isDeviceName } from "@/server/paths";
 import type { Counts, Run, Settings } from "@/lib/spec";
 
@@ -248,10 +248,14 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
   if (!root?.isDirectory()) {
     throw new Error(`The media folder ${next.mediaRoot} doesn't exist.`);
   }
-  assertSafeMediaRoot(
-    next.mediaRoot,
-    [envAppDir(), gatherHome()].filter((dir): dir is string => dir !== undefined),
-  );
+  // Only a changed media folder is checked, and only in the packaged app. From source the media root is the
+  // repo root and the state folder is <repo>/.gather, so the layout the check rejects is the supported one.
+  if (saved.mediaRoot !== undefined && isPackaged()) {
+    assertSafeMediaRoot(
+      next.mediaRoot,
+      [envAppDir(), gatherHome()].filter((dir): dir is string => dir !== undefined),
+    );
+  }
   await writeAtomic(settingsFile(), `${JSON.stringify(next, null, 2)}\n`);
   return next;
 }
