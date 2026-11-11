@@ -1,0 +1,13 @@
+<!-- @dsCard group="Browse" height=120 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>FolderCard — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo g-demo--col"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap' } }, h(G.FolderCard, { name: 'Image' }), h(G.FolderCard, { name: 'Video' }), h(G.FolderCard, { name: '2025' })));
+</script>
+</body>
+</html>

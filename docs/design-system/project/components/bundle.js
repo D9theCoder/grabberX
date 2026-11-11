@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"Gather","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"}]} */
+/* @ds-bundle: {"format":4,"namespace":"Gather","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"},{"name":"Breadcrumb"},{"name":"FolderCard"},{"name":"Thumbnail"},{"name":"Toolbar"},{"name":"Lightbox"}]} */
 (function () {
   var React = window.React;
   var h = React.createElement;
@@ -36,6 +36,13 @@
     alert: "M12 3l9.5 17h-19zM12 10v4M12 17.5v.5",
     info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v6M12 7.5v.5",
     stop: "M7 7h10v10H7z",
+    folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+    play: "M8 5.5v13l10-6.5z",
+    trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
+    expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+    prev: "M15 6l-6 6 6 6",
+    next: "M9 6l6 6-6 6",
+    loop: "M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4",
     ring: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"
   };
 
@@ -227,7 +234,48 @@
         p.action ? h("div", { className: "g-notice__action" }, p.action) : null));
   }
 
+  function Breadcrumb(p) {
+    var items = p.items || [];
+    return h("nav", { className: "g-crumbs", "aria-label": "Breadcrumb" },
+      h("ol", null, items.map(function (item, i) {
+        var last = i === items.length - 1;
+        return h(React.Fragment, { key: i },
+          i > 0 ? h("li", { "aria-hidden": "true", className: "g-crumbs__sep" }, "/") : null,
+          h("li", { className: last ? "is-current" : undefined },
+            last ? h("span", { "aria-current": "page" }, item.label) : h("a", { href: item.href || "#" }, item.label)));
+      })));
+  }
+
+  function FolderCard(p) {
+    return h("a", { className: cx("g-folder", p.className), href: p.href || "#" }, h(Icon, { name: "folder" }), h("span", null, p.name));
+  }
+
+  function Thumbnail(p) {
+    return h("button", { type: "button", className: cx("g-thumb", p.active && "is-active", p.className), "aria-label": p.name, style: { width: p.width || 160, height: p.height || 120 } },
+      h("span", { className: "g-thumb__image", style: { background: p.tone || "var(--sunken)" } }),
+      p.kind === "video" ? h("span", { className: "g-thumb__badge" }, h(Icon, { name: "play" }), p.duration || "") : null);
+  }
+
+  function Toolbar(p) {
+    return h("div", { className: cx("g-toolbar", p.className), role: "toolbar", "aria-label": p.label }, (p.actions || []).map(function (a) {
+      return h("button", { key: a.label, type: "button", className: cx("g-toolbar__btn", a.pressed && "is-pressed"), "aria-label": a.label, "aria-pressed": a.pressed, disabled: a.disabled },
+        h(Icon, { name: a.icon }), h("span", { role: "tooltip", className: "g-toolbar__tip" }, a.label));
+    }));
+  }
+
+  function Lightbox(p) {
+    return h("div", { className: cx("g-lightbox", p.className), role: "dialog", "aria-modal": "true", "aria-label": p.name + ", " + p.position + " of " + p.total },
+      h("div", { className: "g-lightbox__top" },
+        h("span", null, h("strong", null, p.position + " of " + p.total), h("span", { className: "g-lightbox__name" }, p.name)),
+        h(Toolbar, { label: "Viewer actions", actions: p.actions || [] })),
+      h("div", { className: "g-lightbox__stage" },
+        h("span", { className: "g-lightbox__image" }),
+        h("button", { type: "button", className: "g-toolbar__btn g-lightbox__nav g-lightbox__nav--prev", "aria-label": "Previous" }, h(Icon, { name: "prev" })),
+        h("button", { type: "button", className: "g-toolbar__btn g-lightbox__nav g-lightbox__nav--next", "aria-label": "Next" }, h(Icon, { name: "next" }))));
+  }
+
   window.Gather = Object.assign(window.Gather || {}, {
+    Breadcrumb: Breadcrumb, FolderCard: FolderCard, Thumbnail: Thumbnail, Toolbar: Toolbar, Lightbox: Lightbox,
     Button: Button, TextField: TextField, Segmented: Segmented, ChoiceList: ChoiceList, Switch: Switch,
     Disclosure: Disclosure, CommandBlock: CommandBlock, Status: Status, Stat: Stat, LogView: LogView, Notice: Notice
   });

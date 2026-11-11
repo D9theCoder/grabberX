@@ -105,12 +105,43 @@ export interface NoticeProps {
 }
 export declare function Notice(props: NoticeProps): React.ReactElement;
 
+export interface BreadcrumbProps { items: Array<{ label: string; href?: string }>; }
+export declare function Breadcrumb(props: BreadcrumbProps): React.ReactElement;
+
+export interface FolderCardProps { name: string; href?: string; }
+export declare function FolderCard(props: FolderCardProps): React.ReactElement;
+
+export interface ThumbnailProps {
+  /** The file name; it is the button's accessible name. */
+  name: string;
+  width?: number;
+  height?: number;
+  kind?: 'image' | 'video';
+  duration?: string;
+  active?: boolean;
+}
+export declare function Thumbnail(props: ThumbnailProps): React.ReactElement;
+
+export interface ToolbarAction { label: string; icon: string; pressed?: boolean; disabled?: boolean; }
+export interface ToolbarProps { label: string; actions: ToolbarAction[]; }
+export declare function Toolbar(props: ToolbarProps): React.ReactElement;
+
+export interface LightboxProps {
+  name: string;
+  position: number;
+  total: number;
+  actions?: ToolbarAction[];
+}
+export declare function Lightbox(props: LightboxProps): React.ReactElement;
+
 declare global {
   interface Window {
     Gather: {
       Button: typeof Button; TextField: typeof TextField; Segmented: typeof Segmented; ChoiceList: typeof ChoiceList;
       Switch: typeof Switch; Disclosure: typeof Disclosure; CommandBlock: typeof CommandBlock; Status: typeof Status;
       Stat: typeof Stat; LogView: typeof LogView; Notice: typeof Notice;
+      Breadcrumb: typeof Breadcrumb; FolderCard: typeof FolderCard; Thumbnail: typeof Thumbnail;
+      Toolbar: typeof Toolbar; Lightbox: typeof Lightbox;
     };
   }
 }

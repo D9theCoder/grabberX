@@ -63,3 +63,5 @@ Use the components in this system (`window.Gather` in previews; in the app, Reac
 - `Disclosure`: the folded Advanced section, with a count of changed values.
 - `CommandBlock`: the command preview with Copy.
 - `Status`, `Stat`, `LogView`, `Notice`: the run panel.
+- `Breadcrumb`, `FolderCard`, `Thumbnail`: browsing an account's media (`/library/[account]`).
+- `Toolbar`, `Lightbox`: viewing one file. The only place the `stage` token (near-black, with `on-ink` controls) appears. It is a documented exception for looking at media, not a dark theme.

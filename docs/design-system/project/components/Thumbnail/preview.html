@@ -1,0 +1,13 @@
+<!-- @dsCard group="Browse" height=200 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Thumbnail — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo g-demo--col"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { display: 'flex', gap: 4 } }, h(G.Thumbnail, { name: '1800000000000000001_1.jpg', width: 180, height: 120 }), h(G.Thumbnail, { name: '1800000000000000002_1.jpg', width: 90, height: 120, active: true }), h(G.Thumbnail, { name: '1800000000000000003_1.mp4', width: 210, height: 120, kind: 'video', duration: '0:42' })));
+</script>
+</body>
+</html>
