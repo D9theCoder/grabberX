@@ -81,7 +81,7 @@ const ERROR_RULES: [ErrorKind, RegExp][] = [
   // Word-anchored on purpose: "author", "authority", "authored by" and "plugin" are not auth failures.
   [
     "auth",
-    /\bauth(?:(?:entication|enticate[ds]?|enticator|orization|orized|orised)(?:error)?|error|required)?\b|\blog ?in(?:error|required)?\b|(?<!\bno )\bcookies needed\b|\bauth(?:entication)? required\b/i,
+    /\bauth(?:(?:entication|enticate[ds]?|enticator|orization|orized|orised)(?:error)?|error|required)?\b|\blog ?in(?:error|required)?\b|(?<!\bno )\bcookies needed\b/i,
   ],
   ["auth", /(?<![/\w])40[13]\b(?!\.\w)/i],
   ["auth", /\bunauthori[sz]ed\b|\bunauthenticated\b/i],

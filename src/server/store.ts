@@ -17,9 +17,6 @@ import { isActiveStatus } from "@/lib/run-copy";
 import { compareRunIds } from "@/lib/run-order";
 import type { Counts, Run, Settings } from "@/lib/spec";
 
-/** Run records read at once; History keeps up to 2000, and opening all of them together is needless. */
-const LIST_BATCH = 100;
-
 /** A History page never needs more of a log than this, and a run can write many megabytes. */
 const LOG_TAIL_BYTES = 512 * 1024;
 
@@ -266,8 +263,10 @@ export async function listRuns(limit = 200): Promise<Run[]> {
   // a corrupt file in the newest window is skipped and the next one takes its place.
   ids.sort(compareRunIds);
   const runs: Run[] = [];
-  for (let from = 0; from < ids.length && runs.length < limit; from += LIST_BATCH) {
-    const batch = await Promise.all(ids.slice(from, from + LIST_BATCH).map((id) => getRun(id)));
+  // The first batch is the whole window, so an unlimited read stays one parallel pass.
+  const step = Math.max(1, Math.min(limit, ids.length));
+  for (let from = 0; from < ids.length && runs.length < limit; from += step) {
+    const batch = await Promise.all(ids.slice(from, from + step).map((id) => getRun(id)));
     for (const run of batch) {
       if (run && runs.length < limit) runs.push(run);
     }

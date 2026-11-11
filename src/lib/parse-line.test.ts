@@ -179,7 +179,7 @@ describe("parseLine", () => {
     expect(parseLine("stderr", line)).toEqual({ t: "log", level: "warning", line });
   });
 
-  it("reads a spaced 'auth required' as auth but not a line that says no cookies are needed", () => {
+  it("reads 'authentication required' as auth but not a line that says no cookies are needed", () => {
     expect(classifyError("[twitter][error] Authentication required")).toBe("auth");
     expect(classifyError("[twitter][error] auth required for this timeline")).toBe("auth");
     expect(classifyError("[twitter][error] no cookies needed here")).toBeNull();
