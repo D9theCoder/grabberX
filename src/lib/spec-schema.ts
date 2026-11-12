@@ -158,7 +158,7 @@ const advanced = z.strictObject({
   filesizeMax: sizeValue.optional(),
   abortAfterSkipped: whole(1, 1000, "Use 1 to 1000 files.").optional(),
   range: whole(1, 100_000, "Use 1 to 100000 files.").optional(),
-  parallel: whole(2, 4, "Use 1 to 4 downloads at once.").optional(),
+  parallel: whole(1, 4, "Use 1 to 4 downloads at once.").optional(),
   retweets: z.boolean().default(DEFAULT_ADVANCED.retweets),
   replies: z.boolean().default(DEFAULT_ADVANCED.replies),
   writeMetadata: z.boolean().default(false),

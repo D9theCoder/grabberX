@@ -22,7 +22,7 @@ export interface Advanced {
   filesizeMax?: string;
   abortAfterSkipped?: number;
   range?: number;
-  /** gallery-dl processes per step, 2 to 4; absent means one. Only honoured where `parallelBlock` allows it. */
+  /** gallery-dl processes per step, 1 to 4; absent means one. Only honoured where `parallelBlock` allows it. */
   parallel?: number;
   retweets: boolean;
   replies: boolean;

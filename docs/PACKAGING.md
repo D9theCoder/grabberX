@@ -50,11 +50,13 @@ Differences from the plan below:
   launch and every 6 hours and downloads in the background. A downloaded update installs itself silently when
   nobody is using gather (`autoInstallDecision` in `lib.cjs`): within 2 minutes of launch it restarts straight into
   the new version (the window shows "Updating gather to X…"); while the window is hidden in the tray it restarts
-  back into the tray; while the window is open or a download runs it waits, shows one "ready, click to restart"
+  back into the tray; while the window is open, a download runs, or the server does not answer the health check
+  in time (it may be busy with downloads) it waits, shows one "ready, click to restart"
   notification, and looks again every 5 minutes. Install-on-quit stays on as a fallback, but it never fired in
   practice: gather sits in the tray, and a killed process or a Windows shutdown skips the quit event. A version
   that was already tried (recorded in `update-attempt.json`) is not retried for 6 hours, so a failing installer
-  cannot restart gather in a loop. It can also be checked by hand from
+  cannot restart gather in a loop. If the installer does not start within 30 s, gather starts its server again,
+  reloads the window and asks with the notification instead. It can also be checked by hand from
   Settings → About or the tray menu ("Check for updates"); once downloaded, "Restart and update" stops the
   server's runs and runs the installer. The shell keeps one updater state (`nextUpdateState` in `lib.cjs`) and
   pushes it to the page over `gather:update-state`. Verified locally: a build with a publish target

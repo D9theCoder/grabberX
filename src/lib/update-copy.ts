@@ -11,12 +11,12 @@ export function updateCopy(state: UpdateState, now: Date): { tone: "info" | "dan
     case "downloading":
       return { tone: "info", text: `Downloading gather ${state.version} · ${state.percent}%` };
     case "ready":
-      return { tone: "info", text: `gather ${state.version} is ready. It installs by itself when gather is idle, or restart now.` };
+      return { tone: "info", text: `gather ${state.version} is ready. It installs by itself once gather is in the tray with nothing downloading, or restart now.` };
     case "error":
       return { tone: "danger", text: `Couldn't check for updates: ${state.message}` };
     case "unavailable":
       return { tone: "info", text: "Updates work only in the installed app." };
     default:
-      return { tone: "info", text: "gather checks for updates at start and every 6 hours, and installs them by itself when it is idle." };
+      return { tone: "info", text: "gather checks for updates at start and every 6 hours, and installs them by itself while it sits in the tray with nothing downloading." };
   }
 }

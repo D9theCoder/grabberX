@@ -689,6 +689,39 @@ describe("RunQueue", () => {
     await waitUntil(async () => (await storeModule.readLogTail(run.id)).text.includes("[2/2] saved a file"));
   }, 15_000);
 
+  it("creates no folder for a parallel preview", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const start: StartProcess = () => ({ pid: 1, done: Promise.resolve({ exitCode: 0 }), stop: async () => {} });
+    const queue = makeQueue(media, start);
+    const run = await queue.enqueue({ ...spec("username"), simulate: true, advanced: { ...spec("username").advanced, parallel: 2 } });
+    await waitFor(() => queue.get(run.id)?.status === "done", 10_000);
+
+    expect(await readdir(media)).not.toContain("username");
+  }, 15_000);
+
+  it("runs a parallel step as one process, and says why, when its folder cannot be created", async () => {
+    isolationHome();
+    const media = await tempDir();
+    // A file where the account folder should be makes creating "username/Image" fail.
+    await writeFile(join(media, "username"), "");
+
+    const started: string[][] = [];
+    const start: StartProcess = (options) => {
+      started.push(options.argv);
+      return { pid: started.length, done: Promise.resolve({ exitCode: 0 }), stop: async () => {} };
+    };
+    const queue = makeQueue(media, start);
+    const run = await queue.enqueue({ ...spec("username"), advanced: { ...spec("username").advanced, parallel: 2 } });
+    await waitFor(() => queue.get(run.id)?.status === "done", 10_000);
+
+    expect(started).toEqual([
+      ["images", "username"],
+      ["videos", "username"],
+    ]);
+    await waitUntil(async () => (await storeModule.readLogTail(run.id)).text.includes("could not create the folder"));
+  }, 15_000);
+
   it("stops every started worker of a parallel step", async () => {
     isolationHome();
     const media = await tempDir();

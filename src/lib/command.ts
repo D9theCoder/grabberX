@@ -1,5 +1,5 @@
 import type { Advanced, JobSpec, Layout, Settings, Step } from "@/lib/spec";
-import { folderNameFor, siteDef } from "@/lib/sites";
+import { folderNameFor, siteDef, siteForUrl } from "@/lib/sites";
 
 /** gallery-dl 1.32.19 twitter defaults: retweets off, replies on. */
 const TWITTER_RETWEETS_DEFAULT = false;
@@ -16,8 +16,8 @@ export const WORKER_PARTS_DIR = ".gather-parts";
  * site must not rate-limit its listing; and a layout that creates folders mid-run (by year or month) would have
  * two workers race to create the same folder, which gallery-dl does not tolerate.
  */
-export function parallelBlock(spec: Pick<JobSpec, "site" | "layout">): string | null {
-  const site = siteDef(spec.site);
+export function parallelBlock(spec: Pick<JobSpec, "site" | "layout" | "account">): string | null {
+  const site = (spec.site === "url" ? siteForUrl(spec.account) : null) ?? siteDef(spec.site);
   if (!site.parallel) return `${site.label} limits requests, so it downloads one file at a time.`;
   if (spec.layout.kind !== "byType" && spec.layout.kind !== "flat") {
     return "Parallel downloads need the By type or Flat layout.";
@@ -67,15 +67,21 @@ export function stepTargetDir(spec: JobSpec, settings: Pick<Settings, "mediaRoot
 }
 
 /**
- * One worker's argv: the step's argv with its file slice (`--range i::N`, or `i:limit+1:N` under "Only the
- * newest files") and its own folder for `.part` files, so two workers can never write the same unfinished file.
+ * One worker's argv: the step's argv with its file slice (`--range i::N`, or `first+i-1:last+1:N` inside a
+ * `--range first-last`) and its own folder for `.part` files, so two workers can never write the same unfinished file.
  */
 export function workerArgv(argv: string[], index: number, count: number, partDir: string): string[] {
   const out: string[] = [];
-  let limit: number | undefined;
+  let first = 1;
+  let last: number | undefined;
   for (let at = 0; at < argv.length; at++) {
     if (argv[at] === "--range") {
-      limit = Number(/^1-(\d+)$/.exec(argv[at + 1] ?? "")?.[1]) || undefined;
+      const value = argv[at + 1] ?? "";
+      const match = /^(\d*)-(\d*)$/.exec(value);
+      // Dropping a range this cannot split would silently download the whole profile.
+      if (!match) throw new Error(`Parallel downloads cannot split --range ${value}.`);
+      first = Number(match[1]) || 1;
+      last = match[2] ? Number(match[2]) : undefined;
       at++;
       continue;
     }
@@ -84,7 +90,7 @@ export function workerArgv(argv: string[], index: number, count: number, partDir
   // A step without a filter would let gallery-dl count with the extractor's own skip shortcut, and the
   // workers' slices would no longer line up; every step is expected to carry one.
   if (!out.includes("--filter")) out.splice(out.length - 1, 0, "--filter", "True");
-  const slice = `${index}:${limit === undefined ? "" : limit + 1}:${count}`;
+  const slice = `${first + index - 1}:${last === undefined ? "" : last + 1}:${count}`;
   out.splice(out.length - 1, 0, "--range", slice, "-o", `downloader.part-directory=${JSON.stringify(partDir)}`);
   return out;
 }

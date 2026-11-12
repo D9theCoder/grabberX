@@ -441,7 +441,16 @@ export class RunQueue {
     const workers = step.workers;
     if (!workers || workers.length < 2) return start(step.argv);
     // gallery-dl creates a missing folder in a way that fails if another worker created it a moment earlier.
-    await mkdir(stepTargetDir(active.run.spec, settings, step.label), { recursive: true }).catch(() => {});
+    // A preview writes nothing, so it creates no folder either.
+    if (!active.run.spec.simulate) {
+      try {
+        await mkdir(stepTargetDir(active.run.spec, settings, step.label), { recursive: true });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.handleRaw(active, "stderr", `gather: could not create the folder for parallel downloads (${reason}); downloading one file at a time.`);
+        return start(step.argv);
+      }
+    }
     return startWorkers(workers.map((argv, index) => () => start(argv, `[${index + 1}/${workers.length}]`)));
   }
 

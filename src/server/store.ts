@@ -398,17 +398,33 @@ export async function saveRun(run: Run): Promise<void> {
   await writeAtomic(runFile(run.id), `${JSON.stringify(run, null, 2)}\n`);
 }
 
+/**
+ * Parsed run records by file path. History re-renders every 2 s during a run and lists every record; a finished
+ * record never changes, so a stat replaces reading and parsing it again. A rewrite changes mtime or size.
+ */
+const runCache = new Map<string, { mtimeMs: number; size: number; run: Run }>();
+
 export async function getRun(id: string): Promise<Run | undefined> {
   if (!isValidRunId(id)) return undefined;
+  const file = runFile(id);
+  const info = await stat(file).catch(() => null);
+  if (!info) {
+    runCache.delete(file);
+    return undefined;
+  }
+  const cached = runCache.get(file);
+  if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return structuredClone(cached.run);
   let raw: string;
   try {
-    raw = await readFile(runFile(id), "utf8");
+    raw = await readFile(file, "utf8");
   } catch {
     return undefined;
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isRunRecord(parsed) ? parsed : undefined;
+    if (!isRunRecord(parsed)) return undefined;
+    runCache.set(file, { mtimeMs: info.mtimeMs, size: info.size, run: structuredClone(parsed) });
+    return parsed;
   } catch {
     return undefined;
   }

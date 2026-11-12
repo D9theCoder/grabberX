@@ -25,6 +25,7 @@ const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const UPDATE_RETRY_MS = 5 * 60 * 1000;
 // The installer restarts gather; a marker this fresh means "come back in the tray, not as a window".
 const START_HIDDEN_MS = 10 * 60 * 1000;
+const INSTALL_STUCK_MS = 30 * 1000;
 const bootedAt = Date.now();
 
 let log;
@@ -279,7 +280,10 @@ async function confirmQuit() {
     defaultId: 1,
     cancelId: 1,
     title: "gather",
-    message: `${active} download${active === 1 ? " is" : "s are"} still running.`,
+    message:
+      active === null
+        ? "gather did not answer, so downloads may still be running."
+        : `${active} download${active === 1 ? " is" : "s are"} still running.`,
     detail: "Quitting stops them. Files already saved are kept, and the next run continues where it left off.",
   });
   return response === 0;
@@ -332,7 +336,7 @@ function setUpdateState(next) {
       next.state === "current"
         ? `gather ${app.getVersion()} is up to date.`
         : next.state === "downloading"
-          ? `gather ${next.version} is downloading. It installs when gather is idle.`
+          ? `gather ${next.version} is downloading. It installs once gather is in the tray with nothing downloading.`
           : `Could not check for updates: ${next.message}`;
     tray?.displayBalloon?.({ title: "gather", content });
   }
@@ -373,8 +377,40 @@ async function installUpdate({ automatic = false, hidden = false } = {}) {
     await win.loadURL(pageHtml(`Updating gather to ${version}…`, "<p>gather restarts by itself in a moment.</p>")).catch(() => {});
   }
   await stopServer();
-  updater.quitAndInstall(true, true);
+  try {
+    updater.quitAndInstall(true, true);
+  } catch (error) {
+    await recoverFromInstall(version, error);
+    return false;
+  }
+  // A successful install quits gather long before this fires; still running means the installer never started.
+  setTimeout(() => void recoverFromInstall(version), INSTALL_STUCK_MS);
   return true;
+}
+
+/** Puts gather back the way it was when the installer did not start: server running, window on the app, tray working. */
+async function recoverFromInstall(version, error) {
+  if (!quitting) return;
+  log.line(`the installer for ${version} did not start${error ? ` (${error.message})` : ""}; starting gather again`);
+  try {
+    fs.rmSync(startHiddenFile(), { force: true });
+  } catch {
+    /* only a startup hint */
+  }
+  quitting = false;
+  try {
+    await startServer();
+    if (win && !win.isDestroyed()) await win.loadURL(origin);
+  } catch (startError) {
+    log.line(`could not start again: ${startError.message}`);
+    if (win && !win.isDestroyed()) {
+      await win.loadURL(pageHtml("gather could not start", `<p>${startError.message}</p><p>Close and reopen gather.</p>`)).catch(() => {});
+    }
+    return;
+  }
+  // The attempt file now blocks another silent try for a while, so this asks the user instead.
+  updateNoticeVersion = "";
+  showUpdateNotice(version);
 }
 
 function showUpdateNotice(version) {

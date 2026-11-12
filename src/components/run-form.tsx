@@ -10,7 +10,6 @@ import { TextField } from "@/components/ui/text-field";
 import { formatBytes, formatCount, formatRelative, truncateMiddle } from "@/lib/format";
 import { LAYOUT_LABELS, detectedLayoutOf, layoutPathPreview, layoutSummary } from "@/lib/form-helpers";
 import type { DatePreset, LayoutKind } from "@/lib/form-helpers";
-import { parallelBlock } from "@/lib/command";
 import { SITES, siteDef } from "@/lib/sites";
 import type { AccountHint, Advanced, JobSpec, Media, SiteId } from "@/lib/spec";
 
@@ -48,6 +47,8 @@ interface RunFormProps {
   onCaughtUpChange: (value: boolean) => void;
   onCaughtUpReset: () => void;
   advancedChanged: number;
+  /** Why this run cannot download in parallel; null when it can. */
+  parallelBlock: string | null;
 }
 
 /**
@@ -263,7 +264,7 @@ export function RunForm(props: RunFormProps) {
           cookiesDefault={props.cookiesDefault}
           supportsSize={site.supportsSize}
           isX={spec.site === "x"}
-          parallelBlock={parallelBlock(spec)}
+          parallelBlock={props.parallelBlock}
           folder={props.folderOverride}
           folderError={props.folderError}
           onFolderChange={props.onFolderChange}

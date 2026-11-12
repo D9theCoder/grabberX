@@ -10,7 +10,7 @@ import { RunPanel } from "@/components/run-panel";
 import { Notice } from "@/components/ui/notice";
 import { Status } from "@/components/ui/status";
 import { useRunStream } from "@/components/use-run-stream";
-import { buildCommand, formatCommand, workerCount } from "@/lib/command";
+import { buildCommand, formatCommand, parallelBlock, workerCount } from "@/lib/command";
 import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
 import { changedAdvancedKeys, datePresetRange, templateToSegments } from "@/lib/form-helpers";
@@ -93,11 +93,15 @@ export function RunScreen({
   const defaultCaughtUp = hint?.kind === "exists";
   const caughtUp = caughtUpChoice ?? defaultCaughtUp;
 
+  // A count chosen for a site that allows it stays in the form, but a blocked run never carries it.
+  const parallelReason = parallelBlock({ ...spec, account });
+  const parallel = parallelReason === null ? spec.advanced.parallel : undefined;
+
   const effectiveSpec: JobSpec = {
     ...spec,
     account,
     folder: folderError ? undefined : folderTrimmed || undefined,
-    advanced: { ...spec.advanced, abortAfterSkipped: caughtUp ? CAUGHT_UP_AFTER : undefined },
+    advanced: { ...spec.advanced, parallel, abortAfterSkipped: caughtUp ? CAUGHT_UP_AFTER : undefined },
   };
 
   const previewAccount = account || (spec.site === "url" ? "https://example.com/" : site.placeholder);
@@ -124,7 +128,7 @@ export function RunScreen({
   else if (emptyTemplate) reason = "Enter a folder template first";
 
   const advancedChanged =
-    changedAdvancedKeys(spec.advanced, settings.cookies).length +
+    changedAdvancedKeys({ ...spec.advanced, parallel }, settings.cookies).length +
     (folderTrimmed ? 1 : 0) +
     (caughtUp !== defaultCaughtUp ? 1 : 0);
 
@@ -274,6 +278,7 @@ export function RunScreen({
           onCaughtUpChange={setCaughtUpChoice}
           onCaughtUpReset={() => setCaughtUpChoice(null)}
           advancedChanged={advancedChanged}
+          parallelBlock={parallelReason}
         />
 
         <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-6 lg:self-start">

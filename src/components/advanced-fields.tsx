@@ -182,7 +182,7 @@ export function AdvancedFields({
                 parallelBlock ??
                 "Files at once from this profile. Each extra download lists the whole profile again, so use it only where the site does not limit requests."
               }
-              changed={advanced.parallel !== undefined}
+              changed={parallelBlock === null && advanced.parallel !== undefined}
               onReset={() => onChange({ parallel: undefined })}
             />
           </span>

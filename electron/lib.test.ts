@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const lib = require("./lib.cjs") as {
   findFreePort(): Promise<number>;
   waitForHealth(url: string, options?: Record<string, unknown>): Promise<{ ok: boolean }>;
-  activeRuns(url: string): Promise<number>;
+  activeRuns(url: string): Promise<number | null>;
   createLog(dir: string, maxBytes?: number): { file: string; write(text: string): void; line(message: string): void };
   seedGalleryDl(seed: string, target: string): string;
   isOwnOrigin(url: string, origin: string): boolean;
@@ -20,7 +20,7 @@ const lib = require("./lib.cjs") as {
     version: string;
     sinceBootMs: number;
     windowVisible: boolean;
-    activeRuns: number;
+    activeRuns: number | null;
     lastAttempt: { version: string; at: string } | null;
     now: number;
   }): "visible" | "hidden" | "wait" | "blocked";
@@ -62,6 +62,11 @@ describe("waitForHealth", () => {
     } finally {
       server.close();
     }
+  });
+
+  it("reports active runs as unknown when the server does not answer", async () => {
+    const port = await lib.findFreePort();
+    expect(await lib.activeRuns(`http://127.0.0.1:${port}`)).toBeNull();
   });
 
   it("gives up with a clear message on timeout", async () => {
@@ -208,6 +213,7 @@ describe("autoInstallDecision", () => {
   it("waits while the user works or a download runs", () => {
     expect(lib.autoInstallDecision({ ...base, sinceBootMs: 3_600_000 })).toBe("wait");
     expect(lib.autoInstallDecision({ ...base, windowVisible: false, activeRuns: 1 })).toBe("wait");
+    expect(lib.autoInstallDecision({ ...base, windowVisible: false, activeRuns: null })).toBe("wait");
   });
 
   it("does not retry the same version within six hours", () => {

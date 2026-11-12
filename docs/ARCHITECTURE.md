@@ -506,7 +506,10 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
     folders mean they never write the same `.part` file (one finishes, the other's rename replaces it with the
     same bytes). A file missed by the shift is picked up by the next run.
 - **Consequences:** Each worker lists the whole profile, so N workers make N times the listing requests;
-  `SiteDef.parallel` keeps it off for X, Instagram, Pixiv and Reddit. "Stop when caught up" counts per worker.
+  `SiteDef.parallel` keeps it off for X, Instagram, Pixiv and Reddit, also when one of their pages is pasted
+  as an "Other URL" (`siteForUrl`). A blocked count stays in the form but never reaches the run spec. A preview
+  creates no folder; if creating the folder fails, the step runs as one process and logs why. "Stop when
+  caught up" counts per worker.
 - **Revisit if:** gallery-dl gains in-process parallel downloads, or a site proves to rate-limit the listing.
 
 ## 9. Build order (each step ends with something that works)

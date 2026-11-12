@@ -237,6 +237,14 @@ export function validateAccount(
   return { ok: true, account: handle };
 }
 
+/** The named site a page URL points to, so a generic "Other URL" run still follows that site's rules. */
+export function siteForUrl(url: string): SiteDef | null {
+  const link = splitLink(url.trim());
+  if (!link) return null;
+  const host = link.host.toLowerCase();
+  return SITES.find((def) => def.hosts.some((known) => host === known || host.endsWith(`.${known}`))) ?? null;
+}
+
 /** The <acct> folder name for a spec: spec.folder when set, else derived from the account. */
 export function folderNameFor(
   spec: Pick<JobSpec, "site" | "account" | "folder">,

@@ -53,12 +53,13 @@ async function waitForHealth(baseUrl, { timeoutMs = 60000, intervalMs = 250, sho
   throw new Error(`The server did not answer within ${Math.round(timeoutMs / 1000)}s (${lastError.message}).`);
 }
 
+/** The number of running downloads, or null when the server did not answer (busy or down), which means "unknown". */
 async function activeRuns(baseUrl) {
   try {
     const health = await getJson(`${baseUrl}/api/health`, 2000);
     return Number(health.activeRuns) || 0;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -174,7 +175,8 @@ const RETRY_INSTALL_MS = 6 * 60 * 60 * 1000;
  * - "blocked": the same version was already tried recently, so the silent install failed; ask instead.
  */
 function autoInstallDecision({ version, sinceBootMs, windowVisible, activeRuns, lastAttempt, now }) {
-  if (activeRuns > 0) return "wait";
+  // A server too busy to answer may be running downloads; installing would kill them.
+  if (activeRuns === null || activeRuns > 0) return "wait";
   if (lastAttempt && lastAttempt.version === version && now - Date.parse(lastAttempt.at) < RETRY_INSTALL_MS) {
     return "blocked";
   }

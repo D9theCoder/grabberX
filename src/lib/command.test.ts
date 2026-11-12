@@ -481,12 +481,37 @@ describe("parallel downloads", () => {
   });
 
   it("refuses sites that limit requests and layouts that create folders mid-run", () => {
-    expect(parallelBlock({ site: "x", layout: { kind: "byType" } })).toMatch(/limits requests/);
-    expect(parallelBlock({ site: "bluesky", layout: { kind: "byTypeYear" } })).toMatch(/By type or Flat/);
-    expect(parallelBlock({ site: "url", layout: { kind: "flat" } })).toBeNull();
+    expect(parallelBlock({ site: "x", account: "username", layout: { kind: "byType" } })).toMatch(/limits requests/);
+    expect(parallelBlock({ site: "bluesky", account: "name.bsky.social", layout: { kind: "byTypeYear" } })).toMatch(/By type or Flat/);
+    expect(parallelBlock({ site: "url", account: "https://example.com/gallery", layout: { kind: "flat" } })).toBeNull();
+    expect(parallelBlock({ site: "url", account: "https://bsky.app/profile/name", layout: { kind: "flat" } })).toBeNull();
     expect(workerCount(makeSpec({ advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, parallel: 4 } }))).toBe(1);
     expect(workerCount(bluesky({}, { layout: { kind: "byMonth" } }))).toBe(1);
     expect(buildCommand(bluesky({}, { layout: { kind: "byMonth" } }), settings)[0]!.workers).toBeUndefined();
+  });
+
+  it("keeps the rate limit of a named site pasted as another URL", () => {
+    for (const url of ["https://x.com/username/media", "https://www.instagram.com/username/", "https://old.reddit.com/user/username"]) {
+      expect(parallelBlock({ site: "url", account: url, layout: { kind: "flat" } }), url).toMatch(/limits requests/);
+    }
+    const spec = makeSpec({
+      site: "url",
+      account: "https://x.com/username/media",
+      layout: { kind: "flat" },
+      advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, parallel: 4 },
+    });
+    expect(workerCount(spec)).toBe(1);
+  });
+
+  it("slices any first-last range and refuses one it cannot split", () => {
+    const url = "https://example.com/a";
+    const sliceOf = (range: string, index: number) => {
+      const argv = workerArgv(["--range", range, "--filter", "True", url], index, 2, `${ROOT}/a/.gather-parts/w${index}`);
+      return argv[argv.indexOf("--range") + 1];
+    };
+    expect([sliceOf("5-20", 1), sliceOf("5-20", 2)]).toEqual(["5:21:2", "6:21:2"]);
+    expect(sliceOf("3-", 2)).toBe("4::2");
+    expect(() => workerArgv(["--range", "1:10", url], 1, 2, `${ROOT}/a/.gather-parts/w1`)).toThrow(/cannot split/);
   });
 
   it("adds a pass-everything filter to a step without one", () => {
