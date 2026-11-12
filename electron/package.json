@@ -1,7 +1,7 @@
 {
   "name": "gather",
   "productName": "Gather",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A local front end for gallery-dl.",
   "author": "gather",
   "private": true,
