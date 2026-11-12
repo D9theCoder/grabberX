@@ -215,7 +215,7 @@ must update the advertised URL.
 - The dev server is unsupported for the phone pages: the gateway does not proxy the HMR socket and hydration waits for it. Test with a production build.
 - The CSP allows inline scripts and styles (Next hydration) and `unsafe-eval` only outside production.
 - `/api/media/dims` is blocked by the gateway. `POST /api/media/zip` is allowed (session + same Origin + 1 MB body cap) so a phone can download a selection as a zip; `GET` on it stays blocked.
-- Phone read features: sort, filter (all / images / videos), multi-select (long press or Select), select all / none, single download, zip download (at most 500 files and 4 GB), a details panel (size, dimensions, date, link to the X post).
+- Phone read features: sort, filter (all / images / videos), multi-select (long press or Select), select all / none, single download, zip download (at most 5,000 files and 4 GB), a details panel (size, dimensions, date, link to the X post).
 - The e2e test caught that `Referrer-Policy: no-referrer` makes Chrome send `Origin: null` on same-origin form POSTs; the gateway uses `same-origin`.
 - The mobile e2e now has its own config and temp state (`npm run test:e2e:mobile`).
 - Still open from section 10: owner answers (Tailscale use, per-account sharing, downloads, who adds the firewall rule). The build uses the defaults: all accounts shared, view only, a `netsh` command shown in Settings.

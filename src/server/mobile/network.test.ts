@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPeer, isPrivatePeer, normalizeAddress } from "@/server/mobile/network";
+import { classifyPeer, isPrivatePeer, isVirtualAdapter, normalizeAddress } from "@/server/mobile/network";
 
 describe("normalizeAddress", () => {
   it("unwraps an IPv4 address that arrived on a dual-stack socket", () => {
@@ -46,5 +46,24 @@ describe("classifyPeer", () => {
   it("closes a missing address", () => {
     expect(isPrivatePeer(undefined)).toBe(false);
     expect(isPrivatePeer(null)).toBe(false);
+  });
+});
+
+describe("isVirtualAdapter", () => {
+  it.each([
+    ["Ethernet 3", "0a:00:27:00:00:0a"],
+    ["vEthernet (WSL (Hyper-V firewall))", "00:15:5d:3a:15:ce"],
+    ["vEthernet (Default Switch)", "00:15:5d:00:00:01"],
+    ["VirtualBox Host-Only Network", "54:e4:ed:c4:d4:16"],
+    ["VMware Network Adapter VMnet8", "00:50:56:c0:00:08"],
+  ])("treats %s (%s) as virtual", (name, mac) => {
+    expect(isVirtualAdapter(name, mac)).toBe(true);
+  });
+
+  it.each([
+    ["Wi-Fi", "54:e4:ed:c4:d4:16"],
+    ["Ethernet", "3c:52:82:11:22:33"],
+  ])("keeps %s (%s) as a real adapter", (name, mac) => {
+    expect(isVirtualAdapter(name, mac)).toBe(false);
   });
 });

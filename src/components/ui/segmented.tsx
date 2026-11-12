@@ -104,7 +104,7 @@ export function Segmented({
             onClick={() => select(option.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              "relative inline-flex h-8 flex-none items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
+              "relative inline-flex self-stretch flex-none items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
               columns && "max-sm:justify-center",
               // Stretch the hit area to a 44px touch target without changing the visual height.
               "after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']",

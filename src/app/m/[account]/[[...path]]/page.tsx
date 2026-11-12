@@ -4,8 +4,8 @@ import type { FolderListing } from "@/components/gallery/types";
 import { listFolder, MediaPathError } from "@/server/media";
 import { ZIP_MAX_BYTES, ZIP_MAX_FILES } from "@/server/zip";
 
-// A phone sends the file names in one small request, so it stays well under the desktop limit.
-const PHONE_ZIP_FILES = Math.min(ZIP_MAX_FILES, 500);
+// The gateway caps a phone's POST at 1 MB; each file name adds about 35 bytes, so 5,000 names is about 175 KB.
+const PHONE_ZIP_FILES = Math.min(ZIP_MAX_FILES, 5000);
 
 export const dynamic = "force-dynamic";
 

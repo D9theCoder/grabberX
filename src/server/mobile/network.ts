@@ -44,12 +44,24 @@ export interface LanAddress {
   kind: "private" | "tailnet";
 }
 
+const VIRTUAL_ADAPTER_NAME = /^vEthernet\b|virtualbox|vmware|hyper-v|docker|wsl/i;
+const VIRTUAL_MAC_PREFIXES = ["08:00:27", "0a:00:27", "00:15:5d", "00:50:56", "00:05:69", "00:0c:29", "00:1c:14"];
+
+/**
+ * A private address on a virtual adapter (Hyper-V, WSL, VirtualBox, VMware) only reaches this PC, so a phone
+ * cannot use it. Tailscale addresses are not private and are not filtered here.
+ */
+export function isVirtualAdapter(name: string, mac: string): boolean {
+  return VIRTUAL_ADAPTER_NAME.test(name) || VIRTUAL_MAC_PREFIXES.includes(mac.toLowerCase().slice(0, 8));
+}
+
 export function lanAddresses(): LanAddress[] {
   const found: LanAddress[] = [];
-  for (const entries of Object.values(networkInterfaces())) {
+  for (const [name, entries] of Object.entries(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.internal || entry.family !== "IPv4") continue;
       const kind = classifyPeer(entry.address);
+      if (kind === "private" && isVirtualAdapter(name, entry.mac)) continue;
       if (kind === "private" || kind === "tailnet") found.push({ address: entry.address, kind });
     }
   }
