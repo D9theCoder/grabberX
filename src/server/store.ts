@@ -98,6 +98,7 @@ const settingsShape = z.object({
     .max(3, "At most three runs at a time."),
   schedule: scheduleSchema,
   pausedAccounts: pausedAccountsSchema,
+  closeToTray: z.boolean(),
 });
 
 const settingsPatchSchema = settingsShape.partial().strict();
@@ -193,6 +194,7 @@ function defaults(): Settings {
     // A copy, so a caller that changes the returned settings cannot change the constant.
     schedule: { ...DEFAULT_SCHEDULE, frequency: { ...DEFAULT_SCHEDULE.frequency } },
     pausedAccounts: [],
+    closeToTray: true,
   };
 }
 
@@ -248,6 +250,7 @@ export async function getSettings(): Promise<Settings> {
       concurrency: saved.concurrency ?? fallback.concurrency,
       schedule: saved.schedule ?? fallback.schedule,
       pausedAccounts: saved.pausedAccounts ?? fallback.pausedAccounts,
+      closeToTray: saved.closeToTray ?? fallback.closeToTray,
     };
   } catch (error) {
     warnAboutSettings(messageOf(error));
@@ -306,6 +309,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
     pausedAccounts: saved.pausedAccounts
       ? normalizePausedAccounts(saved.pausedAccounts)
       : current.pausedAccounts,
+    closeToTray: saved.closeToTray ?? current.closeToTray,
   };
   const root = await stat(next.mediaRoot).catch(() => null);
   if (!root?.isDirectory()) {

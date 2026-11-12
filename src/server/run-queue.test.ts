@@ -88,6 +88,7 @@ function settings(mediaRoot: string, overrides: Partial<Settings> = {}): Setting
     concurrency: 1,
     schedule: { enabled: false, frequency: { kind: "daily", time: "03:00" } },
     pausedAccounts: [],
+    closeToTray: true,
     ...overrides,
   };
 }

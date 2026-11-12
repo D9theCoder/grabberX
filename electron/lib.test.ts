@@ -14,6 +14,7 @@ const lib = require("./lib.cjs") as {
   seedGalleryDl(seed: string, target: string): string;
   isOwnOrigin(url: string, origin: string): boolean;
   parseServerMessage(message: unknown): { kind: "scheduled-pass"; body: string } | null;
+  closesToTray(settings: unknown): boolean;
 };
 
 let sandbox = "";
@@ -149,5 +150,15 @@ describe("versions", () => {
     const shell = JSON.parse(await readFile(join(__dirname, "package.json"), "utf8"));
     // The installer and the updater read electron/package.json; Settings shows the same number.
     expect(shell.version).toBe(root.version);
+  });
+});
+
+describe("closesToTray", () => {
+  it("hides in the tray unless the setting is turned off", () => {
+    expect(lib.closesToTray({})).toBe(true);
+    expect(lib.closesToTray(undefined)).toBe(true);
+    expect(lib.closesToTray({ closeToTray: true })).toBe(true);
+    expect(lib.closesToTray({ closeToTray: "no" })).toBe(true);
+    expect(lib.closesToTray({ closeToTray: false })).toBe(false);
   });
 });

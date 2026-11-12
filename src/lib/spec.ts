@@ -64,6 +64,8 @@ export interface Settings {
   schedule: ScheduleSettings;
   /** Account folders the scheduler skips; everything else runs. */
   pausedAccounts: string[];
+  /** Desktop app: closing the window hides it in the tray, so scheduled runs and updates keep working. */
+  closeToTray: boolean;
 }
 
 export type RunStatus =

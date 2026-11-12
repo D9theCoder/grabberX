@@ -32,8 +32,13 @@ Differences from the plan below:
 - **Versions:** the shell sets `GATHER_APP_VERSION`; Settings shows it under About. gallery-dl's version is
   the existing Check button.
 - **Shutdown:** the server runs as an Electron `utilityProcess`; `main.cjs` posts `"shutdown"` and
-  `src/server/shutdown-hook.ts` stops every run (taskkill, `.part` sweep) before exiting. The window close
-  button hides to the tray while downloads run.
+  `src/server/shutdown-hook.ts` stops every run (taskkill, `.part` sweep) before exiting.
+- **Closing the window** hides gather in the tray by default (`closeToTray` in `settings.json`, the
+  "Desktop app" switch in Settings), so automatic runs and `electron-updater` keep working. With the switch
+  off, closing quits (asking first while a run is active). The shell reads the setting at close time.
+- **Shell bridge** (`preload.cjs`): `pickFolder`, `openLogs`, `trashItem`, `showItem`, `openItem`, `setTheme`.
+  `trashItem`, `showItem` and `openItem` act only on a media file inside the library folder; `setTheme` keeps
+  the window background in step with the page theme (saved in `userData/theme.txt` for the next start).
 - **First run:** `/welcome` (library folder with a Browse button, cookie browser, gallery-dl check). Any page
   redirects there while `settings.json` does not exist and the app is packaged.
 - **gallery-dl:** the standalone exe is published at `gdl-org/builds`, not the main repo. `scripts/fetch-gallery-dl.mjs`
