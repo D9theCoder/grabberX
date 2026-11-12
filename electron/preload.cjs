@@ -8,4 +8,12 @@ contextBridge.exposeInMainWorld("gatherShell", {
   showItem: (filePath) => ipcRenderer.invoke("gather:show-item", filePath),
   openItem: (filePath) => ipcRenderer.invoke("gather:open-item", filePath),
   setTheme: (theme) => ipcRenderer.invoke("gather:set-theme", theme),
+  getUpdateState: () => ipcRenderer.invoke("gather:update-state"),
+  checkForUpdate: () => ipcRenderer.invoke("gather:check-update"),
+  installUpdate: () => ipcRenderer.invoke("gather:install-update"),
+  onUpdateState: (listener) => {
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on("gather:update-state", handler);
+    return () => ipcRenderer.removeListener("gather:update-state", handler);
+  },
 });

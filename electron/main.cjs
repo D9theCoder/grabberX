@@ -19,6 +19,8 @@ const iconPath = path.join(__dirname, "icon.png");
 
 const SHUTDOWN_GRACE_MS = 10000;
 const SERVER_START_ATTEMPTS = 3;
+// gather lives in the tray for days; a check at start alone would miss every release after it.
+const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 
 let log;
 let win = null;
@@ -28,6 +30,10 @@ let serverExited = false;
 let origin = null;
 let quitting = false;
 let trayHintShown = false;
+let updater = null;
+let updateState = { state: "idle" };
+/** Set when the tray asked for the check, so its result comes back as a balloon. */
+let trayCheckPending = false;
 /** Windows drops a notification whose object is garbage-collected before it is clicked. */
 let scheduledNotice = null;
 
@@ -249,9 +255,28 @@ async function confirmQuit() {
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(iconPath));
   tray.setToolTip("gather");
+  refreshTrayMenu();
+  tray.on("click", showWindow);
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  const updateItem =
+    updateState.state === "ready"
+      ? { label: `Restart to update to ${updateState.version}`, click: () => void installUpdate() }
+      : {
+          label: updateState.state === "downloading" ? `Downloading update… ${updateState.percent}%` : "Check for updates",
+          enabled: updater !== null && updateState.state !== "checking" && updateState.state !== "downloading",
+          click: () => {
+            trayCheckPending = true;
+            checkForUpdates();
+          },
+        };
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open gather", click: showWindow },
+      updateItem,
+      { type: "separator" },
       {
         label: "Quit",
         click: async () => {
@@ -260,21 +285,76 @@ function createTray() {
       },
     ]),
   );
-  tray.on("click", showWindow);
+}
+
+function setUpdateState(next) {
+  if (next === updateState) return;
+  const changedState = next.state !== updateState.state;
+  updateState = next;
+  if (win && !win.isDestroyed()) win.webContents.send("gather:update-state", updateState);
+  if (changedState) refreshTrayMenu();
+  if (trayCheckPending && ["current", "downloading", "error"].includes(next.state)) {
+    trayCheckPending = false;
+    const content =
+      next.state === "current"
+        ? `gather ${app.getVersion()} is up to date.`
+        : next.state === "downloading"
+          ? `gather ${next.version} is downloading. It installs when you restart gather.`
+          : `Could not check for updates: ${next.message}`;
+    tray?.displayBalloon?.({ title: "gather", content });
+  }
+}
+
+function checkForUpdates() {
+  if (!updater) return updateState;
+  if (updateState.state === "checking" || updateState.state === "downloading" || updateState.state === "ready") {
+    return updateState;
+  }
+  setUpdateState({ state: "checking" });
+  // Failures arrive through the "error" event as well; this catch only keeps the rejection handled.
+  updater.checkForUpdates().catch((error) => {
+    log.line(`update check failed: ${error.message}`);
+    setUpdateState(lib.nextUpdateState(updateState, "error", error));
+  });
+  return updateState;
+}
+
+async function installUpdate() {
+  if (!updater || updateState.state !== "ready") return false;
+  if (!(await confirmQuit())) return false;
+  log.line(`restarting to install ${updateState.version}`);
+  // Stop the server first so its runs end cleanly, then let the updater quit and run the installer.
+  quitting = true;
+  await stopServer();
+  updater.quitAndInstall(false, true);
+  return true;
 }
 
 function setupUpdater() {
-  if (!app.isPackaged || process.env.GATHER_NO_UPDATE === "1") return;
+  if (!app.isPackaged || process.env.GATHER_NO_UPDATE === "1") {
+    updateState = { state: "unavailable" };
+    return;
+  }
   try {
     const { autoUpdater } = require("electron-updater");
     const note = (level) => (message) => log.line(`updater ${level}: ${message}`);
     autoUpdater.logger = { info: note("info"), warn: note("warn"), error: note("error"), debug() {} };
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.on("error", (error) => log.line(`updater error: ${error?.message ?? error}`));
-    // Without a publish target in the build there is no app-update.yml and this rejects; that is not fatal.
-    autoUpdater.checkForUpdates().catch((error) => log.line(`update check skipped: ${error.message}`));
+    for (const event of ["checking-for-update", "update-not-available", "update-available", "download-progress", "update-downloaded"]) {
+      autoUpdater.on(event, (payload) => setUpdateState(lib.nextUpdateState(updateState, event, payload)));
+    }
+    autoUpdater.on("error", (error) => {
+      log.line(`updater error: ${error?.message ?? error}`);
+      setUpdateState(lib.nextUpdateState(updateState, "error", error));
+    });
+    updater = autoUpdater;
+    refreshTrayMenu();
+    // Without a publish target in the build there is no app-update.yml and this fails; that is not fatal.
+    checkForUpdates();
+    setInterval(checkForUpdates, UPDATE_CHECK_MS).unref();
   } catch (error) {
+    updateState = { state: "unavailable" };
     log.line(`updater unavailable: ${error.message}`);
   }
 }
@@ -321,6 +401,12 @@ function registerIpc() {
     // openPath resolves to an error message, empty on success.
     return (await shell.openPath(target)) === "";
   });
+
+  ipcMain.handle("gather:update-state", (event) => (fromApp(event) ? updateState : null));
+
+  ipcMain.handle("gather:check-update", (event) => (fromApp(event) ? checkForUpdates() : null));
+
+  ipcMain.handle("gather:install-update", (event) => (fromApp(event) ? installUpdate() : false));
 
   ipcMain.handle("gather:set-theme", (event, theme) => {
     if (!fromApp(event) || (theme !== "light" && theme !== "dark")) return;

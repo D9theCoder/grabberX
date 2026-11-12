@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from "react";
 
+/** The desktop updater, as the shell reports it. */
+export type UpdateState =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "current"; checkedAt: string }
+  | { state: "downloading"; version: string; percent: number }
+  | { state: "ready"; version: string }
+  | { state: "error"; message: string; checkedAt: string }
+  | { state: "unavailable" };
+
 /** What the Electron preload exposes. Absent when the app runs in a normal browser. */
 export interface GatherShell {
   pickFolder(defaultPath?: string): Promise<string | null>;
@@ -14,6 +24,13 @@ export interface GatherShell {
   openItem?(path: string): Promise<boolean>;
   /** Keeps the window background in step with the page theme. */
   setTheme?(theme: "light" | "dark"): Promise<void>;
+  getUpdateState?(): Promise<UpdateState | null>;
+  /** Starts a check unless one is already running or an update is downloading or waiting. */
+  checkForUpdate?(): Promise<UpdateState | null>;
+  /** Quits and installs a downloaded update; false when the user kept their runs going. */
+  installUpdate?(): Promise<boolean>;
+  /** Returns the function that stops listening. */
+  onUpdateState?(listener: (state: UpdateState) => void): () => void;
 }
 
 declare global {
