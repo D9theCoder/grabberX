@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"Gather","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"},{"name":"Breadcrumb"},{"name":"FolderCard"},{"name":"Thumbnail"},{"name":"Toolbar"},{"name":"Lightbox"}]} */
+/* @ds-bundle: {"format":4,"namespace":"Gather","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"},{"name":"Breadcrumb"},{"name":"FolderCard"},{"name":"Thumbnail"},{"name":"Toolbar"},{"name":"Lightbox"},{"name":"ThemeToggle"},{"name":"ContextMenu"},{"name":"SelectionBar"}]} */
 (function () {
   var React = window.React;
   var h = React.createElement;
@@ -43,7 +43,12 @@
     prev: "M15 6l-6 6 6 6",
     next: "M9 6l6 6-6 6",
     loop: "M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4",
-    ring: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"
+    ring: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
+    sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+    moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z",
+    select: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 17l2 2 4-4",
+    download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+    open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
   };
 
   function Icon(p) {
@@ -251,9 +256,46 @@
   }
 
   function Thumbnail(p) {
-    return h("button", { type: "button", className: cx("g-thumb", p.active && "is-active", p.className), "aria-label": p.name, style: { width: p.width || 160, height: p.height || 120 } },
+    return h("button", { type: "button", className: cx("g-thumb", p.active && "is-active", p.selected && "is-selected", p.className), "aria-label": p.name,
+      "aria-pressed": p.selectable ? !!p.selected : undefined, style: { width: p.width || 160, height: p.height || 120 } },
       h("span", { className: "g-thumb__image", style: { background: p.tone || "var(--sunken)" } }),
+      p.selectable ? h("span", { className: "g-thumb__check", "aria-hidden": "true" }, p.selected ? h(Icon, { name: "check", strokeWidth: 2.5 }) : null) : null,
       p.kind === "video" ? h("span", { className: "g-thumb__badge" }, h(Icon, { name: "play" }), p.duration || "") : null);
+  }
+
+  function ThemeToggle(p) {
+    var st = useControlled(p.theme, p.defaultTheme || "light", p.onChange);
+    var dark = st[0] === "dark";
+    var label = dark ? "Switch to light mode" : "Switch to dark mode";
+    return h("button", { type: "button", className: cx("g-theme", p.className), "aria-label": label, title: label,
+      onClick: function () { st[1](dark ? "light" : "dark"); } },
+      h(Icon, { name: dark ? "sun" : "moon" }));
+  }
+
+  function ContextMenu(p) {
+    return h("div", { role: "menu", "aria-label": p.label, className: cx("g-menu", p.className), style: p.style },
+      (p.items || []).map(function (item, i) {
+        if (item === "-" || item.separator) return h("div", { key: "s" + i, role: "separator", className: "g-menu__sep" });
+        return h("button", { key: item.label, type: "button", role: "menuitem", disabled: item.disabled,
+          className: cx("g-menu__item", item.danger && "is-danger"), onClick: item.onSelect },
+          item.icon ? h(Icon, { name: item.icon }) : h("span", null),
+          h("span", null, item.label),
+          item.shortcut ? h("kbd", { className: "g-menu__key" }, item.shortcut) : null);
+      }));
+  }
+
+  function SelectionBar(p) {
+    var count = p.count || 0;
+    var text = count === 0 ? "Nothing selected" : count.toLocaleString("en-US") + (count === 1 ? " file selected" : " files selected");
+    return h("div", { role: "toolbar", "aria-label": "Selection", className: cx("g-selbar", p.className) },
+      h("span", { className: "g-selbar__count", "aria-live": "polite" }, text),
+      h("div", { className: "g-selbar__group" },
+        h(Button, { variant: "ghost", size: "sm", onClick: p.onSelectAll }, "Select all"),
+        h(Button, { variant: "ghost", size: "sm", onClick: p.onClear, disabled: count === 0 }, "Clear")),
+      h("div", { className: "g-selbar__group g-selbar__end" },
+        h(Button, { variant: "secondary", size: "sm", onClick: p.onDownload, disabled: count === 0 }, h(Icon, { name: "download" }), "Download"),
+        h(Button, { variant: "danger", size: "sm", onClick: p.onDelete, disabled: count === 0 }, h(Icon, { name: "trash" }), "Delete"),
+        h(Button, { variant: "ghost", size: "sm", onClick: p.onDone }, "Done")));
   }
 
   function Toolbar(p) {
@@ -275,7 +317,7 @@
   }
 
   window.Gather = Object.assign(window.Gather || {}, {
-    Breadcrumb: Breadcrumb, FolderCard: FolderCard, Thumbnail: Thumbnail, Toolbar: Toolbar, Lightbox: Lightbox,
+    Breadcrumb: Breadcrumb, FolderCard: FolderCard, Thumbnail: Thumbnail, Toolbar: Toolbar, Lightbox: Lightbox, ThemeToggle: ThemeToggle, ContextMenu: ContextMenu, SelectionBar: SelectionBar,
     Button: Button, TextField: TextField, Segmented: Segmented, ChoiceList: ChoiceList, Switch: Switch,
     Disclosure: Disclosure, CommandBlock: CommandBlock, Status: Status, Stat: Stat, LogView: LogView, Notice: Notice
   });

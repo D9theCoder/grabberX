@@ -144,22 +144,48 @@
 .g-thumb { position: relative; display: block; flex: none; padding: 0; overflow: hidden; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; transition: border-color 120ms; }
 .g-thumb:hover, .g-thumb.is-active { border-color: var(--ink-2); }
 .g-thumb__image { display: block; width: 100%; height: 100%; }
-.g-thumb__badge { position: absolute; left: 4px; bottom: 4px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: color-mix(in srgb, var(--stage) 80%, transparent); color: var(--on-ink); border-radius: var(--radius-sm); font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.g-thumb__badge { position: absolute; left: 4px; bottom: 4px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: color-mix(in srgb, var(--stage) 80%, transparent); color: var(--on-stage); border-radius: var(--radius-sm); font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .g-thumb__badge svg { width: 12px; height: 12px; }
+.g-thumb.is-selected { border-color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+.g-thumb__check { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-sm); border: 1.5px solid var(--on-stage); background: color-mix(in srgb, var(--stage) 40%, transparent); color: var(--on-stage); }
+.g-thumb.is-selected .g-thumb__check { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.g-thumb__check svg { width: 14px; height: 14px; }
+.g-marquee { position: absolute; border: 1px solid var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); pointer-events: none; }
+
+/* ThemeToggle */
+.g-theme { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-2); cursor: pointer; transition: background-color 120ms, color 120ms; }
+.g-theme:hover { background: var(--sunken); color: var(--ink); }
+.g-theme svg { width: 20px; height: 20px; }
+
+/* ContextMenu */
+.g-menu { display: inline-flex; flex-direction: column; min-width: 200px; padding: 4px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-md); }
+.g-menu__item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.g-menu__item:hover, .g-menu__item:focus-visible { background: var(--sunken); outline: none; }
+.g-menu__item svg { width: 16px; height: 16px; color: var(--ink-2); }
+.g-menu__item.is-danger, .g-menu__item.is-danger svg { color: var(--danger); }
+.g-menu__item:disabled { color: var(--ink-3); cursor: not-allowed; background: transparent; }
+.g-menu__key { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.g-menu__sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* SelectionBar */
+.g-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 56px; padding: 8px 8px 8px 16px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); }
+.g-selbar__count { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.g-selbar__group { display: flex; gap: 4px; }
+.g-selbar__end { margin-left: auto; }
 
 /* Toolbar (on the stage ground) */
 .g-toolbar { display: inline-flex; align-items: center; gap: 4px; }
-.g-toolbar__btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background: transparent; color: var(--on-ink); border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; transition: background-color 120ms; }
-.g-toolbar__btn:hover { background: color-mix(in srgb, var(--on-ink) 15%, transparent); }
-.g-toolbar__btn.is-pressed { border-color: color-mix(in srgb, var(--on-ink) 60%, transparent); background: color-mix(in srgb, var(--on-ink) 15%, transparent); }
+.g-toolbar__btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background: transparent; color: var(--on-stage); border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; transition: background-color 120ms; }
+.g-toolbar__btn:hover { background: color-mix(in srgb, var(--on-stage) 15%, transparent); }
+.g-toolbar__btn.is-pressed { border-color: color-mix(in srgb, var(--on-stage) 60%, transparent); background: color-mix(in srgb, var(--on-stage) 15%, transparent); }
 .g-toolbar__btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .g-toolbar__btn svg { width: 20px; height: 20px; }
-.g-toolbar__tip { position: absolute; top: 100%; margin-top: 4px; padding: 4px 8px; display: none; white-space: nowrap; background: var(--stage); color: var(--on-ink); border: 1px solid color-mix(in srgb, var(--on-ink) 30%, transparent); border-radius: var(--radius-sm); font-size: 13px; line-height: 18px; z-index: 1; }
+.g-toolbar__tip { position: absolute; top: 100%; margin-top: 4px; padding: 4px 8px; display: none; white-space: nowrap; background: var(--stage); color: var(--on-stage); border: 1px solid color-mix(in srgb, var(--on-stage) 30%, transparent); border-radius: var(--radius-sm); font-size: 13px; line-height: 18px; z-index: 1; }
 .g-toolbar__btn:hover .g-toolbar__tip, .g-toolbar__btn:focus-visible .g-toolbar__tip { display: block; }
 
 /* Lightbox */
-.g-lightbox { display: flex; flex-direction: column; height: 320px; background: var(--stage); color: var(--on-ink); border-radius: var(--radius-lg); overflow: hidden; --focus: var(--on-ink); }
-.g-lightbox__top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 16px; border-bottom: 1px solid color-mix(in srgb, var(--on-ink) 20%, transparent); font-size: 14px; }
+.g-lightbox { display: flex; flex-direction: column; height: 320px; background: var(--stage); color: var(--on-stage); border-radius: var(--radius-lg); overflow: hidden; --focus: var(--on-stage); }
+.g-lightbox__top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 16px; border-bottom: 1px solid color-mix(in srgb, var(--on-stage) 20%, transparent); font-size: 14px; }
 .g-lightbox__name { margin-left: 12px; font-family: var(--font-mono); font-size: 13px; opacity: 0.8; }
 .g-lightbox__stage { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
 .g-lightbox__image { width: 60%; height: 70%; background: var(--ink-2); }
