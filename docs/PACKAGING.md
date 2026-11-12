@@ -47,7 +47,10 @@ Differences from the plan below:
 - **Auto-update of the app** is on for CI builds and off for local ones. The workflow passes this repository as
   the publish target (`-c.publish.*`), so the build writes `app-update.yml` and `latest.yml`, and a `v*` tag
   uploads the installer, its blockmap and `latest.yml` to the GitHub release. The installed app checks on
-  launch, downloads in the background and installs on quit. Verified locally: a build with a publish target
+  launch and every 6 hours, downloads in the background and installs on quit. It can also be checked by hand from
+  Settings → About or the tray menu ("Check for updates"); once downloaded, "Restart and update" stops the
+  server's runs and runs the installer. The shell keeps one updater state (`nextUpdateState` in `lib.cjs`) and
+  pushes it to the page over `gather:update-state`. Verified locally: a build with a publish target
   contains both files, and the app's check runs against GitHub and survives a 404. Not yet verified: a full
   update from one released version to the next, which needs two real releases.
 - **Code signing** is optional and secret-driven. With `CSC_LINK` (a base64 `.pfx`) and `CSC_KEY_PASSWORD` set

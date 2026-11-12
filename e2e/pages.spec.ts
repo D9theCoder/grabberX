@@ -372,3 +372,39 @@ test("the Run page fits a 1280 x 820 window without scrolling", async ({ page })
   const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test("the task bubble counts running and queued runs and lists them", async ({ page }) => {
+  const task = (id: string, status: string, position: number) => ({
+    id,
+    folder: id.split("_")[1],
+    site: "x",
+    status,
+    step: "images",
+    stepIndex: 0,
+    steps: 2,
+    saved: status === "running" ? 12 : 0,
+    failed: 0,
+    simulate: false,
+    scheduled: false,
+    position,
+  });
+  let tasks = [task("2026-11-12T10-00-01_alpha", "running", 0), task("2026-11-12T10-00-02_beta", "queued", 1)];
+  await page.route("**/api/runs", (route) => route.fulfill({ json: { tasks } }));
+
+  await page.goto("/");
+  const bubble = page.getByRole("button", { name: "Tasks: 1 running, 1 queued" });
+  await expect(bubble).toHaveText("2");
+  await bubble.click();
+  const panel = page.getByRole("region", { name: "Tasks" });
+  await expect(panel.getByRole("link", { name: /alpha/ })).toHaveAttribute("href", "/history/2026-11-12T10-00-01_alpha");
+  await expect(panel.getByText("Images 1/2 · 12 saved")).toBeVisible();
+  await expect(panel.getByText("#1 in line")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Cancel beta" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(bubble).toBeFocused();
+
+  tasks = [];
+  await page.evaluate(() => window.dispatchEvent(new Event("gather-runs-changed")));
+  await expect(page.getByRole("button", { name: /^Tasks/ })).toHaveCount(0);
+});

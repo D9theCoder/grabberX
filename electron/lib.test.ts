@@ -15,6 +15,7 @@ const lib = require("./lib.cjs") as {
   isOwnOrigin(url: string, origin: string): boolean;
   parseServerMessage(message: unknown): { kind: "scheduled-pass"; body: string } | null;
   closesToTray(settings: unknown): boolean;
+  nextUpdateState(previous: Record<string, unknown>, event: string, payload?: unknown): Record<string, unknown>;
 };
 
 let sandbox = "";
@@ -160,5 +161,29 @@ describe("closesToTray", () => {
     expect(lib.closesToTray({ closeToTray: true })).toBe(true);
     expect(lib.closesToTray({ closeToTray: "no" })).toBe(true);
     expect(lib.closesToTray({ closeToTray: false })).toBe(false);
+  });
+});
+
+describe("nextUpdateState", () => {
+  it("follows a check through download to ready", () => {
+    let state = lib.nextUpdateState({ state: "idle" }, "checking-for-update");
+    expect(state).toEqual({ state: "checking" });
+    state = lib.nextUpdateState(state, "update-available", { version: "0.2.0" });
+    expect(state).toEqual({ state: "downloading", version: "0.2.0", percent: 0 });
+    const half = lib.nextUpdateState(state, "download-progress", { percent: 50.7 });
+    expect(half).toEqual({ state: "downloading", version: "0.2.0", percent: 50 });
+    expect(lib.nextUpdateState(half, "download-progress", { percent: 50.9 })).toBe(half);
+    state = lib.nextUpdateState(half, "update-downloaded", { version: "0.2.0" });
+    expect(state).toEqual({ state: "ready", version: "0.2.0" });
+    expect(lib.nextUpdateState(state, "checking-for-update")).toBe(state);
+    expect(lib.nextUpdateState(state, "error", new Error("offline"))).toBe(state);
+  });
+
+  it("reports up to date and the first line of an error", () => {
+    expect(lib.nextUpdateState({ state: "checking" }, "update-not-available")).toMatchObject({ state: "current" });
+    expect(lib.nextUpdateState({ state: "checking" }, "error", new Error("net::ERR_INTERNET_DISCONNECTED\nstack"))).toMatchObject({
+      state: "error",
+      message: "net::ERR_INTERNET_DISCONNECTED",
+    });
   });
 });

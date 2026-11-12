@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { runAgain } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
+import { notifyRunsChanged } from "@/lib/task-list";
 
 export function RunAgainButton({ runId }: { runId: string }) {
   const router = useRouter();
@@ -15,7 +16,10 @@ export function RunAgainButton({ runId }: { runId: string }) {
     setError(null);
     startTransition(async () => {
       const result = await runAgain(runId);
-      if (result.ok) router.push("/");
+      if (result.ok) {
+        notifyRunsChanged();
+        router.push("/");
+      }
       else setError(result.error);
     });
   }

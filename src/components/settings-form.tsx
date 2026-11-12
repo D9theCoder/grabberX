@@ -9,6 +9,7 @@ import {
   saveSettingsAction,
   updateGalleryDl,
 } from "@/app/actions";
+import { AppUpdate } from "@/components/app-update";
 import { AutomaticUpdatesForm } from "@/components/automatic-updates-form";
 import { CheckIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -372,6 +373,7 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
 
       <Group title="About">
         <p className="m-0 text-label">gather {appVersion}</p>
+        {shell ? <AppUpdate shell={shell} /> : null}
         {shell ? (
           <div>
             <Button variant="secondary" onClick={() => void shell.openLogs()}>

@@ -130,8 +130,40 @@ function closesToTray(settings) {
   return !(settings && typeof settings === "object" && settings.closeToTray === false);
 }
 
+/**
+ * The updater's state as the page and the tray show it, from one electron-updater event.
+ * States: idle, checking, current, downloading, ready, error, unavailable.
+ */
+function nextUpdateState(previous, event, payload) {
+  const now = new Date().toISOString();
+  switch (event) {
+    case "checking-for-update":
+      // A check while a download runs or waits must not hide it.
+      return previous.state === "downloading" || previous.state === "ready" ? previous : { state: "checking" };
+    case "update-not-available":
+      return { state: "current", checkedAt: now };
+    case "update-available":
+      return { state: "downloading", version: String(payload?.version ?? ""), percent: 0 };
+    case "download-progress": {
+      const percent = Math.max(0, Math.min(100, Math.floor(Number(payload?.percent) || 0)));
+      if (previous.state === "downloading" && previous.percent === percent) return previous;
+      return { state: "downloading", version: previous.version ?? "", percent };
+    }
+    case "update-downloaded":
+      return { state: "ready", version: String(payload?.version ?? previous.version ?? "") };
+    case "error": {
+      if (previous.state === "ready") return previous;
+      const message = String(payload?.message ?? payload ?? "Unknown error").split(/\r?\n/)[0].slice(0, 200);
+      return { state: "error", message, checkedAt: now };
+    }
+    default:
+      return previous;
+  }
+}
+
 module.exports = {
   closesToTray,
+  nextUpdateState,
   findFreePort,
   waitForHealth,
   activeRuns,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
+import { TaskBubble } from "@/components/task-bubble";
 import { cn } from "@/lib/cn";
 import { useTheme } from "@/lib/theme";
 
@@ -82,6 +83,7 @@ export function TopBar() {
               Get the desktop app
             </a>
           )}
+          <TaskBubble />
           <ThemeToggle />
           <Link
             href="/settings"
