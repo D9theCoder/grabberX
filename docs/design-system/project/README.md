@@ -69,7 +69,7 @@ Use the components in this system (`window.Gather` in previews; in the app, Reac
 
 - `Button`: `primary` once per view (Download), `secondary` for the alternative (Preview files), `ghost` for low-weight actions, `danger` for Stop/Cancel.
 - `TextField`: account, numbers, dates. Optional `prefix` (e.g. `@`) and `mono`.
-- `Segmented`: one choice from a short set (site, media, date preset). Wraps when it runs out of room, on phones too, so no option is clipped. One height at every size.
+- `Segmented`: one choice from a short set (site, media, date preset). One row from 640 px up: if a set does not fit, shorten labels or give it room; a ragged wrap is a defect. Below 640 px a long set takes `columns` and becomes an even grid. One height at every size.
 - `ChoiceList`: one choice where each option needs a second line (folder layouts).
 - `Switch`: on/off settings in Advanced.
 - `Disclosure`: the folded Advanced section, with a count of changed values.

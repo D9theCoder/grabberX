@@ -4,6 +4,8 @@ import { cn } from "@/lib/cn";
 
 export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "prefix"> {
   label: string;
+  /** Quiet qualifier after the label, e.g. "beta" for the site being typed into. */
+  tag?: string;
   hint?: ReactNode;
   /** Replaces the hint and turns the border danger. */
   error?: string;
@@ -15,6 +17,7 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
 
 export function TextField({
   label,
+  tag,
   hint,
   error,
   prefix,
@@ -33,6 +36,7 @@ export function TextField({
     <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <label htmlFor={fieldId} className="text-label text-ink">
         {label}
+        {tag ? <span className="ml-1.5 text-xs text-ink-2">{tag}</span> : null}
       </label>
       <div
         className={cn(

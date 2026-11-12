@@ -1,4 +1,4 @@
-<!-- @dsCard group="Inputs" height=150 -->
+<!-- @dsCard group="Inputs" height=170 -->
 <!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Segmented — preview</title>
@@ -8,9 +8,9 @@
 <script>
   var G = window.Gather, h = React.createElement;
   ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
-  h(G.Segmented, { label: 'Site', defaultValue: 'x', options: [{ value: 'x', label: 'X' }, { value: 'ig', label: 'Instagram', tag: 'beta' }, { value: 'bsky', label: 'Bluesky', tag: 'beta' }, { value: 'pixiv', label: 'Pixiv', tag: 'beta' }, { value: 'url', label: 'Other URL' }] }),
+  h(G.Segmented, { label: 'Site', defaultValue: 'x', columns: 3, options: [{ value: 'x', label: 'X' }, { value: 'ig', label: 'Instagram', title: 'Instagram (beta)' }, { value: 'bsky', label: 'Bluesky', title: 'Bluesky (beta)' }, { value: 'pixiv', label: 'Pixiv', title: 'Pixiv (beta)' }, { value: 'reddit', label: 'Reddit', title: 'Reddit (beta)' }, { value: 'url', label: 'Other URL', title: 'Other URL (beta)' }] }),
   h(G.Segmented, { label: 'Media', defaultValue: 'All', options: ['Images', 'Videos', 'All'] }),
-  h(G.Segmented, { label: 'Dates', size: 'sm', defaultValue: 'Custom', options: ['All time', 'Last 30 days', 'This year', 'Custom'] })));
+  h(G.Segmented, { label: 'Dates', columns: 2, defaultValue: 'Custom', options: ['All time', 'Last 30 days', 'This year', 'Custom'] })));
 </script>
 </body>
 </html>

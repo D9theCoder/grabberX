@@ -76,9 +76,9 @@
     var id = p.id || autoId;
     var hintId = id + "-hint";
     var message = p.error || p.hint;
-    var rest = omit(p, ["label", "hint", "error", "prefix", "mono", "className", "id"]);
+    var rest = omit(p, ["label", "tag", "hint", "error", "prefix", "mono", "className", "id"]);
     return h("div", { className: cx("g-field", p.className) },
-      h("label", { className: "g-label", htmlFor: id }, p.label),
+      h("label", { className: "g-label", htmlFor: id }, p.label, p.tag ? h("span", { className: "g-seg__tag g-label__tag" }, p.tag) : null),
       h("div", { className: cx("g-input", p.error && "is-error", p.mono && "is-mono", p.disabled && "is-disabled") },
         p.prefix ? h("span", { className: "g-input__prefix", "aria-hidden": "true" }, p.prefix) : null,
         h("input", Object.assign({ id: id, "aria-invalid": p.error ? true : undefined, "aria-describedby": message ? hintId : undefined }, rest))),
@@ -104,12 +104,12 @@
       if (sibling) sibling.focus();
     }
 
-    return h("div", { role: "radiogroup", "aria-label": p.label, className: cx("g-seg", p.size === "sm" && "g-seg--sm", p.className) },
+    return h("div", { role: "radiogroup", "aria-label": p.label, className: cx("g-seg", p.size === "sm" && "g-seg--sm", p.columns && "g-seg--grid g-seg--cols-" + p.columns, p.className) },
       opts.map(function (o, i) {
         var on = o.value === st[0];
         return h("button", {
           key: o.value, type: "button", role: "radio", "aria-checked": on, tabIndex: on ? 0 : -1,
-          disabled: o.disabled, className: cx("g-seg__opt", on && "is-on"),
+          disabled: o.disabled, title: o.title, className: cx("g-seg__opt", on && "is-on"),
           onClick: function () { st[1](o.value); },
           onKeyDown: function (e) { onKey(e, i); }
         }, o.label, o.tag ? h("span", { className: "g-seg__tag" }, o.tag) : null);

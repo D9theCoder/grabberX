@@ -27,9 +27,9 @@ export type LayoutKind = Layout["kind"];
 export const LAYOUT_LABELS: Record<LayoutKind, string> = {
   byType: "By type",
   byTypeYear: "By type + year",
-  byMonth: "By year / month",
+  byMonth: "Year / month",
   flat: "Flat",
-  custom: "Custom template",
+  custom: "Custom",
 };
 
 export const MEDIA_LABELS: Record<Media, string> = {

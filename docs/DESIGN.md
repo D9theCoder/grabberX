@@ -109,7 +109,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 │ │ FOLDERS (•) By type   Image/ Video/     │  │ ┌ log ──────────────────────┐ ││
 │ │         ( ) By type + year              │  │ │ …                         │ ││
 │ │         ( ) Flat                        │  │ └───────────────────────────┘ ││
-│ │         ( ) Custom template             │  │ [ Stop ]                     ││
+│ │         ( ) Custom                      │  │ [ Stop ]                     ││
 │ │         preview: username/Image/…jpg    │  └──────────────────────────────┘│
 │ │                                         │        (sticky, top: 24px)       │
 │ │ ▸ Advanced  (3 changed)                 │                                  │
@@ -124,8 +124,14 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 - **Compact.** The page fits a 1280 × 820 window without scrolling while Advanced is folded (an e2e
   test checks it). The title starts `--space-8` below the top bar. Each section is one row: its heading
   (`label`, 600) in an 88 px column, its controls beside it, `--space-4` above and below, a `line` rule
-  between rows. Media and Dates carry their hint on the same line. Below 640 px the heading sits above
-  its controls.
+  between rows. Media and Dates carry their hint on the same line. Below 640 px, and between 1024 and
+  1279 px (where the 400 px command panel leaves the form too narrow for the column), the heading sits
+  above its controls.
+- **Every segmented control is one row from 640 px up.** A ragged wrap, with one option alone on a second
+  row, is a defect, not a fallback. If a set does not fit, shorten the labels, move qualifiers out of the
+  options, or give the section more width; never let it wrap. Below 640 px a long set becomes an even grid
+  (`columns`: Site 3, Folders 3, Dates 2), so every row has equal cells. `e2e/pages.spec.ts` checks every
+  `Segmented` on Run and Settings at 640, 1024, 1280 and 1440 px.
 - The command block scrolls inside itself past 176 px, so a long two-step command never pushes the run
   panel down.
 - The page-title row is one fixed height on every page, so Library (with *Update all* beside its
@@ -135,7 +141,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 
 | # | Section | Control | Default | Notes |
 |---|---|---|---|---|
-| 1 | **Site** | `Segmented`: X, Instagram, Bluesky, Pixiv, Reddit, Other URL | X | Sites other than X carry a quiet `beta` tag until they pass a smoke test (see ARCHITECTURE §9). Picking **Other URL** swaps the Account field for a full-URL field. |
+| 1 | **Site** | `Segmented`: X, Instagram, Bluesky, Pixiv, Reddit, Other URL | X | Sites other than X are in beta until they pass a smoke test (see ARCHITECTURE §9). The `beta` tag sits on the Account field's label while such a site is picked, never inside the options (six tagged options do not fit one row). Each beta option's tooltip says "(beta)". Picking **Other URL** swaps the Account field for a full-URL field. |
 | 2 | **Account** | `TextField` with a fixed `prefix` (`@` for X, `bsky.app/profile/` for Bluesky, and so on) | empty | Accepts a handle or a pasted profile URL. On paste, the URL is parsed and only the handle is kept. Below it, an **account hint** line (see 5.3). |
 | 3 | **Media** | `Segmented`: Images · Videos · All | All | "All" runs images first, then videos, in one job. Each option has a tooltip listing the extensions it covers. |
 | 4 | **Dates** | `Segmented` (sm): All time · Last 30 days · This year · Custom. "Custom" shows two native date inputs: *From* → *To* | All time | Both ends are optional. Hint text: "Uses the post date, not the download date." |
@@ -160,7 +166,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 |---|---|---|
 | **By type** (default) | `<acct>/Image/…`, `<acct>/Video/…` | `["<acct>","Image"]` / `["<acct>","Video"]` |
 | **By type + year** | `<acct>/Image/2025/…`, `<acct>/Video/…` | `["<acct>","Image","{date:%Y}"]` |
-| **By year / month** | `<acct>/2025-03/…` | `["<acct>","{date:%Y-%m}"]` |
+| **Year / month** | `<acct>/2025-03/…` | `["<acct>","{date:%Y-%m}"]` |
 | **Flat** | `<acct>/…` | `["<acct>"]` |
 | **Custom** | user template | text field, mono font, with a key picker (`{date:%Y}`, `{tweet_id}`, `{num}`, `{extension}`, `{author[name]}`) |
 
@@ -253,7 +259,7 @@ system (brand book → States, and each component's guideline). Screen-specific 
 |---|---|
 | ≥ 1024 px | Two columns, as above |
 | 640–1023 px | One column. The command panel moves under the form. A **sticky bottom bar** (`paper`, `line` top border) holds `Preview files` + `Download`, plus the run status when one is active. Tapping it scrolls to the run panel. |
-| < 640 px | The site `Segmented` wraps onto a second line, so no option is clipped. Date inputs stack. Command preview is folded behind a "Show command" link. 16 px gutter. No horizontal page scroll. |
+| < 640 px | Long `Segmented` sets become even grids (Site and Folders in 3 columns, Dates in 2). Date inputs stack. Command preview is folded behind a "Show command" link. 16 px gutter. No horizontal page scroll. |
 
 Touch targets are at least 40 × 40 px everywhere, and the segmented controls reach 44 px tall on phones.
 One control height (`--spacing-control`) applies to every control, whatever its size.

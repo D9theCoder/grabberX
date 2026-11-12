@@ -55,8 +55,10 @@ interface RunFormProps {
  */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="grid gap-x-4 gap-y-2 border-t border-line py-4 sm:grid-cols-[88px_minmax(0,1fr)]">
-      <h2 className="m-0 text-label font-semibold sm:pt-2.5">{title}</h2>
+    // Between 1024 and 1280 px the command panel takes 400 px beside the form, so the heading moves above its
+    // controls there; a side column would leave the site and folder pickers too narrow for one row.
+    <section className="grid gap-x-4 gap-y-2 border-t border-line py-4 sm:grid-cols-[88px_minmax(0,1fr)] lg:grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]">
+      <h2 className="m-0 text-label font-semibold sm:pt-2.5 lg:pt-0 xl:pt-2.5">{title}</h2>
       <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
     </section>
   );
@@ -115,14 +117,16 @@ export function RunForm(props: RunFormProps) {
           label="Site"
           value={spec.site}
           onChange={(value) => props.onSite(value as SiteId)}
+          columns={3}
           options={SITES.map((entry) => ({
             value: entry.id,
             label: entry.label,
-            tag: entry.beta ? "beta" : undefined,
+            title: entry.beta ? `${entry.label} (beta)` : undefined,
           }))}
         />
         <TextField
           label={isUrl ? "Page URL" : "Account"}
+          tag={site.beta ? "beta" : undefined}
           mono
           prefix={site.prefix || undefined}
           placeholder={site.placeholder}
@@ -156,6 +160,7 @@ export function RunForm(props: RunFormProps) {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <Segmented
             label="Dates"
+            columns={2}
             value={props.datePreset}
             onChange={(value) => props.onDatePreset(value as DatePreset)}
             options={[
@@ -195,6 +200,7 @@ export function RunForm(props: RunFormProps) {
       <Section title="Folders">
         <Segmented
           label="Folder layout"
+          columns={3}
           value={spec.layout.kind}
           onChange={(value) => props.onLayoutKind(value as LayoutKind)}
           options={LAYOUT_ORDER.map((kind) => ({

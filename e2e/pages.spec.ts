@@ -408,3 +408,31 @@ test("the task bubble counts running and queued runs and lists them", async ({ p
   await page.evaluate(() => window.dispatchEvent(new Event("gather-runs-changed")));
   await expect(page.getByRole("button", { name: /^Tasks/ })).toHaveCount(0);
 });
+
+test("every segmented control fits one row from 640 px and is an even grid on phones", async ({ page }) => {
+  const rowsOf = () =>
+    page.$$eval('[role="radiogroup"]', (groups) =>
+      groups
+        .filter((group) => (group as HTMLElement).offsetParent !== null)
+        .map((group) => {
+          const boxes = [...group.children].map((child) => child.getBoundingClientRect());
+          return {
+            name: group.getAttribute("aria-label"),
+            rows: new Set(boxes.map((box) => Math.round(box.top))).size,
+            widths: new Set(boxes.map((box) => Math.round(box.width))).size,
+          };
+        }),
+    );
+  for (const path of ["/", "/settings"]) {
+    for (const width of [640, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(path);
+      await page.locator('[role="radiogroup"]').first().waitFor();
+      for (const group of await rowsOf()) expect(group.rows, `${group.name} at ${width} px on ${path}`).toBe(1);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const site = (await rowsOf()).find((group) => group.name === "Site");
+  expect(site).toMatchObject({ rows: 2, widths: 1 });
+});
