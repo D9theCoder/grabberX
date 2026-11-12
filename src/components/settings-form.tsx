@@ -14,14 +14,26 @@ import { CheckIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
+import { Switch } from "@/components/ui/switch";
 import { TextField } from "@/components/ui/text-field";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
 import { useShell } from "@/lib/shell";
 import type { CookieBrowser, Media, Settings } from "@/lib/spec";
+import { useTheme } from "@/lib/theme";
+import type { ThemePreference } from "@/lib/theme";
 
-type FieldKey = "galleryDlPath" | "mediaRoot" | "cookies" | "profile" | "defaultMedia" | "defaultLayout" | "historyRetention" | "concurrency";
+type FieldKey =
+  | "galleryDlPath"
+  | "mediaRoot"
+  | "cookies"
+  | "profile"
+  | "defaultMedia"
+  | "defaultLayout"
+  | "historyRetention"
+  | "concurrency"
+  | "closeToTray";
 
 function Saved() {
   return (
@@ -43,6 +55,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 export function SettingsForm({ initial, appVersion }: { initial: Settings; appVersion: string }) {
   const shell = useShell();
+  const { preference, choose } = useTheme();
   const [update, setUpdate] = useState<{ tone: "info" | "danger"; text: string; canUpdate?: boolean } | null>(null);
   const [checkingUpdate, startCheckUpdate] = useTransition();
   const [updating, startUpdate] = useTransition();
@@ -316,6 +329,46 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
       </Group>
 
       <AutomaticUpdatesForm initial={settings} />
+
+      <Group title="Appearance">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-label">Theme</span>
+          <Segmented
+            label="Theme"
+            size="sm"
+            value={preference}
+            onChange={(value) => choose(value as ThemePreference)}
+            options={[
+              { value: "system", label: "System" },
+              { value: "light", label: "Light" },
+              { value: "dark", label: "Dark" },
+            ]}
+          />
+          <span className="text-small text-ink-2">
+            System follows Windows. The moon or sun in the top bar switches between light and dark.
+          </span>
+        </div>
+      </Group>
+
+      {shell ? (
+        <Group title="Desktop app">
+          <Switch
+            label="Keep gather in the tray when the window closes"
+            checked={settings.closeToTray}
+            onChange={(next) => void save("closeToTray", { closeToTray: next })}
+            hint={
+              saved === "closeToTray" ? (
+                <Saved />
+              ) : (
+                errors.closeToTray ??
+                (settings.closeToTray
+                  ? "Closing hides the window. Automatic updates and app updates keep working. Quit from the tray icon."
+                  : "Closing quits gather. Automatic updates and app updates wait until you open it again.")
+              )
+            }
+          />
+        </Group>
+      ) : null}
 
       <Group title="About">
         <p className="m-0 text-label">gather {appVersion}</p>

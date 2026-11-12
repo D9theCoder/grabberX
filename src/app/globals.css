@@ -16,8 +16,9 @@
   --color-warn: #8a5a00;
   --color-focus: var(--color-ink);
 
-  /* Only behind the lightbox. A documented exception, not a dark theme. */
+  /* Only behind the lightbox, with on-stage for its text and controls. Both stay dark-on-light in either theme. */
   --color-stage: #0e0e0e;
+  --color-on-stage: #fcfcfc;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -63,6 +64,32 @@
 :root {
   color-scheme: light;
   --focus: var(--color-ink);
+}
+
+/* The same monochrome system, inverted. Set on <html> by THEME_INIT_SCRIPT before the first paint. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: #121212;
+  --color-surface: #181818;
+  --color-sunken: #1f1f1f;
+  --color-line: #2a2a2a;
+  --color-line-strong: #3d3d3d;
+  --color-control: #7a7a7a;
+  --color-ink: #ededed;
+  --color-ink-hover: #d4d4d4;
+  --color-ink-2: #a3a3a3;
+  --color-ink-3: #6b6b6b;
+  --color-on-ink: #121212;
+  --color-danger: #f28b82;
+  --color-warn: #e0b04a;
+  --color-stage: #0a0a0a;
+}
+
+/* The theme switch cross-fades the whole page once instead of animating every element. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
 }
 
 html {

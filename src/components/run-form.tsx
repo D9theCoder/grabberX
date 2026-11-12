@@ -3,7 +3,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AdvancedFields } from "@/components/advanced-fields";
-import { ChoiceList } from "@/components/ui/choice-list";
 import { Disclosure } from "@/components/ui/disclosure";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
@@ -15,6 +14,11 @@ import { SITES, siteDef } from "@/lib/sites";
 import type { AccountHint, Advanced, JobSpec, Media, SiteId } from "@/lib/spec";
 
 const LAYOUT_ORDER: LayoutKind[] = ["byType", "byTypeYear", "byMonth", "flat", "custom"];
+const MEDIA_HINT: Record<Media, string> = {
+  images: "jpg, jpeg, png, webp.",
+  videos: "mp4, webm, mov, m4v.",
+  all: "Images first, then videos.",
+};
 const TEMPLATE_TOKENS = ["{date:%Y}", "{tweet_id}", "{num}", "{extension}", "{author[name]}"];
 
 interface RunFormProps {
@@ -45,11 +49,15 @@ interface RunFormProps {
   advancedChanged: number;
 }
 
+/**
+ * One compact row: the heading in a narrow column beside its controls, so the whole form fits one window
+ * without scrolling. Below 640 px the heading sits above.
+ */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-4 border-t border-line pt-8">
-      <h2 className="m-0 text-title">{title}</h2>
-      {children}
+    <section className="grid gap-x-4 gap-y-2 border-t border-line py-4 sm:grid-cols-[88px_minmax(0,1fr)]">
+      <h2 className="m-0 text-label font-semibold sm:pt-2.5">{title}</h2>
+      <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
     </section>
   );
 }
@@ -101,7 +109,7 @@ export function RunForm(props: RunFormProps) {
     props.hint.layout !== detectedLayoutOf(spec.layout);
 
   return (
-    <div className="flex min-w-0 flex-col gap-8">
+    <div className="flex min-w-0 flex-col">
       <Section title="Source">
         <Segmented
           label="Site"
@@ -129,31 +137,36 @@ export function RunForm(props: RunFormProps) {
       </Section>
 
       <Section title="Media">
-        <Segmented
-          label="Media"
-          value={spec.media}
-          onChange={(value) => props.onMedia(value as Media)}
-          options={[
-            { value: "images", label: "Images", title: "jpg, jpeg, png, webp" },
-            { value: "videos", label: "Videos", title: "mp4, webm, mov, m4v" },
-            { value: "all", label: "All", title: "Images first, then videos, in one run" },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <Segmented
+            label="Media"
+            value={spec.media}
+            onChange={(value) => props.onMedia(value as Media)}
+            options={[
+              { value: "images", label: "Images", title: "jpg, jpeg, png, webp" },
+              { value: "videos", label: "Videos", title: "mp4, webm, mov, m4v" },
+              { value: "all", label: "All", title: "Images first, then videos, in one run" },
+            ]}
+          />
+          <span className="text-small text-ink-2">{MEDIA_HINT[spec.media]}</span>
+        </div>
       </Section>
 
       <Section title="Dates">
-        <Segmented
-          label="Dates"
-          size="sm"
-          value={props.datePreset}
-          onChange={(value) => props.onDatePreset(value as DatePreset)}
-          options={[
-            { value: "all", label: "All time" },
-            { value: "30d", label: "Last 30 days" },
-            { value: "year", label: "This year" },
-            { value: "custom", label: "Custom" },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <Segmented
+            label="Dates"
+            value={props.datePreset}
+            onChange={(value) => props.onDatePreset(value as DatePreset)}
+            options={[
+              { value: "all", label: "All time" },
+              { value: "30d", label: "Last 30 days" },
+              { value: "year", label: "This year" },
+              { value: "custom", label: "Custom" },
+            ]}
+          />
+          <span className="text-small text-ink-2">Post date, not download date.</span>
+        </div>
         {props.datePreset === "custom" ? (
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-start">
             <TextField
@@ -177,18 +190,17 @@ export function RunForm(props: RunFormProps) {
             />
           </div>
         ) : null}
-        <p className="m-0 text-small text-ink-2">Uses the post date, not the download date.</p>
       </Section>
 
       <Section title="Folders">
-        <ChoiceList
-          legend="Folder layout"
+        <Segmented
+          label="Folder layout"
           value={spec.layout.kind}
           onChange={(value) => props.onLayoutKind(value as LayoutKind)}
           options={LAYOUT_ORDER.map((kind) => ({
             value: kind,
             label: LAYOUT_LABELS[kind],
-            detail: kind === "custom" ? `${props.folderName}/<your template>/` : layoutSummary({ kind }, props.folderName),
+            title: kind === "custom" ? `${props.folderName}/<your template>/` : layoutSummary({ kind }, props.folderName),
           }))}
         />
         {spec.layout.kind === "custom" ? (

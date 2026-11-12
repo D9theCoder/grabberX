@@ -277,6 +277,61 @@ test.describe("media gallery", () => {
     }
   });
 
+  test("select mode: drag to select, the app's right-click menu, and bulk download and delete", async ({ page }) => {
+    const errors: Error[] = [];
+    page.on("pageerror", (error) => errors.push(error));
+    await page.goto(`/library/${account}?path=Image/2025`);
+    await page.getByRole("radio", { name: "Oldest first" }).click();
+    const first = page.locator("button[data-index='0']");
+    await expect(first).toBeVisible();
+
+    // Right-click on a tile opens the app menu, not the browser's.
+    await first.click({ button: "right" });
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitem", { name: "Download" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    const bar = page.getByRole("toolbar", { name: "Selection" });
+    await expect(bar).toContainText("Nothing selected");
+
+    // Press on the first tile and drag across the next few: every tile the rectangle touches is selected.
+    const start = await first.boundingBox();
+    const end = await page.locator("button[data-index='3']").boundingBox();
+    expect(start && end).toBeTruthy();
+    await page.mouse.move(start!.x + 10, start!.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(start!.x + 40, start!.y + 30, { steps: 4 });
+    await page.mouse.move(end!.x + end!.width - 5, end!.y + 10, { steps: 8 });
+    await page.mouse.up();
+    await expect(first).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("button[data-index='3']")).toHaveAttribute("aria-pressed", "true");
+    const selectedText = (await bar.textContent()) ?? "";
+    const count = Number(/(\d+) files selected/.exec(selectedText)?.[1]);
+    expect(count).toBeGreaterThanOrEqual(4);
+
+    // A click after the drag toggles one tile off again.
+    await first.click();
+    await expect(first).toHaveAttribute("aria-pressed", "false");
+
+    // Several files download as one zip.
+    const download = page.waitForEvent("download");
+    await bar.getByRole("button", { name: "Download" }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+
+    // The bulk delete names the count, then the files are gone from the grid and from disk.
+    await bar.getByRole("button", { name: "Delete" }).click();
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm).toContainText(`Delete ${count - 1} files?`);
+    await confirm.getByRole("button", { name: "Delete" }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByRole("group", { name: `${imageCount - 1 - (count - 1)} files` })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: `Deleted ${count - 1} files` })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test("a folder that is not in the library says so without a client error", async ({ page }) => {
     const errors: Error[] = [];
     page.on("pageerror", (error) => errors.push(error));
@@ -284,4 +339,36 @@ test.describe("media gallery", () => {
     await expect(page.getByText(/doesn't exist/)).toBeVisible();
     expect(errors).toEqual([]);
   });
+});
+
+test("the theme switch in the top bar flips the page and remembers the choice", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/history");
+  const html = page.locator("html");
+  await expect(html).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(html).toHaveAttribute("data-theme", "dark");
+  // The switch cross-fades; the new colors are in place once the transition settles.
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(18, 18, 18)");
+  await page.reload();
+  await expect(html).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(html).toHaveAttribute("data-theme", "light");
+});
+
+test("the app menu replaces the browser menu, except in text fields", async ({ page }) => {
+  await page.goto("/history");
+  await page.getByRole("heading", { level: 1 }).click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Page" });
+  await expect(menu.getByRole("menuitem", { name: "Reload" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+});
+
+test("the Run page fits a 1280 x 820 window without scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+  expect(overflow).toBeLessThanOrEqual(0);
 });

@@ -10,6 +10,8 @@ import { mediaUrl } from "@/components/gallery/thumbnail";
 import { Toolbar, ToolbarButton } from "@/components/gallery/toolbar";
 import type { MediaFile } from "@/components/gallery/types";
 import { CopyIcon, CrossIcon, ExternalIcon, FolderIcon, InfoIcon } from "@/components/icons";
+import { useContextMenu } from "@/components/context-menu";
+import type { MenuEntry } from "@/components/context-menu";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 
@@ -22,6 +24,8 @@ export interface LightboxProps {
   onIndexChange: (index: number) => void;
   onClose: () => void;
   onDeleted: (name: string) => void;
+  /** The gallery's own right-click items for the file on show; the lightbox adds Delete. */
+  menuEntries?: (file: MediaFile) => MenuEntry[];
 }
 
 interface View {
@@ -47,7 +51,8 @@ function zoomAt(view: View, nextScale: number, px: number, py: number): View {
 
 const FOCUSABLE = 'button:not([disabled]), a[href], video[controls], [tabindex]:not([tabindex="-1"])';
 
-export function Lightbox({ account, path, files, index, onIndexChange, onClose, onDeleted }: LightboxProps) {
+export function Lightbox({ account, path, files, index, onIndexChange, onClose, onDeleted, menuEntries }: LightboxProps) {
+  const menu = useContextMenu();
   const file = files[index];
   const relative = file ? (path === "" ? file.name : `${path}/${file.name}`) : "";
 
@@ -316,14 +321,14 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
       aria-label={`${file.name}, ${index + 1} of ${files.length}`}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="fixed inset-0 z-50 flex flex-col bg-stage text-on-ink outline-none [--focus:var(--color-on-ink)]"
+      className="fixed inset-0 z-50 flex flex-col bg-stage text-on-stage outline-none [--focus:var(--color-on-stage)]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 border-b border-on-ink/20 px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 border-b border-on-stage/20 px-4 py-2">
         <div className="flex min-w-0 items-baseline gap-3">
           <span className="text-label tabular-nums" aria-live="polite">
             {index + 1} of {files.length}
           </span>
-          <span className="truncate font-mono text-code text-on-ink/80">{file.name}</span>
+          <span className="truncate font-mono text-code text-on-stage/80">{file.name}</span>
         </div>
         <Toolbar label="Viewer actions">
           {file.kind === "video" ? (
@@ -366,6 +371,15 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onDoubleClick={file.kind === "image" ? toggleActualSize : undefined}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            menu.open(event, file.name, [
+              ...(menuEntries?.(file) ?? []),
+              "separator",
+              { label: "Delete", icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => setConfirming(true) },
+            ]);
+          }}
           style={{ touchAction: "none" }}
           className={`relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
             file.kind === "image" ? (zoomed ? "cursor-grab" : "cursor-zoom-in") : ""
@@ -419,7 +433,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
         </div>
 
         {showDetails ? (
-          <aside aria-label="Details" className="w-80 flex-none overflow-y-auto border-l border-on-ink/20 p-4 text-label">
+          <aside aria-label="Details" className="w-80 flex-none overflow-y-auto border-l border-on-stage/20 p-4 text-label">
             <dl className="m-0 flex flex-col gap-3">
               <Detail term="File" value={file.name} mono />
               <Detail term="Dimensions" value={size ? `${size[0]} × ${size[1]}` : "…"} />
@@ -429,7 +443,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
                 value={postDate ? postDate.toLocaleDateString(undefined, { dateStyle: "long" }) : "Unknown"}
               />
               <div>
-                <dt className="text-small text-on-ink/70">Original post</dt>
+                <dt className="text-small text-on-stage/70">Original post</dt>
                 <dd className="m-0">
                   {postId ? (
                     <a
@@ -458,12 +472,12 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
               aria-modal="true"
               aria-labelledby="delete-title"
               aria-describedby="delete-body"
-              className="w-full max-w-md rounded-lg border border-on-ink/40 bg-stage p-6"
+              className="w-full max-w-md rounded-lg border border-on-stage/40 bg-stage p-6"
             >
               <h2 id="delete-title" className="m-0 text-title">
                 Delete {file.name}?
               </h2>
-              <p id="delete-body" className="mt-2 mb-0 text-body text-on-ink/80">
+              <p id="delete-body" className="mt-2 mb-0 text-body text-on-stage/80">
                 {recycle ? "It moves to the Recycle Bin." : "It is deleted for good."} gather still remembers it in the
                 archive, so a later update will not download it again.
               </p>
@@ -480,7 +494,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
         ) : null}
       </div>
 
-      <div role="status" aria-live="polite" className="min-h-6 border-t border-on-ink/20 px-4 py-1 text-small text-on-ink/80">
+      <div role="status" aria-live="polite" className="min-h-6 border-t border-on-stage/20 px-4 py-1 text-small text-on-stage/80">
         {status}
       </div>
     </div>
@@ -490,7 +504,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
 function Detail({ term, value, mono = false }: { term: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-small text-on-ink/70">{term}</dt>
+      <dt className="text-small text-on-stage/70">{term}</dt>
       <dd className={`m-0 break-all ${mono ? "font-mono text-code" : ""}`}>{value}</dd>
     </div>
   );

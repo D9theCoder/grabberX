@@ -40,11 +40,16 @@ Components reference tokens only, never raw hex or px.
 | Space | 4 · 8 · 12 · 16 · 24 · 32 · 48 px |
 | Radius | 4 · 6 · 8 px. Nothing pill-shaped. |
 | Elevation | None. Borders only. |
-| Motion | 120 ms hover/press, 200 ms disclosure, spinner only loops; all off under reduced motion |
+| Motion | 120 ms hover/press, 200 ms disclosure and theme cross-fade, spinner only loops; all off under reduced motion |
 
-Not in v1: a dark theme. Tokens are named by role, so one can be added later without touching components.
+**Dark theme.** Every color token has a dark value (design system `tokens.json`, theme `dark`): `paper` #121212 ·
+`surface` #181818 · `sunken` #1F1F1F · `line` #2A2A2A · `line-strong` #3D3D3D · `control` #7A7A7A · `ink` #EDEDED ·
+`ink-2` #A3A3A3 · `ink-3` #6B6B6B · `on-ink` #121212 · `danger` #F28B82 · `warn` #E0B04A. Components never name a
+theme; `globals.css` swaps the variables under `:root[data-theme="dark"]`. An inline script in `<head>` sets
+`data-theme` before the first paint from the saved choice (`localStorage` `gather-theme`) or the system setting.
 
-The one exception is `stage` (#0E0E0E), the ground behind the lightbox, with `on-ink` for its controls. It is for looking at media and appears nowhere else.
+`stage` (#0E0E0E light, #0A0A0A dark) is the ground behind the lightbox, always with `on-stage` (#FCFCFC) for its
+text and controls. `on-ink` cannot serve there, because it turns dark in the dark theme.
 
 ## 3. Components
 
@@ -87,7 +92,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ gather            Run  Library  History                              ⚙       │  top bar 56px
+│ gather            Run  Library  History                          ☾   ⚙       │  top bar 56px
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ New run                                                                      │  display
 │ ┌─────────────────────────────────────────┐  ┌──────────────────────────────┐│
@@ -116,8 +121,13 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 - Grid: `grid-template-columns: minmax(0,1fr) 400px; gap: --space-8`.
 - Right column is `position: sticky; top: --space-6`, so the command and the Download button never
   scroll away.
-- Form sections are separated by a `--border` top rule and `--space-8` vertical space, not by
-  boxes. Fewer boxes means less visual noise.
+- **Compact.** The page fits a 1280 × 820 window without scrolling while Advanced is folded (an e2e
+  test checks it). The title starts `--space-8` below the top bar. Each section is one row: its heading
+  (`label`, 600) in an 88 px column, its controls beside it, `--space-4` above and below, a `line` rule
+  between rows. Media and Dates carry their hint on the same line. Below 640 px the heading sits above
+  its controls.
+- The command block scrolls inside itself past 176 px, so a long two-step command never pushes the run
+  panel down.
 - The page-title row is one fixed height on every page, so Library (with *Update all* beside its
   title) lands on the same baseline as Run, History and Settings.
 
@@ -129,7 +139,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 | 2 | **Account** | `TextField` with a fixed `prefix` (`@` for X, `bsky.app/profile/` for Bluesky, and so on) | empty | Accepts a handle or a pasted profile URL. On paste, the URL is parsed and only the handle is kept. Below it, an **account hint** line (see 5.3). |
 | 3 | **Media** | `Segmented`: Images · Videos · All | All | "All" runs images first, then videos, in one job. Each option has a tooltip listing the extensions it covers. |
 | 4 | **Dates** | `Segmented` (sm): All time · Last 30 days · This year · Custom. "Custom" shows two native date inputs: *From* → *To* | All time | Both ends are optional. Hint text: "Uses the post date, not the download date." |
-| 5 | **Folders** | `ChoiceList`, each row showing the path it produces | By type | See 5.4. |
+| 5 | **Folders** | `Segmented` (each option's tooltip shows the path it produces) plus the example path | By type | See 5.4. |
 | 6 | **Advanced** | `Disclosure`, closed by default, `meta` reads "n changed" when n > 0 | closed | See 5.5. |
 
 ### 5.3 Account hint states
@@ -308,9 +318,28 @@ beyond a breadcrumb, a filter and a sort.
 - **Browse.** Sub-folders first as `FolderCard`s (Image, Video, year folders), then the files as justified
   rows that keep each file's aspect ratio. Only the rows near the viewport are rendered, so a folder of
   thousands of files stays responsive.
-- **Thumbnails.** Images load a small WebP from `/api/media?...&thumb=240|480`, generated on first request and
-  cached under the state folder (`thumbs/`, capped at 256 MB). Videos show their first frame, a play glyph and
-  the length. If thumbnails are unavailable (`sharp` failed to load) the browser scales the original.
+- **Thumbnails.** Every tile loads a 480 px WebP from `/api/media?...&thumb=480&v=<version>`. The version is the
+  file's size and modified time, so the URL is cached by the browser for good and a revisited folder paints
+  from its cache. Thumbnails are built ahead of time by a background warmer (after each download, and once
+  shortly after start) and kept under the state folder (`thumbs/`, capped at 1 GB). Videos show a poster frame
+  that the browser captured the first time the tile loaded the video's metadata, plus a play glyph and the
+  length. If thumbnails are unavailable (`sharp` failed to load) the browser scales the original.
+- **Layout without waiting.** Image sizes and video lengths come from a per-folder index on disk
+  (`index/`), read with the page, so the justified rows are right on the first paint. Files the index does
+  not know yet are filled in by `/api/media/dims`, which reads only image headers.
+- **Select mode.** The Select button beside Sort (also `S`, Ctrl+A, Space on a tile, Ctrl/Shift+click, or the
+  context menu) turns tiles into toggles with a check box. Click toggles, Shift+click selects a range, and
+  pressing the mouse and dragging draws a rectangle that selects every tile it touches, scrolling the page when
+  the pointer nears the top or bottom edge. A drag that starts on a selected tile deselects instead. The
+  `SelectionBar` sticks to the bottom: count, Select all, Clear, Download, Delete, Done. Esc leaves select mode.
+- **Download.** One file downloads as itself. Several stream from `/api/media/zip` as one stored zip (no
+  re-compression; at most 4 GB and 65,535 files).
+- **Right-click.** The app's `ContextMenu` replaces the browser menu everywhere except text fields. On a tile:
+  Open, Open with default app (desktop) or Open in new tab (browser), Show in folder (desktop; the browser
+  opens the account folder), Download, Copy image, Copy path, Select, Delete. On a selected tile with others
+  selected: Download n files, Copy n paths, Clear selection, Delete n files. On the grid: Select all, Select
+  files, Download all, Open account folder. In the lightbox: the tile items plus Delete. Elsewhere: Copy
+  (when text is selected), Back, Forward, Reload.
 - **Filter and sort.** Show: All, Images, Videos. Sort: Newest first, Oldest first, Name. File names are
   `{post_id}_{n}.{ext}`, so name and post order agree.
 - **Keyboard.** One tile takes Tab. Arrow keys move between tiles (up and down keep the column), Home and End
@@ -322,8 +351,9 @@ beyond a breadcrumb, a filter and a sort.
   "3 of 128". Details: file, dimensions, size, post date, link to the post. Actions: Open in Explorer (opens the
   account folder), Copy path, Delete.
 - **Delete.** Asks first: "It moves to the Recycle Bin. gather still remembers it in the archive, so a later
-  update will not download it again." In the packaged app the file goes to the Recycle Bin; from source it is
-  deleted for good and the dialog says so. The archive is never touched.
+  update will not download it again." For a selection the dialog names the count. In the packaged app the files
+  go to the Recycle Bin; from source they are deleted for good and the dialog says so. The archive is never
+  touched.
 - **Safety.** Every path is resolved inside the account folder. `..`, absolute paths, reserved folders, other
   accounts, symlinks that leave the folder and non-media extensions are refused.
 
@@ -336,10 +366,19 @@ beyond a breadcrumb, a filter and a sort.
 
 ## 8. Settings (`/settings`)
 
-Plain form, saved on blur with a quiet "Saved" tick, in five groups in this order:
+Plain form, saved on blur with a quiet "Saved" tick, in this order:
 gallery-dl path (with a `Check` button that runs `--version`, `Look for updates` and the installed
 version beside it) · Media root (default: the app folder) · Session (Cookie browser, profile, and a
-`Check cookies` button) · Defaults for new runs · Runs · About (last). Settings is deliberately
+`Check cookies` button) · Defaults for new runs · Runs · Automatic updates · Appearance (Theme: System,
+Light, Dark) · Desktop app (desktop only) · About (last).
+
+**Desktop app → "Keep gather in the tray when the window closes"** (`closeToTray`, on by default). On: closing
+hides the window, a one-time balloon says gather is still in the tray, and scheduled runs and app updates keep
+working; Quit lives in the tray menu. Off: closing quits, after the usual "downloads are still running"
+question when a run is active.
+
+**Top bar.** A `ThemeToggle` sits just left of the Settings gear: the moon in light, the sun in dark, labelled
+"Switch to dark mode" / "Switch to light mode". The switch cross-fades the page in 200 ms. Settings is deliberately
 narrow (max 672 px): it is read one field at a time, while Run, Library and History use the full
 1120 px container.
 
