@@ -10,7 +10,7 @@ import { RunPanel } from "@/components/run-panel";
 import { Notice } from "@/components/ui/notice";
 import { Status } from "@/components/ui/status";
 import { useRunStream } from "@/components/use-run-stream";
-import { buildCommand, formatCommand } from "@/lib/command";
+import { buildCommand, formatCommand, workerCount } from "@/lib/command";
 import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
 import { changedAdvancedKeys, datePresetRange, templateToSegments } from "@/lib/form-helpers";
@@ -279,6 +279,7 @@ export function RunScreen({
         <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
           <CommandPanel
             steps={steps}
+            workers={workerCount(previewSpec)}
             reason={reason}
             downloadLabel={accountHasActiveRun ? "Queue" : "Download"}
             pending={pending}

@@ -22,6 +22,8 @@ export interface Advanced {
   filesizeMax?: string;
   abortAfterSkipped?: number;
   range?: number;
+  /** gallery-dl processes per step, 2 to 4; absent means one. Only honoured where `parallelBlock` allows it. */
+  parallel?: number;
   retweets: boolean;
   replies: boolean;
   writeMetadata: boolean;
@@ -49,6 +51,8 @@ export interface JobSpec {
 export interface Step {
   label: "images" | "videos" | "all";
   argv: string[];
+  /** Parallel downloads: one argv per worker, each taking every Nth file. `argv` stays the single-process form. */
+  workers?: string[][];
 }
 
 export interface Settings {

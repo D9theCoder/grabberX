@@ -7,7 +7,7 @@ import { LogView } from "@/components/ui/log-view";
 import { Notice } from "@/components/ui/notice";
 import { Stat } from "@/components/ui/stat";
 import { Status } from "@/components/ui/status";
-import { formatCommand } from "@/lib/command";
+import { formatCommand, workerCount } from "@/lib/command";
 import { formatElapsed } from "@/lib/format";
 import { LAYOUT_LABELS, MEDIA_LABELS } from "@/lib/form-helpers";
 import { maskSecrets } from "@/lib/mask";
@@ -50,6 +50,8 @@ function settingsRows(run: Run): Array<[string, string]> {
     ],
   );
   if (advanced.range !== undefined) rows.push(["Only the newest files", String(advanced.range)]);
+  const workers = workerCount(spec);
+  if (workers > 1) rows.push(["Parallel downloads", `${workers} at once`]);
   if (advanced.sleepRequest !== undefined) rows.push(["Wait between pages", `${advanced.sleepRequest} s`]);
   if (advanced.sleep !== undefined) rows.push(["Wait between files", `${advanced.sleep} s`]);
   if (advanced.sleep429 !== undefined) rows.push(["Wait after a rate limit", `${advanced.sleep429} s`]);

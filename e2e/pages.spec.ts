@@ -436,3 +436,19 @@ test("every segmented control fits one row from 640 px and is an even grid on ph
   const site = (await rowsOf()).find((group) => group.name === "Site");
   expect(site).toMatchObject({ rows: 2, widths: 1 });
 });
+
+test("parallel downloads are offered only where the site and layout allow them", async ({ page }) => {
+  await page.goto("/");
+  await page.getByText("Advanced", { exact: true }).click();
+  const parallel = page.getByRole("radiogroup", { name: "Parallel downloads" });
+  await expect(parallel.getByRole("radio", { name: "4" })).toBeDisabled();
+  await expect(page.getByText("X limits requests, so it downloads one file at a time.")).toBeVisible();
+
+  await page.getByRole("radiogroup", { name: "Site" }).getByRole("radio", { name: "Bluesky" }).click();
+  await parallel.getByRole("radio", { name: "4" }).click();
+  await expect(page.getByText(/Runs as 4 processes at once/)).toBeVisible();
+
+  await page.getByRole("radiogroup", { name: "Folder layout" }).getByRole("radio", { name: "Year / month" }).click();
+  await expect(parallel.getByRole("radio", { name: "4" })).toBeDisabled();
+  await expect(page.getByText(/Runs as 4 processes at once/)).toHaveCount(0);
+});

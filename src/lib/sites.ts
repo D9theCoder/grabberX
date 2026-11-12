@@ -7,6 +7,11 @@ export interface SiteDef {
   prefix: string;
   placeholder: string;
   beta: boolean;
+  /**
+   * The site does not rate-limit its listing, so several gallery-dl processes may walk one profile at once
+   * (each lists the whole profile and downloads its own slice). Off for sites whose API limits requests.
+   */
+  parallel: boolean;
   supportsSize: boolean;
   /** Hostnames accepted in a pasted profile URL (without www/mobile). */
   hosts: string[];
@@ -79,6 +84,7 @@ export const SITES: SiteDef[] = [
     prefix: "@",
     placeholder: "username",
     beta: false,
+    parallel: false,
     supportsSize: true,
     hosts: ["x.com", "twitter.com"],
     handlePattern: /^[A-Za-z0-9_]{1,15}$/,
@@ -97,6 +103,7 @@ export const SITES: SiteDef[] = [
     prefix: "@",
     placeholder: "username",
     beta: true,
+    parallel: false,
     supportsSize: false,
     hosts: ["instagram.com"],
     handlePattern: /^[A-Za-z0-9._]{1,30}$/,
@@ -115,6 +122,7 @@ export const SITES: SiteDef[] = [
     prefix: "bsky.app/profile/",
     placeholder: "name.bsky.social",
     beta: true,
+    parallel: true,
     supportsSize: false,
     hosts: ["bsky.app"],
     handlePattern: /^[A-Za-z0-9._:-]{1,100}$/,
@@ -131,6 +139,7 @@ export const SITES: SiteDef[] = [
     prefix: "pixiv.net/users/",
     placeholder: "12345",
     beta: true,
+    parallel: false,
     supportsSize: false,
     hosts: ["pixiv.net"],
     handlePattern: /^\d{1,12}$/,
@@ -149,6 +158,7 @@ export const SITES: SiteDef[] = [
     prefix: "u/",
     placeholder: "username",
     beta: true,
+    parallel: false,
     supportsSize: false,
     hosts: ["reddit.com"],
     handlePattern: /^[A-Za-z0-9_-]{1,20}$/,
@@ -169,6 +179,7 @@ export const SITES: SiteDef[] = [
     prefix: "",
     placeholder: "https://",
     beta: true,
+    parallel: true,
     supportsSize: false,
     hosts: [],
     handlePattern: /^https?:\/\/\S+$/i,
