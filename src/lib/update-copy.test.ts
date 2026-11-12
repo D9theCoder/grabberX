@@ -11,7 +11,7 @@ describe("updateCopy", () => {
     expect(updateCopy({ state: "downloading", version: "0.2.0", percent: 42 }, now).text).toBe(
       "Downloading gather 0.2.0 · 42%",
     );
-    expect(updateCopy({ state: "ready", version: "0.2.0" }, now).text).toContain("Restart gather");
+    expect(updateCopy({ state: "ready", version: "0.2.0" }, now).text).toContain("installs by itself");
     expect(updateCopy({ state: "error", message: "offline", checkedAt: now.toISOString() }, now)).toEqual({
       tone: "danger",
       text: "Couldn't check for updates: offline",

@@ -47,7 +47,14 @@ Differences from the plan below:
 - **Auto-update of the app** is on for CI builds and off for local ones. The workflow passes this repository as
   the publish target (`-c.publish.*`), so the build writes `app-update.yml` and `latest.yml`, and a `v*` tag
   uploads the installer, its blockmap and `latest.yml` to the GitHub release. The installed app checks on
-  launch and every 6 hours, downloads in the background and installs on quit. It can also be checked by hand from
+  launch and every 6 hours and downloads in the background. A downloaded update installs itself silently when
+  nobody is using gather (`autoInstallDecision` in `lib.cjs`): within 2 minutes of launch it restarts straight into
+  the new version (the window shows "Updating gather to X…"); while the window is hidden in the tray it restarts
+  back into the tray; while the window is open or a download runs it waits, shows one "ready, click to restart"
+  notification, and looks again every 5 minutes. Install-on-quit stays on as a fallback, but it never fired in
+  practice: gather sits in the tray, and a killed process or a Windows shutdown skips the quit event. A version
+  that was already tried (recorded in `update-attempt.json`) is not retried for 6 hours, so a failing installer
+  cannot restart gather in a loop. It can also be checked by hand from
   Settings → About or the tray menu ("Check for updates"); once downloaded, "Restart and update" stops the
   server's runs and runs the installer. The shell keeps one updater state (`nextUpdateState` in `lib.cjs`) and
   pushes it to the page over `gather:update-state`. Verified locally: a build with a publish target

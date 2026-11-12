@@ -21,8 +21,19 @@ export interface SegmentedProps {
   defaultValue?: string;
   onChange?: (value: string) => void;
   size?: "md" | "sm";
+  /**
+   * Below 640 px, lay the options out as an even grid of this many columns instead of a ragged wrap.
+   * Required when the options cannot fit one row on a phone.
+   */
+  columns?: 2 | 3 | 4;
   className?: string;
 }
+
+const GRID_COLUMNS = {
+  2: "max-sm:grid-cols-2",
+  3: "max-sm:grid-cols-3",
+  4: "max-sm:grid-cols-4",
+} as const;
 
 export function Segmented({
   label,
@@ -31,6 +42,7 @@ export function Segmented({
   defaultValue,
   onChange,
   size = "md",
+  columns,
   className,
 }: SegmentedProps) {
   const normalized = options.map((option) =>
@@ -71,8 +83,10 @@ export function Segmented({
       aria-label={label}
       className={cn(
         // One height for every segmented control (A8), and a taller touch target on phones.
-        // Every option wraps instead of being clipped: the site list is the long one (A4).
+        // From 640 px up the options must fit one row (the Run page e2e test checks the longest set);
+        // the wrap is only a guard so nothing is ever clipped. On phones a long set becomes an even grid.
         "flex min-h-control w-fit max-w-full flex-wrap items-center gap-0.5 rounded-md border border-line-strong bg-surface p-0.5 max-sm:min-h-touch",
+        columns && `max-sm:grid max-sm:w-full ${GRID_COLUMNS[columns]}`,
         className,
       )}
     >
@@ -91,6 +105,7 @@ export function Segmented({
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
               "relative inline-flex h-8 flex-none items-center gap-1.5 rounded-sm font-medium whitespace-nowrap",
+              columns && "max-sm:justify-center",
               // Stretch the hit area to a 44px touch target without changing the visual height.
               "after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']",
               "transition-colors duration-120 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-ink-3",

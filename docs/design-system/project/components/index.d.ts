@@ -11,6 +11,8 @@ export declare function Button(props: ButtonProps): React.ReactElement;
 
 export interface TextFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label: string;
+  /** Quiet qualifier after the label, e.g. "beta" for the picked site. */
+  tag?: string;
   hint?: React.ReactNode;
   /** Replaces the hint and turns the border danger. */
   error?: string;
@@ -21,7 +23,7 @@ export interface TextFieldProps extends Omit<React.InputHTMLAttributes<HTMLInput
 }
 export declare function TextField(props: TextFieldProps): React.ReactElement;
 
-export interface SegmentedOption { value: string; label: string; tag?: string; disabled?: boolean }
+export interface SegmentedOption { value: string; label: string; tag?: string; title?: string; disabled?: boolean }
 export interface SegmentedProps {
   /** Accessible name of the group. */
   label: string;
@@ -30,6 +32,8 @@ export interface SegmentedProps {
   defaultValue?: string;
   onChange?: (value: string) => void;
   size?: 'md' | 'sm';
+  /** Below 640px, an even grid of this many columns. Needed when the set cannot fit one row on a phone. */
+  columns?: 2 | 3 | 4;
 }
 export declare function Segmented(props: SegmentedProps): React.ReactElement;
 

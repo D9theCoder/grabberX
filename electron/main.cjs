@@ -21,6 +21,11 @@ const SHUTDOWN_GRACE_MS = 10000;
 const SERVER_START_ATTEMPTS = 3;
 // gather lives in the tray for days; a check at start alone would miss every release after it.
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+// A downloaded update that had to wait (the user was busy) is looked at again this often.
+const UPDATE_RETRY_MS = 5 * 60 * 1000;
+// The installer restarts gather; a marker this fresh means "come back in the tray, not as a window".
+const START_HIDDEN_MS = 10 * 60 * 1000;
+const bootedAt = Date.now();
 
 let log;
 let win = null;
@@ -34,6 +39,8 @@ let updater = null;
 let updateState = { state: "idle" };
 /** Set when the tray asked for the check, so its result comes back as a balloon. */
 let trayCheckPending = false;
+let updateNotice = null;
+let updateNoticeVersion = "";
 /** Windows drops a notification whose object is garbage-collected before it is clicked. */
 let scheduledNotice = null;
 
@@ -53,6 +60,27 @@ function readSettings() {
 }
 
 const themeFile = () => path.join(app.getPath("userData"), "theme.txt");
+const updateAttemptFile = () => path.join(app.getPath("userData"), "update-attempt.json");
+const startHiddenFile = () => path.join(app.getPath("userData"), "start-hidden");
+
+/** True once after an update that was installed while gather sat in the tray. */
+function consumeStartHidden() {
+  try {
+    const age = Date.now() - fs.statSync(startHiddenFile()).mtimeMs;
+    fs.rmSync(startHiddenFile(), { force: true });
+    return age < START_HIDDEN_MS;
+  } catch {
+    return false;
+  }
+}
+
+function readUpdateAttempt() {
+  try {
+    return JSON.parse(fs.readFileSync(updateAttemptFile(), "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 /** The page's last theme, so the window never flashes light before a dark page loads. */
 function windowBackground() {
@@ -123,7 +151,11 @@ function createWindow() {
       spellcheck: false,
     },
   });
-  win.once("ready-to-show", () => win.show());
+  const startHidden = consumeStartHidden();
+  if (startHidden) log.line("updated while in the tray; starting hidden");
+  win.once("ready-to-show", () => {
+    if (!startHidden) win.show();
+  });
   win.on("close", async (event) => {
     if (quitting) return;
     event.preventDefault();
@@ -138,6 +170,7 @@ function createWindow() {
           content: "gather is still running in the tray, so updates and automatic runs keep working. Change this in Settings.",
         });
       }
+      void maybeAutoInstall();
       return;
     }
     if (await confirmQuit()) app.quit();
@@ -299,7 +332,7 @@ function setUpdateState(next) {
       next.state === "current"
         ? `gather ${app.getVersion()} is up to date.`
         : next.state === "downloading"
-          ? `gather ${next.version} is downloading. It installs when you restart gather.`
+          ? `gather ${next.version} is downloading. It installs when gather is idle.`
           : `Could not check for updates: ${next.message}`;
     tray?.displayBalloon?.({ title: "gather", content });
   }
@@ -319,15 +352,64 @@ function checkForUpdates() {
   return updateState;
 }
 
-async function installUpdate() {
-  if (!updater || updateState.state !== "ready") return false;
-  if (!(await confirmQuit())) return false;
-  log.line(`restarting to install ${updateState.version}`);
-  // Stop the server first so its runs end cleanly, then let the updater quit and run the installer.
+/**
+ * Installs the downloaded update: stops the server's runs, then runs the installer silently and restarts gather.
+ * `automatic` skips the "downloads are still running" question (the caller already checked there are none);
+ * `hidden` brings gather back in the tray.
+ */
+async function installUpdate({ automatic = false, hidden = false } = {}) {
+  if (!updater || updateState.state !== "ready" || quitting) return false;
+  if (!automatic && !(await confirmQuit())) return false;
+  const { version } = updateState;
+  log.line(`restarting to install ${version} (${automatic ? (hidden ? "automatic, in the tray" : "automatic, at start") : "asked"})`);
+  try {
+    fs.writeFileSync(updateAttemptFile(), JSON.stringify({ version, at: new Date().toISOString() }));
+    if (hidden) fs.writeFileSync(startHiddenFile(), version);
+  } catch (error) {
+    log.line(`could not record the update attempt: ${error.message}`);
+  }
   quitting = true;
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    await win.loadURL(pageHtml(`Updating gather to ${version}…`, "<p>gather restarts by itself in a moment.</p>")).catch(() => {});
+  }
   await stopServer();
-  updater.quitAndInstall(false, true);
+  updater.quitAndInstall(true, true);
   return true;
+}
+
+function showUpdateNotice(version) {
+  if (updateNoticeVersion === version || !Notification.isSupported()) return;
+  updateNoticeVersion = version;
+  updateNotice = new Notification({ title: "gather", body: `gather ${version} is ready. Click to restart and update.`, icon: iconPath });
+  updateNotice.on("click", () => {
+    showWindow();
+    void installUpdate();
+  });
+  updateNotice.show();
+}
+
+/** Installs a downloaded update when nobody is using gather; otherwise asks once with a notification. */
+async function maybeAutoInstall() {
+  if (updateState.state !== "ready" || quitting) return;
+  const { version } = updateState;
+  const activeRuns = origin ? await lib.activeRuns(origin) : 0;
+  if (updateState.state !== "ready" || quitting) return;
+  const decision = lib.autoInstallDecision({
+    version,
+    sinceBootMs: Date.now() - bootedAt,
+    windowVisible: Boolean(win && !win.isDestroyed() && win.isVisible()),
+    activeRuns,
+    lastAttempt: readUpdateAttempt(),
+    now: Date.now(),
+  });
+  if (decision === "visible" || decision === "hidden") {
+    await installUpdate({ automatic: true, hidden: decision === "hidden" });
+    return;
+  }
+  if (decision === "blocked" && updateNoticeVersion !== version) {
+    log.line(`installing ${version} was already tried and gather is still on ${app.getVersion()}; waiting for the user`);
+  }
+  showUpdateNotice(version);
 }
 
 function setupUpdater() {
@@ -341,9 +423,11 @@ function setupUpdater() {
     autoUpdater.logger = { info: note("info"), warn: note("warn"), error: note("error"), debug() {} };
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.disableWebInstaller = true;
     for (const event of ["checking-for-update", "update-not-available", "update-available", "download-progress", "update-downloaded"]) {
       autoUpdater.on(event, (payload) => setUpdateState(lib.nextUpdateState(updateState, event, payload)));
     }
+    autoUpdater.on("update-downloaded", () => void maybeAutoInstall());
     autoUpdater.on("error", (error) => {
       log.line(`updater error: ${error?.message ?? error}`);
       setUpdateState(lib.nextUpdateState(updateState, "error", error));
@@ -353,6 +437,7 @@ function setupUpdater() {
     // Without a publish target in the build there is no app-update.yml and this fails; that is not fatal.
     checkForUpdates();
     setInterval(checkForUpdates, UPDATE_CHECK_MS).unref();
+    setInterval(() => void maybeAutoInstall(), UPDATE_RETRY_MS).unref();
   } catch (error) {
     updateState = { state: "unavailable" };
     log.line(`updater unavailable: ${error.message}`);
