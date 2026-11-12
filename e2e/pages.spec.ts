@@ -374,7 +374,7 @@ test("the Run page fits a 1280 x 820 window without scrolling", async ({ page })
 });
 
 test("the task bubble counts running and queued runs and lists them", async ({ page }) => {
-  const task = (id: string, status: string, position: number) => ({
+  const task = (id: string, status: string, position: number, live: { percent?: number; bytesPerSec?: number } = {}) => ({
     id,
     folder: id.split("_")[1],
     site: "x",
@@ -387,17 +387,24 @@ test("the task bubble counts running and queued runs and lists them", async ({ p
     simulate: false,
     scheduled: false,
     position,
+    ...live,
   });
-  let tasks = [task("2026-11-12T10-00-01_alpha", "running", 0), task("2026-11-12T10-00-02_beta", "queued", 1)];
+  // Two live runs, each with its own estimate and speed, plus one waiting.
+  let tasks = [
+    task("2026-11-12T10-00-01_alpha", "running", 0, { percent: 42, bytesPerSec: 2.5 * 1024 * 1024 }),
+    task("2026-11-12T10-00-03_gamma", "running", 0, { bytesPerSec: 800 * 1024 }),
+    task("2026-11-12T10-00-02_beta", "queued", 1),
+  ];
   await page.route("**/api/runs", (route) => route.fulfill({ json: { tasks } }));
 
   await page.goto("/");
-  const bubble = page.getByRole("button", { name: "Tasks: 1 running, 1 queued" });
-  await expect(bubble).toHaveText("2");
+  const bubble = page.getByRole("button", { name: "Tasks: 2 running, 1 queued" });
+  await expect(bubble).toHaveText("3");
   await bubble.click();
   const panel = page.getByRole("region", { name: "Tasks" });
   await expect(panel.getByRole("link", { name: /alpha/ })).toHaveAttribute("href", "/history/2026-11-12T10-00-01_alpha");
-  await expect(panel.getByText("Images 1/2 · 12 saved")).toBeVisible();
+  await expect(panel.getByText("Images 1/2 · 12 saved · ~42% · 2.5 MB/s")).toBeVisible();
+  await expect(panel.getByText("Images 1/2 · 12 saved · 800 KB/s")).toBeVisible();
   await expect(panel.getByText("#1 in line")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Cancel beta" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -407,6 +414,74 @@ test("the task bubble counts running and queued runs and lists them", async ({ p
   tasks = [];
   await page.evaluate(() => window.dispatchEvent(new Event("gather-runs-changed")));
   await expect(page.getByRole("button", { name: /^Tasks/ })).toHaveCount(0);
+});
+
+test("the Run panel shows a live progress event: bar, speed, size and time left", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+  const account = "e2e_progress";
+  const runId = `2026-11-12T10-00-00_${account}`;
+
+  // The Download click goes to the real server, but with the account emptied, so startRun refuses it and
+  // nothing is queued. Its refusal is then rewritten into a success for a run that only exists in this test.
+  // Any request the rewrite cannot make safe is aborted, so a format change fails the test instead of downloading.
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    if (request.method() !== "POST" || !request.headers()["next-action"] || !body.includes(account)) {
+      return route.fallback();
+    }
+    const pattern = `"account":"${account}"`;
+    if (!body.includes(pattern)) return route.abort();
+    const response = await route.fetch({ postData: body.split(pattern).join('"account":""') });
+    const text = await response.text();
+    if (!body.includes('"media"')) return route.fulfill({ response, body: text });
+    const refusal = /\{"ok":false,"error":"(?:[^"\\]|\\.)*"\}/;
+    if (!refusal.test(text)) return route.abort();
+    return route.fulfill({
+      response,
+      body: text.replace(refusal, JSON.stringify({ ok: true, data: { runId, position: 0 } })),
+    });
+  });
+
+  const run = {
+    id: runId,
+    spec: {
+      site: "x",
+      account,
+      media: "all",
+      layout: { kind: "byType" },
+      simulate: false,
+      advanced: { imageSize: "orig", retweets: false, replies: false, writeMetadata: false, noSkip: false, cookies: { browser: "firefox" } },
+    },
+    steps: [{ label: "images", argv: [] }, { label: "videos", argv: [] }],
+    status: "running",
+    stepIndex: 0,
+    counts: { saved: 400, skipped: 20, failed: 0 },
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
+  };
+  const progress = { bytes: 150 * 1024 * 1024, bytesPerSec: 3 * 1024 * 1024, itemsPerSec: 2, total: 1000, processed: 420, etaSeconds: 300 };
+  const events = [{ t: "run", run }, { t: "progress", progress }];
+  await page.route(`**/api/runs/${encodeURIComponent(runId)}/events`, (route) =>
+    route.fulfill({
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" },
+      body: ["retry: 60000", ...events.map((event) => `data: ${JSON.stringify(event)}`), ""].join("\n\n"),
+    }),
+  );
+
+  await page.goto("/");
+  await page.getByRole("radiogroup", { name: "Site" }).getByRole("radio", { name: "X", exact: true }).click();
+  await page.getByRole("textbox", { name: "Account" }).fill(account);
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+
+  const panel = page.getByRole("region", { name: "Current run" });
+  await expect(panel.getByRole("progressbar", { name: "Estimated progress" })).toHaveAttribute("aria-valuenow", "42");
+  await expect(panel.getByText("About 42% · 420 of ~1,000 posts")).toBeVisible();
+  await expect(panel.getByText("3 MB/s · 150 MB downloaded · about 5 min left")).toBeVisible();
+  await expect(page.locator("html#__next_error__")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  // The cookie check runs beside the Download request and may still be in flight.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("every segmented control fits one row from 640 px and is an even grid on phones", async ({ page }) => {

@@ -34,7 +34,7 @@ export function RunProgressView({ progress, active }: RunProgressProps) {
             <div className="h-full bg-ink" style={{ width: `${percent}%` }} />
           </div>
           <p className="m-0 text-small text-ink-2">
-            About {percent}% · {formatCount(progress.processed ?? 0)} of ~{formatCount(progress.total)} files
+            About {percent}% · {formatCount(progress.processed ?? 0)} of ~{formatCount(progress.total)} posts
             <span className="sr-only"> (estimate from the account&apos;s media count)</span>
           </p>
         </>

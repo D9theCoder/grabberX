@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Scan only src/ for class names. The default scans the whole repo root, which is also the media folder, and made the
+   first compile of the dev server take 30-40 s instead of about 7 s. */
+@import "tailwindcss" source("../");
 
 @theme {
   --color-paper: #fcfcfc;

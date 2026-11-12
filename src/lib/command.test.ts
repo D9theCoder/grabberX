@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCommand, formatCommand, parallelBlock, stepTargetDir, workerArgv, workerCount } from "@/lib/command";
+import { buildCommand, formatCommand, parallelBlock, probeArgv, stepTargetDir, workerArgv, workerCount } from "@/lib/command";
 import { DEFAULT_ADVANCED, type JobSpec, type Settings } from "@/lib/spec";
 
 const ROOT = "D:/Photos/p/scrapper";
@@ -532,5 +532,12 @@ describe("parallel downloads", () => {
   it("names the folder to create before the workers start", () => {
     expect(stepTargetDir(bluesky(), settings, "videos")).toBe(`${ROOT}/name.bsky.social/Video`);
     expect(stepTargetDir(bluesky({}, { layout: { kind: "flat" } }), settings, "images")).toBe(`${ROOT}/name.bsky.social`);
+  });
+});
+
+describe("probeArgv", () => {
+  it("asks for one item, from the page a run downloads", () => {
+    expect(probeArgv(makeSpec({ media: "all" }), settings).at(-1)).toBe("https://x.com/username/media");
+    expect(probeArgv(makeSpec(), settings).slice(0, 3)).toEqual(["-j", "--range", "1"]);
   });
 });

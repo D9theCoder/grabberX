@@ -132,7 +132,7 @@ export const startProcess: StartProcess = (options) => {
   return { pid: child.pid, done, stop };
 };
 
-const PART_FILE = /\.part(-.*)?$/i;
+export const PART_FILE = /\.part(-.*)?$/i;
 
 /** Deletes gallery-dl's leftover `*.part` / `*.part-*` files recursively. Returns the count. */
 export async function sweepPartFiles(dir: string): Promise<number> {

@@ -525,7 +525,7 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
   allowlist to the app on `127.0.0.1:3210`. The desktop app, its Server Actions and every write route are never reachable through
   it: only `GET`/`HEAD` for the `/m` pages, `/api/media`, `/api/media/poster` and static assets, `POST /api/media/zip` (a read-only
   zip download, same-origin only), plus two `POST` routes the gateway answers itself (pair, logout). Anything else is a 404. Phones pair with a one-time QR token and then hold a per-device,
-  hashed, revocable session cookie. The design and threat model are in `docs/handoffs/mobile-gallery-link.md`.
+  hashed, revocable session cookie.
 - **Why:** The owner wants to browse the PC's library from Android. Opening port 3210 would expose Run, Stop, Settings and
   open-folder to the network. A gateway makes the exposed surface one small, testable file, and Next stays as it is.
 - **Supersedes in part:** ADR-7's "local only" still holds for the desktop UI and for `src/proxy.ts`. It no longer holds for the

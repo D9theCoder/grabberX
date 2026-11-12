@@ -1,10 +1,10 @@
 import "server-only";
 import { mkdir, rm, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { buildCommand, stepTargetDir, WORKER_PARTS_DIR } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
-import { ProgressTracker } from "@/lib/progress";
+import { postIdOf, ProgressTracker } from "@/lib/progress";
 import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
@@ -18,12 +18,13 @@ import type {
   Step,
   StreamEvent,
 } from "@/lib/spec";
+import { PartWatcher, partKey } from "@/server/part-watch";
 import { resolveAccountDir } from "@/server/paths";
 import { folderChanged } from "@/server/warm-signal";
 import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
 import { probeTotal as defaultProbeTotal } from "@/server/total-probe";
-import type { ProbeTotal } from "@/server/total-probe";
+import type { ProbeOptions, ProbeTotal } from "@/server/total-probe";
 import { startWorkers } from "@/server/workers";
 import {
   appendLog,
@@ -97,8 +98,14 @@ interface ActiveRun {
   mediaRoot: string;
   /** File-size lookups still in flight, so the closing numbers wait for them. */
   pendingStats: Set<Promise<void>>;
+  /** Follows the current step's unfinished files; read once per tick for the speed. */
+  parts?: PartWatcher;
+  partPoll?: Promise<void>;
   progressTimer?: NodeJS.Timeout;
   probeAbort?: AbortController;
+  /** Set once the run passed its count and asked for a fresh one, so it asks at most once. */
+  totalRefreshed?: boolean;
+  settings: Settings;
   /** Kinds seen so far, not the lines: a verbose run can log error lines without end. */
   errorKinds: Set<ErrorKind>;
   logBuffer: string[];
@@ -383,6 +390,7 @@ export class RunQueue {
       finished: Promise.resolve(),
       tracker: new ProgressTracker(Date.now()),
       mediaRoot: settings.mediaRoot,
+      settings,
       pendingStats: new Set(),
       errorKinds: new Set(),
       logBuffer: [],
@@ -398,7 +406,10 @@ export class RunQueue {
       ),
     );
     this.active.set(run.id, active);
-    active.progressTimer = setInterval(() => this.publishProgress(active), PROGRESS_TICK_MS);
+    active.progressTimer = setInterval(() => {
+      this.pollParts(active);
+      this.publishProgress(active);
+    }, PROGRESS_TICK_MS);
     active.progressTimer.unref?.();
     this.startProbe(active, settings);
     try {
@@ -460,6 +471,7 @@ export class RunQueue {
         onRaw: (stream, line) => this.handleRaw(active, stream, tag ? `${tag} ${line}` : line),
       });
     const workers = step.workers;
+    await this.watchPartsOf(active, settings, step);
     if (!workers || workers.length < 2) return start(step.argv);
     // gallery-dl creates a missing folder in a way that fails if another worker created it a moment earlier.
     // A preview writes nothing, so it creates no folder either.
@@ -494,7 +506,7 @@ export class RunQueue {
           this.recordSavedFile(active, event.path);
         } else {
           run.counts.skipped += 1;
-          active.tracker.record(Date.now(), 0);
+          active.tracker.recordSkip(Date.now(), postIdOf(event.path));
         }
         this.buffer(run.id, event);
         this.emit(run.id, event);
@@ -522,14 +534,19 @@ export class RunQueue {
 
   /** The size comes from the file itself: gallery-dl prints only the path. A file that cannot be read counts as 0 bytes. */
   private recordSavedFile(active: ActiveRun, path: string): void {
+    const post = postIdOf(path);
     if (active.run.spec.simulate) {
-      active.tracker.record(Date.now(), 0);
+      active.tracker.record(Date.now(), 0, { post });
       return;
     }
-    const lookup: Promise<void> = stat(resolve(active.mediaRoot, path))
+    const full = resolve(active.mediaRoot, path);
+    const key = partKey(full);
+    // A date layout only reveals its folders as files land in them.
+    void active.parts?.watch(dirname(full));
+    const lookup: Promise<void> = stat(full)
       .then(
-        (info) => active.tracker.record(Date.now(), info.size),
-        () => active.tracker.record(Date.now(), 0),
+        (info) => active.tracker.record(Date.now(), info.size, { key, post }),
+        () => active.tracker.record(Date.now(), 0, { key, post }),
       )
       .finally(() => {
         active.pendingStats.delete(lookup);
@@ -538,14 +555,63 @@ export class RunQueue {
   }
 
   /**
+   * Where this step's `.part` files appear: each parallel worker's own folder, or beside the final files. A
+   * fixed layout names that folder up front; other layouts add theirs as files are saved. Awaited before the
+   * step starts, so `.part` files left by an earlier run are seeded, not counted as this run's download.
+   */
+  private async watchPartsOf(active: ActiveRun, settings: Settings, step: Step): Promise<void> {
+    await this.stopWatchingParts(active);
+    const { spec } = active.run;
+    if (spec.simulate) return;
+    const tracker = active.tracker;
+    const parts = new PartWatcher({
+      seed: (key, size) => tracker.seedPart(key, size),
+      grow: (key, size) => tracker.recordPart(Date.now(), key, size),
+    });
+    active.parts = parts;
+    const dirs: string[] = [];
+    if (step.workers && step.workers.length >= 2) {
+      try {
+        const partsRoot = join(resolveAccountDir(settings.mediaRoot, folderNameFor(spec)), WORKER_PARTS_DIR);
+        step.workers.forEach((_, index) => dirs.push(join(partsRoot, `w${index + 1}`)));
+      } catch {
+        /* an invalid folder name never gets this far; without it there is just no live speed */
+      }
+    }
+    if (spec.layout.kind === "byType" || spec.layout.kind === "flat") {
+      dirs.push(resolve(settings.mediaRoot, stepTargetDir(spec, settings, step.label)));
+    }
+    await Promise.all(dirs.map((dir) => parts.watch(dir)));
+  }
+
+  /** One reading at a time: a slow disk must not pile up overlapping reads. */
+  private pollParts(active: ActiveRun): void {
+    const parts = active.parts;
+    if (active.partPoll || !parts) return;
+    active.partPoll = parts
+      .poll()
+      .catch(() => {})
+      .finally(() => {
+        active.partPoll = undefined;
+      });
+  }
+
+  /** Lets a reading already under way land before anything closes the numbers. */
+  private async stopWatchingParts(active: ActiveRun): Promise<void> {
+    active.parts?.close();
+    active.parts = undefined;
+    await active.partPoll;
+  }
+
+  /**
    * The account media count is read in the background: a slow or failed lookup never delays the download,
    * it only means no progress bar.
    */
-  private startProbe(active: ActiveRun, settings: Settings): void {
+  private startProbe(active: ActiveRun, settings: Settings, options: ProbeOptions = {}): void {
     const abort = new AbortController();
     active.probeAbort = abort;
     void this.deps
-      .probeTotal(active.run.spec, settings, abort.signal)
+      .probeTotal(active.run.spec, settings, abort.signal, options)
       .then((total) => {
         if (total === undefined || abort.signal.aborted || !this.active.has(active.run.id)) return;
         active.tracker.setTotal(total);
@@ -556,9 +622,13 @@ export class RunQueue {
 
   private publishProgress(active: ActiveRun, final = false): void {
     const { run } = active;
-    const processed = run.counts.saved + run.counts.skipped;
     const now = Date.now();
-    const progress = final ? active.tracker.finish(now, processed) : active.tracker.snapshot(now, processed);
+    const progress = final ? active.tracker.finish(now) : active.tracker.snapshot(now);
+    // More posts than the count means the count is old (cached before the account grew); the bar would sit at 99%.
+    if (!final && progress.total !== undefined && (progress.processed ?? 0) > progress.total && !active.totalRefreshed) {
+      active.totalRefreshed = true;
+      this.startProbe(active, active.settings, { refresh: true });
+    }
     run.progress = progress;
     const event: RunEvent = { t: "progress", progress };
     this.latestProgress.set(run.id, event);
@@ -677,6 +747,7 @@ export class RunQueue {
       active.progressTimer = undefined;
     }
     active.probeAbort?.abort();
+    await this.stopWatchingParts(active);
     await Promise.all([...active.pendingStats]);
     this.publishProgress(active, true);
     if (active.logTimer) {

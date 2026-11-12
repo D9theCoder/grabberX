@@ -284,6 +284,8 @@ describe("RunQueue", () => {
 
     expect(queue.get(first.id)?.status).toBe("running");
     expect(queue.list().map((run) => run.id)).toEqual([first.id]);
+    // The step lists its folder for leftover .part files before the process starts.
+    await waitFor(() => controlled.calls.length === 1);
     expect(controlled.calls).toHaveLength(1);
     expect(controlled.calls[0]?.argv).toEqual(["images", "username"]);
     expect(controlled.calls[0]?.cwd).toBe(media);
@@ -884,5 +886,76 @@ describe("RunQueue", () => {
     expect(finished?.progress?.bytes).toBe(5000);
     expect(finished?.progress?.total).toBe(100);
     expect(queue.snapshot(enqueued.id)?.events.some((event) => event.t === "progress")).toBe(true);
+  });
+
+  it("counts a file while its .part grows, and does not count it twice when it finishes", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const imageDir = join(media, "username", "Image");
+    await mkdir(imageDir, { recursive: true });
+    // Left by an earlier run: seeded when the step starts, so it never counts as this run's download.
+    await writeFile(join(imageDir, "stale.jpg.part"), Buffer.alloc(9000));
+
+    let finish!: () => void;
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let worker: Parameters<StartProcess>[0] | undefined;
+    const start: StartProcess = (options) => {
+      worker ??= options;
+      return { pid: 1, done: done.then(() => ({ exitCode: 0 })), stop: async () => {} };
+    };
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: start,
+      probeTotal: async () => undefined,
+    });
+    const enqueued = await queue.enqueue({ ...spec("username"), media: "images" });
+    await waitFor(() => worker !== undefined);
+    await writeFile(join(imageDir, "big.mp4.part"), Buffer.alloc(4000));
+
+    await waitFor(() => (queue.get(enqueued.id)?.progress?.bytes ?? 0) === 4000, 5000);
+    await rm(join(imageDir, "big.mp4.part"));
+    await writeFile(join(imageDir, "big.mp4"), Buffer.alloc(5000));
+    worker?.onEvent({ t: "file", kind: "saved", path: "username/Image/big.mp4" });
+    finish();
+    await waitFor(() => queue.get(enqueued.id)?.status === "done");
+
+    expect(queue.get(enqueued.id)?.progress?.bytes).toBe(5000);
+  });
+
+  it("asks for a fresh count once the run has passed the one it was given", async () => {
+    isolationHome();
+    const media = await tempDir();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let worker: Parameters<StartProcess>[0] | undefined;
+    const start: StartProcess = (options) => {
+      worker ??= options;
+      return { pid: 1, done: gate.then(() => ({ exitCode: 0 })), stop: async () => {} };
+    };
+    const asks: Array<{ refresh?: boolean }> = [];
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: start,
+      probeTotal: async (_spec, _settings, _signal, options = {}) => {
+        asks.push(options);
+        return options.refresh ? 50 : 2;
+      },
+    });
+    const enqueued = await queue.enqueue({ ...spec("username"), media: "images" });
+    await waitFor(() => worker !== undefined && queue.get(enqueued.id)?.progress?.total === 2);
+    for (const id of ["101", "102", "103"]) {
+      worker?.onEvent({ t: "file", kind: "skipped", path: `username/Image/${id}_1.jpg` });
+    }
+
+    await waitFor(() => queue.get(enqueued.id)?.progress?.total === 50, 5000);
+    expect(asks).toEqual([{}, { refresh: true }]);
+    expect(queue.get(enqueued.id)?.progress?.processed).toBe(3);
+    release();
+    await waitFor(() => queue.get(enqueued.id)?.status === "done");
+    expect(asks).toHaveLength(2);
   });
 });

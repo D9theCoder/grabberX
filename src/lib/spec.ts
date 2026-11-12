@@ -97,14 +97,14 @@ export interface Counts {
 
 /** Live speed and estimates, computed by the queue from the files that finished. All of the run, not one worker. */
 export interface RunProgress {
-  /** Bytes of the files saved so far. */
+  /** Bytes downloaded so far, including the growth of files still downloading. */
   bytes: number;
   bytesPerSec: number;
   /** Finished files (saved or skipped) per second, over the recent window. */
   itemsPerSec: number;
-  /** Estimated files for the whole run; only where the site reports a count up front (see progress.ts). */
+  /** Posts with media in the whole account; only where the site reports a count up front (see progress.ts). */
   total?: number;
-  /** saved + skipped, set together with `total`. */
+  /** Posts finished (saved or skipped), set together with `total`. A file whose post is unknown counts as one. */
   processed?: number;
   etaSeconds?: number;
   /** Set on the closing numbers: `bytesPerSec` is then the run average. */

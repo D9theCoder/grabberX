@@ -41,6 +41,9 @@ if (mode === "lines") {
     writeFileSync(pidFile, `${process.pid} ${grandchild.pid ?? 0}\n`, "utf8");
   }
   sleepForever();
+} else if (mode === "probe") {
+  out(JSON.stringify([[2, { user: { media_count: 321 } }]]));
+  process.exitCode = 0;
 } else {
   err(`unknown mode ${mode}`);
   process.exitCode = 9;

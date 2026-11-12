@@ -52,13 +52,16 @@ npm run typecheck  # next typegen && tsc --noEmit
   (`src/lib/command.test.ts` checks this). Change one, change the other.
 - Stop runs `taskkill /T /F` on the gallery-dl process tree, then deletes `*.part` files; do not
   replace it with `child.kill()` (the PyInstaller bootloader would survive).
+- `globals.css` limits Tailwind's class scan to `src/` (`source("../")`). Without it Tailwind scans the whole
+  root, media folders included, and the first page of `npm run dev` takes 30-40 s to compile. Classes used outside
+  `src/` are not generated.
 - Account folders and app folders share the root: `src`, `public`, `docs`, `node_modules`, and every
   dot-folder are reserved names (`src/server/paths.ts`).
 
 ## Mobile gallery (read-only, opt-in)
 
 Settings → Mobile gallery shares the library with an Android phone on the same network (or Tailscale). Read
-`docs/handoffs/mobile-gallery-link.md` and ADR-11 before changing it.
+ADR-11 in `docs/ARCHITECTURE.md` before changing it.
 
 - A gateway (`src/server/mobile/gateway.ts`) is the only thing that listens on the network (`GATHER_MOBILE_PORT`,
   default 3211). The app on `127.0.0.1:3210` is unchanged. Do not add a route a phone should reach without adding

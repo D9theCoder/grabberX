@@ -142,6 +142,10 @@ function scheduleFile(): string {
   return join(gatherHome(), "schedule.json");
 }
 
+function totalsFile(): string {
+  return join(gatherHome(), "totals.json");
+}
+
 function queueLockFile(): string {
   return join(gatherHome(), "queue.lock");
 }
@@ -353,6 +357,49 @@ export async function getScheduleState(): Promise<ScheduleState> {
   } catch {
     return {};
   }
+}
+
+/** An account's post count as last looked up, so most runs skip the extra request (see total-probe.ts). */
+export interface CachedTotal {
+  total: number;
+  at: string;
+}
+
+/** A missing or unreadable file reads as "nothing cached": the next run just looks the count up again. */
+async function readTotals(): Promise<Record<string, CachedTotal>> {
+  let json: unknown;
+  try {
+    json = JSON.parse(await readFile(totalsFile(), "utf8"));
+  } catch {
+    return {};
+  }
+  if (!isRecord(json)) return {};
+  const totals: Record<string, CachedTotal> = {};
+  for (const [key, entry] of Object.entries(json)) {
+    if (!isRecord(entry)) continue;
+    const { total, at } = entry;
+    if (typeof total === "number" && total > 0 && typeof at === "string" && !Number.isNaN(Date.parse(at))) {
+      totals[key] = { total, at };
+    }
+  }
+  return totals;
+}
+
+export async function getCachedTotal(key: string): Promise<CachedTotal | undefined> {
+  return (await readTotals())[key];
+}
+
+// Two runs can finish their lookups at once; chained, neither overwrites the other's entry.
+let totalsWrite: Promise<void> = Promise.resolve();
+
+export function saveCachedTotal(key: string, total: number, at: Date = new Date()): Promise<void> {
+  const write = totalsWrite.then(async () => {
+    const totals = await readTotals();
+    totals[key] = { total, at: at.toISOString() };
+    await writeAtomic(totalsFile(), `${JSON.stringify(totals, null, 2)}\n`);
+  });
+  totalsWrite = write.catch(() => {});
+  return write;
 }
 
 export async function saveScheduleState(state: ScheduleState): Promise<void> {
