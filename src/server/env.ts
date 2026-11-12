@@ -2,6 +2,7 @@
 // outside the React Server Components graph.
 
 export const DEFAULT_PORT = 3210;
+export const DEFAULT_MOBILE_PORT = 3211;
 
 /**
  * The Electron shell sets GATHER_PACKAGED=1. Only then do missing paths fail loudly, because the
@@ -18,6 +19,16 @@ export function appPort(): number {
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`GATHER_PORT must be a port number between 1 and 65535, got "${raw}".`);
+  }
+  return port;
+}
+
+export function mobilePort(): number {
+  const raw = process.env.GATHER_MOBILE_PORT?.trim();
+  if (!raw) return DEFAULT_MOBILE_PORT;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || port === appPort()) {
+    throw new Error(`GATHER_MOBILE_PORT must be a port number between 1 and 65535 other than the app port, got "${raw}".`);
   }
   return port;
 }

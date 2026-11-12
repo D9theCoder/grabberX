@@ -209,7 +209,7 @@ function messageOf(error: unknown): string {
 
 let tempCounter = 0;
 
-async function writeAtomic(file: string, data: string): Promise<void> {
+export async function writeAtomic(file: string, data: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   tempCounter += 1;
   const temp = `${file}.${process.pid}.${tempCounter}.tmp`;

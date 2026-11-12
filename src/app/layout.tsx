@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Fragment_Mono, Schibsted_Grotesk } from "next/font/google";
 import { ContextMenuRoot } from "@/components/context-menu";
-import { TopBar } from "@/components/top-bar";
+import { DesktopChrome } from "@/components/desktop-chrome";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-dvh bg-paper text-ink">
         <ContextMenuRoot>
-          <TopBar />
+          <DesktopChrome />
           <div className="mx-auto w-full max-w-[1120px] px-4 sm:px-8">{children}</div>
         </ContextMenuRoot>
       </body>

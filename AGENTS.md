@@ -55,6 +55,30 @@ npm run typecheck  # next typegen && tsc --noEmit
 - Account folders and app folders share the root: `src`, `public`, `docs`, `node_modules`, and every
   dot-folder are reserved names (`src/server/paths.ts`).
 
+## Mobile gallery (read-only, opt-in)
+
+Settings → Mobile gallery shares the library with an Android phone on the same network (or Tailscale). Read
+`docs/handoffs/mobile-gallery-link.md` and ADR-11 before changing it.
+
+- A gateway (`src/server/mobile/gateway.ts`) is the only thing that listens on the network (`GATHER_MOBILE_PORT`,
+  default 3211). The app on `127.0.0.1:3210` is unchanged. Do not add a route a phone should reach without adding
+  it to the allowlist in `classifyRoute` and its test; do not import anything that writes files into `src/app/m/`
+  or `src/components/mobile/`.
+- Pairing is a single-use 5-minute token carried in the URL fragment; each phone then holds a hashed, revocable
+  session cookie (`.gather/devices.json`, hashes only). Sharing state is `.gather/mobile.json`, off by default.
+- Gateway and pairing state live on `globalThis` (`Symbol.for("gather.mobile.*")`) because `instrumentation.ts` and
+  Server Actions can load separate module copies.
+- Phones can read and download only: browse, sort and filter, multi-select, single-file download (`download=1`) and
+  zip download (`POST /api/media/zip`, the one allowed POST besides pair/logout; it needs the session cookie and a
+  matching `Origin`, and the request body is capped at 1 MB). Nothing that writes or deletes is in the allowlist.
+- The gateway sends `Referrer-Policy: same-origin`, not `no-referrer`: Chrome sends `Origin: null` on a same-origin
+  form POST under `no-referrer`, which the Origin check rightly rejects.
+- The gateway does not proxy the dev server's hot-reload socket, so the phone pages only hydrate against a
+  production build. `npm run build`, then `npm run test:e2e:mobile` (`playwright.mobile.config.ts`): it starts its own
+  server on ports 3410/3411 with state and media folders under the temp directory, so it never touches the real
+  `.gather` or library. The main Playwright config ignores `e2e/mobile.spec.ts`.
+- Windows Firewall may block the port; Settings shows the `netsh` command that opens it on private networks.
+
 ## Environment (verified)
 
 - `gallery-dl` = standalone exe `C:\tools\gallery-dl.exe`, v1.32.19 (bundled Python 3.14). `pip`/`python`

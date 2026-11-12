@@ -512,6 +512,21 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
   caught up" counts per worker.
 - **Revisit if:** gallery-dl gains in-process parallel downloads, or a site proves to rate-limit the listing.
 
+### ADR-11: Read-only mobile gateway on private networks
+
+- **Decision:** An opt-in gateway (`src/server/mobile/`) can listen on `0.0.0.0:3211` (`GATHER_MOBILE_PORT`) and forward a strict
+  allowlist to the app on `127.0.0.1:3210`. The desktop app, its Server Actions and every write route are never reachable through
+  it: only `GET`/`HEAD` for the `/m` pages, `/api/media`, `/api/media/poster` and static assets, `POST /api/media/zip` (a read-only
+  zip download, same-origin only), plus two `POST` routes the gateway answers itself (pair, logout). Anything else is a 404. Phones pair with a one-time QR token and then hold a per-device,
+  hashed, revocable session cookie. The design and threat model are in `docs/handoffs/mobile-gallery-link.md`.
+- **Why:** The owner wants to browse the PC's library from Android. Opening port 3210 would expose Run, Stop, Settings and
+  open-folder to the network. A gateway makes the exposed surface one small, testable file, and Next stays as it is.
+- **Supersedes in part:** ADR-7's "local only" still holds for the desktop UI and for `src/proxy.ts`. It no longer holds for the
+  gateway, which is off by default.
+- **Rules:** Only loopback, RFC1918, tailnet (`100.64.0.0/10`) and IPv6 link-local/ULA peers are served; others are closed at connect.
+  The `Host` header is never an authorization check. The gateway is not a firewall: the token and cookie decide access.
+- **Revisit if:** the library becomes more sensitive (per-device account lists), or a native app is needed (offline, bulk save).
+
 ## 9. Build order (each step ends with something that works)
 
 1. **Scaffold at the root:** `npx create-next-app@latest . --ts --tailwind --app --src-dir

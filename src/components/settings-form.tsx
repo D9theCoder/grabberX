@@ -54,7 +54,15 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function SettingsForm({ initial, appVersion }: { initial: Settings; appVersion: string }) {
+export function SettingsForm({
+  initial,
+  appVersion,
+  mobileSlot,
+}: {
+  initial: Settings;
+  appVersion: string;
+  mobileSlot?: ReactNode;
+}) {
   const shell = useShell();
   const { preference, choose } = useTheme();
   const [update, setUpdate] = useState<{ tone: "info" | "danger"; text: string; canUpdate?: boolean } | null>(null);
@@ -330,6 +338,8 @@ export function SettingsForm({ initial, appVersion }: { initial: Settings; appVe
       </Group>
 
       <AutomaticUpdatesForm initial={settings} />
+
+      {mobileSlot}
 
       <Group title="Appearance">
         <div className="flex flex-col gap-1.5">

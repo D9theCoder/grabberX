@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_MOBILE_PORT,
   DEFAULT_PORT,
   appPort,
   envAppDir,
@@ -7,11 +8,13 @@ import {
   envHome,
   envMediaRoot,
   isPackaged,
+  mobilePort,
 } from "@/server/env";
 
 const NAMES = [
   "GATHER_PACKAGED",
   "GATHER_PORT",
+  "GATHER_MOBILE_PORT",
   "GATHER_HOME",
   "GATHER_MEDIA_ROOT",
   "GATHER_GALLERY_DL",
@@ -73,5 +76,28 @@ describe("path variables when packaged", () => {
     expect(envHome()).toContain("gather");
     expect(envMediaRoot()).toContain("Gather");
     expect(envGalleryDl()).toContain("gallery-dl.exe");
+  });
+});
+
+describe("mobilePort", () => {
+  it("defaults to 3211", () => {
+    expect(mobilePort()).toBe(DEFAULT_MOBILE_PORT);
+    process.env.GATHER_MOBILE_PORT = " ";
+    expect(mobilePort()).toBe(DEFAULT_MOBILE_PORT);
+  });
+
+  it("reads the configured port", () => {
+    process.env.GATHER_MOBILE_PORT = "4600";
+    expect(mobilePort()).toBe(4600);
+  });
+
+  it("rejects a bad port and the app port", () => {
+    for (const bad of ["0", "70000", "abc", "3210"]) {
+      process.env.GATHER_MOBILE_PORT = bad;
+      expect(() => mobilePort(), bad).toThrow(/GATHER_MOBILE_PORT/);
+    }
+    process.env.GATHER_PORT = "4501";
+    process.env.GATHER_MOBILE_PORT = "4501";
+    expect(() => mobilePort()).toThrow(/GATHER_MOBILE_PORT/);
   });
 });

@@ -11,8 +11,9 @@ const baseURL = externalBaseURL ?? "http://127.0.0.1:3210";
 
 export default defineConfig({
   testDir: "./e2e",
-  // e2e/packaged drives the Electron app and has its own config (playwright.packaged.config.ts).
-  testIgnore: "**/packaged/**",
+  // e2e/packaged drives the Electron app and has its own config (playwright.packaged.config.ts); e2e/mobile.spec.ts
+  // needs a production build on spare ports (playwright.mobile.config.ts).
+  testIgnore: ["**/packaged/**", "**/mobile.spec.ts"],
   // A cold Turbopack dev server compiles each route on first request; give that room before failing.
   timeout: 60_000,
   expect: { timeout: 10_000 },
