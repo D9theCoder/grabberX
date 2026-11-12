@@ -103,7 +103,10 @@ PowerShell quoting: `-o` takes JSON, so use single quotes outside and **double**
 - **Archive is path-independent** (verified: moved files still report `#` skipped). Keys are source URLs.
   Never delete `<acct>/archive.sqlite3` — it is the only thing preventing full re-downloads.
 - Images and videos share one archive per account; run the two passes **sequentially**, never concurrently,
-  to avoid SQLite lock contention.
+  to avoid SQLite lock contention. The exception is gather's **parallel downloads** (ADR-10): workers of
+  one step share the archive safely (gallery-dl opens it with a 60 s lock timeout and commits one row per
+  file; audited and stress-tested), because each takes a disjoint `--range i::N` slice and its own
+  `downloader.part-directory`. Never run parallel workers with a date-based folder layout.
 - `--sleep` paces *file downloads*; `--sleep-request` paces the *API pagination calls*. Only the latter
   throttles rate limits. The user prefers **no `--sleep`**. gallery-dl auto-retries `429` (`-R`, default 4).
 - Cookies do **not** exempt from rate limits — same internal GraphQL endpoints as the web client, higher quota only.
