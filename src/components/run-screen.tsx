@@ -20,6 +20,7 @@ import { isActiveStatus } from "@/lib/run-copy";
 import { FOLDER_PATTERN, folderNameFor, siteDef, validateAccount } from "@/lib/sites";
 import { createDefaultSpec } from "@/lib/spec";
 import type { AccountHint, Advanced, JobSpec, Layout, Settings, SiteId } from "@/lib/spec";
+import { notifyRunsChanged } from "@/lib/task-list";
 
 const CAUGHT_UP_AFTER = 20;
 const HINT_DEBOUNCE_MS = 300;
@@ -179,6 +180,7 @@ export function RunScreen({
       if (result.ok) {
         setRunId(result.data.runId);
         setQueuedAhead(result.data.position);
+        notifyRunsChanged();
       } else {
         setError(result.error);
       }
@@ -193,6 +195,7 @@ export function RunScreen({
       if (result.ok) {
         setRunId(result.data.runId);
         setQueuedAhead(result.data.position);
+        notifyRunsChanged();
       } else {
         setError(result.error);
       }

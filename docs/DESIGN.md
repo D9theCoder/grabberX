@@ -92,7 +92,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ gather            Run  Library  History                          ☾   ⚙       │  top bar 56px
+│ gather            Run  Library  History                   (◌ 2)  ☾   ⚙       │  top bar 56px
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ New run                                                                      │  display
 │ ┌─────────────────────────────────────────┐  ┌──────────────────────────────┐│
@@ -378,7 +378,20 @@ working; Quit lives in the tray menu. Off: closing quits, after the usual "downl
 question when a run is active.
 
 **Top bar.** A `ThemeToggle` sits just left of the Settings gear: the moon in light, the sun in dark, labelled
-"Switch to dark mode" / "Switch to light mode". The switch cross-fades the page in 200 ms. Settings is deliberately
+"Switch to dark mode" / "Switch to light mode". The switch cross-fades the page in 200 ms.
+
+**Task bubble.** While any run is running or queued, a pill left of the theme switch shows how many (a spinner
+while one runs, a clock while all wait), labelled "Tasks: 1 running, 2 queued". It disappears when the queue is
+empty. Clicking it opens a panel listing running runs first, then the queue in start order: the folder, its
+status and detail ("Videos 2/2 · 1,284 saved" or "#1 in line"), and Stop (running) or Cancel (queued). A row
+opens that run in History; the footer opens History. Esc or a click outside closes it. The bubble polls
+`/api/runs` every 2 s while something runs and every 5 s otherwise, not at all in a hidden tab, and refreshes at
+once when this page starts a run.
+
+**About → Check for updates** (desktop only). Shows the updater's state under the button: "Checking for
+updates…", "gather is up to date. Checked 2 minutes ago.", "Downloading gather 0.2.0 · 42%", or "Couldn't
+check for updates: …". Once an update is downloaded the button becomes "Restart and update" (asks first while
+downloads run). The tray menu has the same item. Settings is deliberately
 narrow (max 672 px): it is read one field at a time, while Run, Library and History use the full
 1120 px container.
 
