@@ -1,13 +1,14 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gatherHome } from "@/server/store";
 
 export const THUMB_SIZES = [240, 480] as const;
 export type ThumbSize = (typeof THUMB_SIZES)[number];
 
-const CACHE_LIMIT_BYTES = 256 * 1024 * 1024;
+// The warmer fills the cache ahead of time, so it needs room for a whole library of 480 px thumbnails (~30 KB each).
+const CACHE_LIMIT_BYTES = 1024 * 1024 * 1024;
 const PRUNE_EVERY = 200;
 
 type Sharp = typeof import("sharp").default;
@@ -20,6 +21,9 @@ function loadSharp(): Promise<Sharp | null> {
     .then((module) => {
       // sharp keeps decoded files in a cache and holds their handles; on Windows that blocks deleting or moving them.
       module.default.cache(false);
+      // libvips threads per image. The gate below already runs a few images at once; more threads each only
+      // starve the file reads that page loads wait on.
+      module.default.concurrency(2);
       return module.default;
     })
     .catch((error: unknown) => {
@@ -68,33 +72,64 @@ export async function pruneThumbCache(limit: number = CACHE_LIMIT_BYTES): Promis
   }
 }
 
-/** Returns WebP bytes, or null when thumbnails are unavailable (sharp missing, or the file can't be decoded). */
-export async function getThumbnail(
-  fullPath: string,
-  size: ThumbSize,
-  file: { size: number; mtimeMs: number },
-): Promise<Buffer | null> {
-  const dir = thumbCacheDir();
-  const cached = join(dir, `${thumbKey(fullPath, size, file)}.webp`);
-  const hit = await readFile(cached).catch(() => null);
-  if (hit) return hit;
+export type Priority = "now" | "idle";
 
-  const sharp = await loadSharp();
-  if (sharp === null) return null;
-  let output: Buffer;
-  try {
-    output = await sharp(fullPath, { failOn: "none" })
-      .rotate()
-      .resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 72 })
-      .toBuffer();
-  } catch (error) {
-    console.error("gather: could not make a thumbnail.", error);
-    return null;
+/**
+ * Decoding is the expensive part. Requests from the grid ("now") always go before the background warmer
+ * ("idle"), and the warmer never holds more than one slot, so a page never waits behind a warm-up.
+ */
+class Gate {
+  private active = 0;
+  private activeIdle = 0;
+  private readonly waiting: { now: Array<() => void>; idle: Array<() => void> } = { now: [], idle: [] };
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(priority: Priority, task: () => Promise<T>): Promise<T> {
+    await new Promise<void>((resolve) => {
+      this.waiting[priority].push(resolve);
+      this.pump();
+    });
+    try {
+      return await task();
+    } finally {
+      this.active -= 1;
+      if (priority === "idle") this.activeIdle -= 1;
+      this.pump();
+    }
   }
 
-  await mkdir(dir, { recursive: true });
-  const temp = `${cached}.${process.pid}.tmp`;
+  get busy(): boolean {
+    return this.active > this.activeIdle || this.waiting.now.length > 0;
+  }
+
+  private pump() {
+    while (this.active < this.limit) {
+      const now = this.waiting.now.shift();
+      if (now) {
+        this.active += 1;
+        now();
+        continue;
+      }
+      if (this.activeIdle >= 1 || this.waiting.idle.length === 0) return;
+      this.active += 1;
+      this.activeIdle += 1;
+      this.waiting.idle.shift()!();
+    }
+  }
+}
+
+const gate = new Gate(3);
+const inFlight = new Map<string, Promise<Buffer | null>>();
+
+/** True while the grid is asking for thumbnails; the warmer waits. */
+export function thumbnailsBusy(): boolean {
+  return gate.busy;
+}
+
+async function store(cached: string, output: Buffer) {
+  await mkdir(thumbCacheDir(), { recursive: true });
+  const temp = `${cached}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   await writeFile(temp, output);
   await rename(temp, cached).catch(() => rm(temp, { force: true }));
   writesSincePrune += 1;
@@ -102,7 +137,89 @@ export async function getThumbnail(
     writesSincePrune = 0;
     void pruneThumbCache().catch(() => {});
   }
-  return output;
+}
+
+function cachePath(fullPath: string, size: ThumbSize, file: { size: number; mtimeMs: number }): string {
+  return join(thumbCacheDir(), `${thumbKey(fullPath, size, file)}.webp`);
+}
+
+export async function hasThumbnail(fullPath: string, size: ThumbSize, file: { size: number; mtimeMs: number }) {
+  return access(cachePath(fullPath, size, file)).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** A cached thumbnail only, never a new one. Video posters exist only once a browser has sent one. */
+export async function cachedThumbnail(fullPath: string, size: ThumbSize, file: { size: number; mtimeMs: number }) {
+  return readFile(cachePath(fullPath, size, file)).catch(() => null);
+}
+
+/** Returns WebP bytes, or null when thumbnails are unavailable (sharp missing, or the file can't be decoded). */
+export async function getThumbnail(
+  fullPath: string,
+  size: ThumbSize,
+  file: { size: number; mtimeMs: number },
+  priority: Priority = "now",
+): Promise<Buffer | null> {
+  const cached = cachePath(fullPath, size, file);
+  const hit = await readFile(cached).catch(() => null);
+  if (hit) return hit;
+
+  // Two tiles (or the grid and the warmer) asking for the same thumbnail share one decode.
+  const running = inFlight.get(cached);
+  if (running) return running;
+  const job = gate
+    .run(priority, async () => {
+      const again = await readFile(cached).catch(() => null);
+      if (again) return again;
+      const sharp = await loadSharp();
+      if (sharp === null) return null;
+      let output: Buffer;
+      try {
+        output = await sharp(fullPath, { failOn: "none" })
+          .rotate()
+          .resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 72 })
+          .toBuffer();
+      } catch (error) {
+        console.error("gather: could not make a thumbnail.", error);
+        return null;
+      }
+      await store(cached, output);
+      return output;
+    })
+    .finally(() => inFlight.delete(cached));
+  inFlight.set(cached, job);
+  return job;
+}
+
+const POSTER_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Stores a video's poster frame, captured by the browser (there is no ffmpeg here). The bytes are decoded
+ * and re-encoded, so whatever the page sends, only a real image of at most 480 px lands in the cache.
+ */
+export async function savePoster(
+  fullPath: string,
+  file: { size: number; mtimeMs: number },
+  bytes: Uint8Array,
+): Promise<boolean> {
+  if (bytes.length === 0 || bytes.length > POSTER_MAX_BYTES) return false;
+  const sharp = await loadSharp();
+  if (sharp === null) return false;
+  try {
+    const output = await gate.run("now", () =>
+      sharp(bytes, { failOn: "error", limitInputPixels: 4096 * 4096 })
+        .resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 72 })
+        .toBuffer(),
+    );
+    await store(cachePath(fullPath, 480, file), output);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Width and height of an image from its header, without decoding it. Null for anything sharp can't read. */

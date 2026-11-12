@@ -335,6 +335,31 @@ Route Handler, reconnects on its own, and needs no extra server or package.
 
 ---
 
+### 6.4 Gallery speed
+
+The grid never waits on decoding or on a header scan it has done before:
+
+- **Media index** (`src/server/media-index.ts`). One JSON file per folder under `.gather/index/`, keyed by the
+  folder path: each file's size, modified time, image width and height, and video length. An entry counts only
+  while size and modified time match. The page reads it without opening any media file; `/api/media/dims` fills
+  the gaps by reading the first 64 KB of each new image (`src/server/image-size.ts`, falling back to `sharp`).
+- **Thumbnail gate** (`src/server/thumbs.ts`). At most three decodes at once, grid requests (`now`) ahead of the
+  warmer (`idle`, one slot at most), and two callers asking for the same thumbnail share one decode. `sharp` runs
+  two libvips threads per image. The Electron shell raises `UV_THREADPOOL_SIZE` to 16 for the server, because
+  file reads and `sharp` share libuv's pool and the default four let a big folder starve page loads.
+- **Warmer** (`src/server/thumb-warmer.ts`). After a real run (the queue's sweep emits `folderChanged`) and once
+  15 s after start, it walks each account, completes the index and builds missing 480 px thumbnails newest first,
+  pausing while the grid is asking. It stops after 768 MB per session; the cache cap is 1 GB.
+  `GATHER_NO_WARM=1` turns it off (tests).
+- **Browser cache.** Thumbnail URLs carry `v=<size-mtime>`; the route answers those with
+  `cache-control: immutable`, so a second visit makes no requests at all.
+- **Video posters.** There is no ffmpeg, so the first time a video tile loads its metadata the browser draws the
+  frame on a canvas and posts it with the length to `/api/media/poster`. The server decodes and re-encodes it with
+  `sharp` (at most 2 MB in, 480 px out), so only a real image lands in the cache.
+- **Run panel.** Log lines carry a stable id, so a capped 500-line log adds and removes one node per line instead
+  of rewriting all of them every frame. Library sizes are counted in batches of 64 `stat` calls, and an account
+  with an active run is recounted at most every 15 s.
+
 ## 7. Security (local but not careless)
 
 | Threat | Control |

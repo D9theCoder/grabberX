@@ -16,6 +16,7 @@ import type {
   StreamEvent,
 } from "@/lib/spec";
 import { resolveAccountDir } from "@/server/paths";
+import { folderChanged } from "@/server/warm-signal";
 import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
 import {
@@ -593,6 +594,7 @@ export class RunQueue {
     try {
       const dir = resolveAccountDir(settings.mediaRoot, folderNameFor(run.spec));
       await sweepPartFiles(dir);
+      if (!run.spec.simulate) folderChanged(dir);
     } catch (error) {
       console.warn("gather: could not clean up unfinished files.", error);
     }

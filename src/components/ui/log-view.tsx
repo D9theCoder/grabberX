@@ -2,6 +2,8 @@ import type { HTMLAttributes, Ref } from "react";
 import { cn } from "@/lib/cn";
 
 export interface LogLine {
+  /** A stable key. Without it a capped log shifts every key by one per line and React rewrites all of them. */
+  id?: number;
   text: string;
   level?: "info" | "skip" | "warning" | "error";
 }
@@ -57,7 +59,7 @@ export function LogView({
     >
       {visible.map((line, index) => (
         <span
-          key={index}
+          key={line.id ?? index}
           className={cn(
             "block [contain-intrinsic-size:auto_18px] [content-visibility:auto]",
             LEVEL_CLASS[levelOf(line)],
