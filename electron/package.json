@@ -1,9 +1,9 @@
 {
-  "name": "gather",
-  "productName": "Gather",
+  "name": "grabberx",
+  "productName": "grabberX",
   "version": "0.1.7",
   "description": "A local front end for gallery-dl.",
-  "author": "gather",
+  "author": "grabberX",
   "private": true,
   "main": "main.cjs",
   "dependencies": {

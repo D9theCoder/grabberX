@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "gather gallery",
+    name: "grabberX gallery",
     short_name: "gallery",
-    description: "Your gather library on this phone.",
+    description: "Your grabberX library on this phone.",
     start_url: "/m",
     scope: "/m",
     display: "standalone",

@@ -16,9 +16,9 @@ const hoursInput = z.union([z.literal(0), z.literal(1), z.literal(8)]);
 
 function failure(error: unknown, fallback: string): { ok: false; error: string } {
   if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EADDRINUSE") {
-    return { ok: false, error: "Another program is using the mobile port. Set GATHER_MOBILE_PORT to a free port and restart gather." };
+    return { ok: false, error: "Another program is using the mobile port. Set GATHER_MOBILE_PORT to a free port and restart grabberX." };
   }
-  console.error(`gather: ${fallback}`, error);
+  console.error(`grabberX: ${fallback}`, error);
   return { ok: false, error: fallback };
 }
 

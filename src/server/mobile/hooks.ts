@@ -94,7 +94,7 @@ async function onPair(req: IncomingMessage, res: ServerResponse): Promise<void> 
     json(res, 200, { ok: true }, { "set-cookie": sessionCookie(session, cameOverHttps(req)) });
   } catch (error) {
     if (error instanceof DeviceLimitError) return json(res, 409, { ok: false, error: error.message });
-    console.error("gather: could not pair a phone.", error);
+    console.error("grabberX: could not pair a phone.", error);
     json(res, 500, { ok: false, error: "Pairing failed. Try again." });
   }
 }

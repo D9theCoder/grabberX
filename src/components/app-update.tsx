@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { GatherShell, UpdateState } from "@/lib/shell";
+import type { GrabberXShell, UpdateState } from "@/lib/shell";
 import { cn } from "@/lib/cn";
 import { updateCopy } from "@/lib/update-copy";
 
 /** Settings → About: a manual update check for the desktop app, live while it downloads. */
-export function AppUpdate({ shell }: { shell: GatherShell }) {
+export function AppUpdate({ shell }: { shell: GrabberXShell }) {
   const [state, setState] = useState<UpdateState>({ state: "idle" });
   const [installing, setInstalling] = useState(false);
   const [now, setNow] = useState(() => new Date());

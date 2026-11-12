@@ -1,4 +1,4 @@
-# Packaging gather as a Windows installer (Electron)
+# Packaging grabberX as a Windows installer (Electron)
 
 > **Status: implemented** on `feat/electron-packaging`. This file started as the handoff and still reads as
 > the plan; the section below records how it was actually built and how to run it.
@@ -10,10 +10,10 @@ npm ci; npm ci --prefix electron     # app dependencies, then the shell's own (e
 npm run dist                          # next build + standalone prep + gallery-dl seed + NSIS installer
 npm run pack                          # same, unpacked into release\win-unpacked (faster, for testing)
 npm run electron                      # run the shell from source against .next/standalone
-npm run test:e2e:packaged             # drives the real Electron app; set GATHER_EXE to test a built Gather.exe
+npm run test:e2e:packaged             # drives the real Electron app; set GATHER_EXE to test a built grabberX.exe
 ```
 
-Output: `release\Gather-Setup-<version>.exe` (about 150 MB). Verified end to end: silent install into a temp
+Output: `release\grabberX-Setup-<version>.exe` (about 150 MB). Verified end to end: silent install into a temp
 folder, the packaged suite against the installed app (welcome screen, setup, every page, Host check, a real
 download through the bundled gallery-dl, clean quit), then uninstall, which removed the app and kept
 `%APPDATA%\gather`.
@@ -33,7 +33,7 @@ Differences from the plan below:
   the existing Check button.
 - **Shutdown:** the server runs as an Electron `utilityProcess`; `main.cjs` posts `"shutdown"` and
   `src/server/shutdown-hook.ts` stops every run (taskkill, `.part` sweep) before exiting.
-- **Closing the window** hides gather in the tray by default (`closeToTray` in `settings.json`, the
+- **Closing the window** hides grabberX in the tray by default (`closeToTray` in `settings.json`, the
   "Desktop app" switch in Settings), so automatic runs and `electron-updater` keep working. With the switch
   off, closing quits (asking first while a run is active). The shell reads the setting at close time.
 - **Shell bridge** (`preload.cjs`): `pickFolder`, `openLogs`, `trashItem`, `showItem`, `openItem`, `setTheme`.
@@ -51,14 +51,14 @@ Differences from the plan below:
   the publish target (`-c.publish.*`), so the build writes `app-update.yml` and `latest.yml`, and a `v*` tag
   uploads the installer, its blockmap and `latest.yml` to the GitHub release. The installed app checks on
   launch and every 6 hours and downloads in the background. A downloaded update installs itself silently when
-  nobody is using gather (`autoInstallDecision` in `lib.cjs`): within 2 minutes of launch it restarts straight into
-  the new version (the window shows "Updating gather to X…"); while the window is hidden in the tray it restarts
+  nobody is using grabberX (`autoInstallDecision` in `lib.cjs`): within 2 minutes of launch it restarts straight into
+  the new version (the window shows "Updating grabberX to X…"); while the window is hidden in the tray it restarts
   back into the tray; while the window is open, a download runs, or the server does not answer the health check
   in time (it may be busy with downloads) it waits, shows one "ready, click to restart"
   notification, and looks again every 5 minutes. Install-on-quit stays on as a fallback, but it never fired in
-  practice: gather sits in the tray, and a killed process or a Windows shutdown skips the quit event. A version
+  practice: grabberX sits in the tray, and a killed process or a Windows shutdown skips the quit event. A version
   that was already tried (recorded in `update-attempt.json`) is not retried for 6 hours, so a failing installer
-  cannot restart gather in a loop. If the installer does not start within 30 s, gather starts its server again,
+  cannot restart grabberX in a loop. If the installer does not start within 30 s, grabberX starts its server again,
   reloads the window and asks with the notification instead. It can also be checked by hand from
   Settings → About or the tray menu ("Check for updates"); once downloaded, "Restart and update" stops the
   server's runs and runs the installer. The shell keeps one updater state (`nextUpdateState` in `lib.cjs`) and
@@ -66,7 +66,7 @@ Differences from the plan below:
   contains both files, and the app's check runs against GitHub and survives a 404. Not yet verified: a full
   update from one released version to the next, which needs two real releases.
 - **Code signing** is optional and secret-driven. With `CSC_LINK` (a base64 `.pfx`) and `CSC_KEY_PASSWORD` set
-  as repository secrets, electron-builder signs the installer and `Gather.exe`; without them the build is
+  as repository secrets, electron-builder signs the installer and `grabberX.exe`; without them the build is
   unsigned and SmartScreen warns on first run. Verified: empty values build fine and skip signing. Not
   verified: an actual signed build, because it needs a purchased code-signing certificate. A new
   certificate also starts with little SmartScreen reputation, so a warning can persist for a while.
@@ -76,7 +76,7 @@ Differences from the plan below:
 - **Not done:** a real signed build and a real release-to-release update (both need accounts outside this
   repo), and an automated test of the tray flow.
 
-Handoff for whoever implements this. Goal: a user downloads `Gather-Setup-x.y.z.exe`, runs it, and gets a
+Handoff for whoever implements this. Goal: a user downloads `grabberX-Setup-x.y.z.exe`, runs it, and gets a
 Start-menu app that opens in its own window. No Node, no `npm`, no terminal. Windows 10/11 x64 only.
 Everything stays on the user's machine.
 
@@ -88,11 +88,11 @@ amend ADR-7 ("Not deployable; local `next start`"), which this work changes.
 ## Target shape
 
 ```
-%LOCALAPPDATA%\Programs\Gather\        installed app (replaced on update, never holds user data)
-  Gather.exe                           Electron main process
+%LOCALAPPDATA%\Programs\grabberX\      installed app (replaced on update, never holds user data)
+  grabberX.exe                         Electron main process
   resources\app\                       Next standalone output (server.js, .next, node_modules subset)
 %APPDATA%\gather\                      GATHER_HOME: settings.json, runs\, queue.lock, bin\gallery-dl.exe
-<library folder, user-chosen>\         default %USERPROFILE%\Pictures\Gather
+<library folder, user-chosen>\         default %USERPROFILE%\Pictures\grabberX
   <account>\Image, Video, archive.sqlite3
 ```
 
@@ -182,7 +182,7 @@ New folder `electron/` (not under `src/`; it must not be bundled by Next). Add `
 
 Shown inside the app (a Settings-like screen) when `settings.json` does not exist yet:
 
-1. Choose library folder (folder picker via Electron `dialog.showOpenDialog`, exposed through a minimal preload and IPC; default `Pictures\Gather`, created if missing).
+1. Choose library folder (folder picker via Electron `dialog.showOpenDialog`, exposed through a minimal preload and IPC; default `Pictures\grabberX`, created if missing).
 2. Verify `gallery-dl.exe` runs (`--version`); show the version.
 3. Pick cookie browser; do a `--simulate --range 1-1` check against a public account and surface the result with the existing error kinds (`src/lib/error-kind.ts`). Chromium cookie reading can fail on recent Windows builds, so keep a clear "use a cookies.txt file" fallback in the copy.
 

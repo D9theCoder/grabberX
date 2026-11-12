@@ -29,7 +29,7 @@ export default async function MobileFolderPage({ params }: PageProps<"/m/[accoun
     listing = await listFolder(account, path);
   } catch (error) {
     problem = error instanceof MediaPathError ? error.message : "That folder couldn't be read.";
-    if (!(error instanceof MediaPathError)) console.error("gather: could not list a folder for the mobile gallery.", error);
+    if (!(error instanceof MediaPathError)) console.error("grabberX: could not list a folder for the mobile gallery.", error);
   }
 
   const parentHref =

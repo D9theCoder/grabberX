@@ -93,7 +93,7 @@ describe("cookieNotice", () => {
       "Firefox cookies for x.com look signed out. Sign in to x.com in Firefox, then try again.",
     );
     expect(cookieNotice("unreadable", { browser: "Chrome", site: "x.com" })).toBe(
-      "gather can't read Chrome's cookies. Close Chrome, or pick another browser in Settings.",
+      "grabberX can't read Chrome's cookies. Close Chrome, or pick another browser in Settings.",
     );
   });
 

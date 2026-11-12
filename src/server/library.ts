@@ -241,7 +241,7 @@ export async function moveAccountFolder(from: string, to: string): Promise<void>
   try {
     await renameWithRetry(sourceDir, targetDir);
   } catch (error) {
-    console.error(`gather: could not move ${source} to ${target}.`, error);
+    console.error(`grabberX: could not move ${source} to ${target}.`, error);
     throw new Error(`"${source}" couldn't be moved. Close anything using the folder and try again.`);
   } finally {
     // Both keys, in case an earlier folder held cached stats under the target's name.

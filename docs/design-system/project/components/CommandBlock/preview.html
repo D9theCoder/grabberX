@@ -6,7 +6,7 @@
 <body>
 <div id="root" class="g g-demo g-demo--col" style="max-width:440px"></div>
 <script>
-  var G = window.Gather, h = React.createElement;
+  var G = window.grabberX, h = React.createElement;
   ReactDOM.createRoot(document.getElementById('root')).render(h(G.CommandBlock, { steps: [
   { label: 'images', command: "gallery-dl `\n  -o 'directory=[\"username\",\"Image\"]' `\n  -o twitter.videos=false -o twitter.gifs=false `\n  --filter \"extension in ('jpg','jpeg','png','webp')\" `\n  --date-after 2025-01-01 -A 20 `\n  --download-archive \"username/archive.sqlite3\" `\n  --cookies-from-browser firefox `\n  \"https://x.com/username/media\"" },
   { label: 'videos', command: "gallery-dl `\n  -o 'directory=[\"username\",\"Video\"]' `\n  -o twitter.videos=true -o twitter.gifs=true `\n  --filter \"extension in ('mp4','webm','mov','m4v')\" `\n  --date-after 2025-01-01 -A 20 `\n  --download-archive \"username/archive.sqlite3\" `\n  --cookies-from-browser firefox `\n  \"https://x.com/username/media\"" }] }));

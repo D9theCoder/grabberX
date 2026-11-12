@@ -25,7 +25,7 @@ export async function GET(request: Request): Promise<Response> {
     file = await statMediaFile(account, path);
   } catch (error) {
     if (error instanceof MediaPathError) return fail(error.message, error.status);
-    console.error("gather: could not read a media file.", error);
+    console.error("grabberX: could not read a media file.", error);
     return fail("That file couldn't be read.", 500);
   }
 

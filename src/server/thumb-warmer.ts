@@ -51,7 +51,7 @@ async function drain() {
       else await warmVideos(videoQueue.shift()!);
     }
   } catch (error) {
-    console.error("gather: the thumbnail warm-up stopped.", error);
+    console.error("grabberX: the thumbnail warm-up stopped.", error);
   } finally {
     running = false;
   }
@@ -126,6 +126,6 @@ export function startThumbWarmer(): void {
           /* not an account folder */
         }
       }
-    })().catch((error: unknown) => console.error("gather: could not start the thumbnail warm-up.", error));
+    })().catch((error: unknown) => console.error("grabberX: could not start the thumbnail warm-up.", error));
   }, START_DELAY_MS).unref();
 }

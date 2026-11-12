@@ -364,7 +364,7 @@ export function SettingsForm({
       {shell ? (
         <Group title="Desktop app">
           <Switch
-            label="Keep gather in the tray when the window closes"
+            label="Keep grabberX in the tray when the window closes"
             checked={settings.closeToTray}
             onChange={(next) => void save("closeToTray", { closeToTray: next })}
             hint={
@@ -374,7 +374,7 @@ export function SettingsForm({
                 errors.closeToTray ??
                 (settings.closeToTray
                   ? "Closing hides the window. Automatic updates and app updates keep working. Quit from the tray icon."
-                  : "Closing quits gather. Automatic updates and app updates wait until you open it again.")
+                  : "Closing quits grabberX. Automatic updates and app updates wait until you open it again.")
               )
             }
           />
@@ -382,7 +382,7 @@ export function SettingsForm({
       ) : null}
 
       <Group title="About">
-        <p className="m-0 text-label">gather {appVersion}</p>
+        <p className="m-0 text-label">grabberX {appVersion}</p>
         {shell ? <AppUpdate shell={shell} /> : null}
         {shell ? (
           <div>
@@ -393,7 +393,7 @@ export function SettingsForm({
         ) : null}
         <span className="text-small text-ink-2">
           gallery-dl is a separate program by Mike Fährmann, licensed GPL-2.0 (github.com/mikf/gallery-dl).
-          gather runs it for you and does not change it.
+          grabberX runs it for you and does not change it.
         </span>
       </Group>
     </div>

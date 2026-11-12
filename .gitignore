@@ -30,6 +30,9 @@ npm-debug.log*
 /blob-report/
 /playwright/.cache/
 
+# Worktrees created for parallel threads (linked checkouts, not source)
+/.claude/worktrees/
+
 # gather runtime state (settings, run records, logs)
 /.gather/
 

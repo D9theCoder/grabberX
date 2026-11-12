@@ -203,7 +203,7 @@ export function createGatewayHandler(options: GatewayOptions) {
       case "session":
         if (req.method === "POST" && !isSameOriginPost(req.headers)) return reply(res, 403, "That request didn't come from this page.\n");
         if (!options.authorize(readSessionCookie(req.headers.cookie), peerOf(req))) {
-          return reply(res, 401, "Pair this phone from gather on the PC first.\n");
+          return reply(res, 401, "Pair this phone from grabberX on the PC first.\n");
         }
         return proxy(req, res, options.upstreamPort);
       case "public":

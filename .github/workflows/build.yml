@@ -61,15 +61,15 @@ jobs:
       - name: Smoke test the packaged app
         shell: pwsh
         run: |
-          $env:GATHER_EXE = "$PWD\release\win-unpacked\Gather.exe"
+          $env:GATHER_EXE = "$PWD\release\win-unpacked\grabberX.exe"
           npm run test:e2e:packaged
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Gather-Setup
+          name: grabberX-Setup
           path: |
-            release/Gather-Setup-*.exe
-            release/Gather-Setup-*.exe.blockmap
+            release/grabberX-Setup-*.exe
+            release/grabberX-Setup-*.exe.blockmap
             release/latest.yml
 
       - name: Publish a release
@@ -81,7 +81,7 @@ jobs:
         # On main the tag is created here, pointing at the bump commit; a pushed v* tag is released as it is.
         run: |
           $version = node -p "require('./package.json').version"
-          $files = Get-ChildItem release\Gather-Setup-*.exe, release\Gather-Setup-*.exe.blockmap, release\latest.yml
+          $files = Get-ChildItem release\grabberX-Setup-*.exe, release\grabberX-Setup-*.exe.blockmap, release\latest.yml
           if ("${{ github.ref }}" -like 'refs/tags/v*') {
             gh release create "${{ github.ref_name }}" $files --generate-notes
           } else {

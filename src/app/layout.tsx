@@ -19,7 +19,7 @@ const mono = Fragment_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "gather",
+  title: "grabberX",
   description: "A local front end for gallery-dl.",
 };
 

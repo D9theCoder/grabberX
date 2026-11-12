@@ -69,7 +69,7 @@ export function cookieNotice(
 ): string | null {
   switch (kind) {
     case "unreadable":
-      return `gather can't read ${labels.browser}'s cookies. Close ${labels.browser}, or pick another browser in Settings.`;
+      return `grabberX can't read ${labels.browser}'s cookies. Close ${labels.browser}, or pick another browser in Settings.`;
     case "signedOut":
       return `${labels.browser} cookies for ${labels.site} look signed out. Sign in to ${labels.site} in ${labels.browser}, then try again.`;
     default:

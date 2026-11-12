@@ -69,7 +69,7 @@ export function buildUpdateSpec(
     if (!guessed.ok) {
       return {
         ok: false,
-        error: `gather doesn't know which site ${folder} came from. Run it once from the Run page first.`,
+        error: `grabberX doesn't know which site ${folder} came from. Run it once from the Run page first.`,
       };
     }
     const base: JobSpec = {

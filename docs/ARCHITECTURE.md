@@ -1,4 +1,4 @@
-# Architecture Handoff: gather
+# Architecture Handoff: grabberX
 
 A local Next.js app that builds `gallery-dl` commands from a form, runs them as child processes on
 this PC, and streams progress back to the browser.

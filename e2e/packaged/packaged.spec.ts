@@ -67,7 +67,7 @@ test.afterAll(async () => {
 });
 
 test("a new install lands on the welcome screen with gallery-dl found", async () => {
-  await expect(page.getByRole("heading", { level: 1, name: "Welcome to gather" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Welcome to grabberX" })).toBeVisible();
   await expect(page.getByText(/Found gallery-dl/)).toBeVisible();
   expect(await page.evaluate(() => typeof window.gatherShell?.pickFolder)).toBe("function");
 });
@@ -113,7 +113,7 @@ test("the server refuses a request for another host", async () => {
 
 test("Settings shows the app version and the gallery-dl copy in the user's folder", async () => {
   await page.goto(`${origin}/settings`);
-  await expect(page.getByText(/^gather \d+\.\d+\.\d+/)).toBeVisible();
+  await expect(page.getByText(/^grabberX \d+\.\d+\.\d+/)).toBeVisible();
   await expect(page.getByLabel("gallery-dl path")).toHaveValue(join(sandbox, "home", "bin", "gallery-dl.exe"));
   await page.getByRole("button", { name: "Check", exact: true }).click();
   await expect(page.getByText(/Found gallery-dl/)).toBeVisible();
@@ -168,7 +168,7 @@ test("automatic updates run a pass that History marks as scheduled", async () =>
   await expect(toggle).toHaveAttribute("aria-checked", "true");
 
   // The app has planned the next pass for tonight. Move that moment into the past, the way a pass
-  // missed while gather was closed looks, then save the same frequency so it replans at once
+  // missed while grabberX was closed looks, then save the same frequency so it replans at once
   // instead of waiting for its heartbeat.
   const settings = JSON.parse(await readFile(join(sandbox, "home", "settings.json"), "utf8"));
   const { enabled, frequency } = settings.schedule;

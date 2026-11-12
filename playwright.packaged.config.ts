@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 /**
  * Drives the real Electron app. By default it launches `electron electron/main.cjs` against
- * `.next/standalone`; set GATHER_EXE to the installed or unpacked Gather.exe to test the packaged build.
+ * `.next/standalone`; set GATHER_EXE to the installed or unpacked grabberX.exe to test the packaged build.
  */
 export default defineConfig({
   testDir: "./e2e/packaged",

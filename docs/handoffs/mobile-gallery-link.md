@@ -106,7 +106,7 @@ Settings UI (desktop)
 - Do not use the `Host` header for authorization (a LAN client can forge it, per t3code). Keep it only as the DNS-rebinding guard
   already in `src/server/hosts.ts`, widened for the gateway to the interface IPs and `*.ts.net` names it advertises.
 - Windows Firewall: the first listen triggers the Windows prompt. Preferred: the installer or an elevated command adds
-  `netsh advfirewall firewall add rule name="Gather mobile" dir=in action=allow protocol=TCP localport=3211 profile=private`.
+  `netsh advfirewall firewall add rule name="grabberX mobile" dir=in action=allow protocol=TCP localport=3211 profile=private`.
   Settings shows this command when the phone cannot reach the PC. Public profile stays closed.
 - Security headers on every gateway response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `Cache-Control: private` (keep the upstream value for media), `Content-Security-Policy (default-src 'self', inline script and style allowed for Next hydration, frame-ancestors 'none')`.
@@ -204,7 +204,7 @@ must update the advertised URL.
 - `Host` is forgeable on a LAN, so it is not an authorization check (`docs/internals/environment-auth.md`).
 - The device list shows metadata only; the raw credential is returned once; revocation is per device.
 - A token paired over HTTPS never travels over plain HTTP; Tailscale Serve is the recommended HTTPS route.
-- Video responses omit cache validators so native seeks do not become full downloads. Gather's media route sends an ETag, so check
+- Video responses omit cache validators so native seeks do not become full downloads. grabberX's media route sends an ETag, so check
   that Range plus `If-Range` seeking behaves in Android Chrome before relying on it through the gateway.
 - Not adopted: scoped RPC grants, DPoP, WebSocket tickets, OAuth. Not needed for a read-only gallery.
 

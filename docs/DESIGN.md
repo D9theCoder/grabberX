@@ -1,6 +1,6 @@
-# Design Handoff: gather
+# Design Handoff: grabberX
 
-> Working name **gather**: a local web front end for `gallery-dl`. Rename freely; nothing depends on it.
+> Working name **grabberX**: a local web front end for `gallery-dl`. Rename freely; nothing depends on it.
 >
 > **Design system (source of truth for tokens and components):** https://claude.ai/artifact/QqeuePNc22evgNcg2fzkjD
 > Its files are versioned in [`docs/design-system/project/`](design-system/project/): `tokens.json`,
@@ -92,7 +92,7 @@ The current page shows an ink underline 2 px thick. No sidebar. In a browser, a 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ gather            Run  Library  History                   (◌ 2)  ☾   ⚙       │  top bar 56px
+│ grabberX          Run  Library  History                   (◌ 2)  ☾   ⚙       │  top bar 56px
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ New run                                                                      │  display
 │ ┌─────────────────────────────────────────┐  ┌──────────────────────────────┐│
@@ -270,7 +270,7 @@ One control height (`--spacing-control`) applies to every control, whatever its 
 | Situation | What the user sees |
 |---|---|
 | gallery-dl missing / wrong path | `Notice` (danger) under the top bar: "gallery-dl wasn't found at C:\tools\gallery-dl.exe. **Set the path**". Download is disabled. |
-| Browser cookies cannot be read | `Notice` (warning) above the run buttons: "gather can't read Firefox's cookies. Close Firefox, or pick another browser in Settings." with **Open Settings**. The run still starts. |
+| Browser cookies cannot be read | `Notice` (warning) above the run buttons: "grabberX can't read Firefox's cookies. Close Firefox, or pick another browser in Settings." with **Open Settings**. The run still starts. |
 | Cookies look signed out | `Notice` (warning): "Firefox cookies for x.com look signed out. Sign in to x.com in Firefox, then try again." The run still starts, since public accounts need no login. |
 | Firefox not logged in to the site / cookies expired | Run fails with: "X asked for a login. Open x.com in Firefox, sign in, then run again." |
 | Account doesn't exist or is protected | "This account doesn't exist or its posts are protected." |
@@ -359,7 +359,7 @@ beyond a breadcrumb, a filter and a sort.
   pan. Left and right arrows move, Esc closes, `F` fullscreen, `I` details, Space plays a video. Counter
   "3 of 128". Details: file, dimensions, size, post date, link to the post. Actions: Open in Explorer (opens the
   account folder), Copy path, Delete.
-- **Delete.** Asks first: "It moves to the Recycle Bin. gather still remembers it in the archive, so a later
+- **Delete.** Asks first: "It moves to the Recycle Bin. grabberX still remembers it in the archive, so a later
   update will not download it again." For a selection the dialog names the count. In the packaged app the files
   go to the Recycle Bin; from source they are deleted for good and the dialog says so. The archive is never
   touched.
@@ -381,8 +381,8 @@ version beside it) · Media root (default: the app folder) · Session (Cookie br
 `Check cookies` button) · Defaults for new runs · Runs · Automatic updates · Appearance (Theme: System,
 Light, Dark) · Desktop app (desktop only) · About (last).
 
-**Desktop app → "Keep gather in the tray when the window closes"** (`closeToTray`, on by default). On: closing
-hides the window, a one-time balloon says gather is still in the tray, and scheduled runs and app updates keep
+**Desktop app → "Keep grabberX in the tray when the window closes"** (`closeToTray`, on by default). On: closing
+hides the window, a one-time balloon says grabberX is still in the tray, and scheduled runs and app updates keep
 working; Quit lives in the tray menu. Off: closing quits, after the usual "downloads are still running"
 question when a run is active.
 
@@ -398,7 +398,7 @@ opens that run in History; the footer opens History. Esc or a click outside clos
 once when this page starts a run.
 
 **About → Check for updates** (desktop only). Shows the updater's state under the button: "Checking for
-updates…", "gather is up to date. Checked 2 minutes ago.", "Downloading gather 0.2.0 · 42%", or "Couldn't
+updates…", "grabberX is up to date. Checked 2 minutes ago.", "Downloading grabberX 0.2.0 · 42%", or "Couldn't
 check for updates: …". Once an update is downloaded the button becomes "Restart and update" (asks first while
 downloads run). The tray menu has the same item. Settings is deliberately
 narrow (max 672 px): it is read one field at a time, while Run, Library and History use the full

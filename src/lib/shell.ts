@@ -13,7 +13,7 @@ export type UpdateState =
   | { state: "unavailable" };
 
 /** What the Electron preload exposes. Absent when the app runs in a normal browser. */
-export interface GatherShell {
+export interface GrabberXShell {
   pickFolder(defaultPath?: string): Promise<string | null>;
   openLogs(): Promise<void>;
   /** Moves one media file to the Recycle Bin. False when the shell refused or the move failed. */
@@ -35,13 +35,14 @@ export interface GatherShell {
 
 declare global {
   interface Window {
-    gatherShell?: GatherShell;
+    /** The preload's global keeps its original name so the packaged shell and the page stay in step. */
+    gatherShell?: GrabberXShell;
   }
 }
 
 /** Read after mount so the server render and the first client render agree. */
-export function useShell(): GatherShell | undefined {
-  const [shell, setShell] = useState<GatherShell | undefined>(undefined);
+export function useShell(): GrabberXShell | undefined {
+  const [shell, setShell] = useState<GrabberXShell | undefined>(undefined);
   useEffect(() => setShell(window.gatherShell), []);
   return shell;
 }

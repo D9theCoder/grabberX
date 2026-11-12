@@ -46,7 +46,7 @@ export async function POST(request: Request): Promise<Response> {
   });
   // explorer.exe exits non-zero even when it opens the window; only spawn errors matter.
   explorer.on("error", (error: unknown) => {
-    console.error("gather: could not open the folder.", error);
+    console.error("grabberX: could not open the folder.", error);
   });
   explorer.unref();
 

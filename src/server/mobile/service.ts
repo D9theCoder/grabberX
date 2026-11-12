@@ -87,7 +87,7 @@ export async function startMobileIfEnabled(): Promise<void> {
     return;
   }
   await startListener(saved.autoOffAt).catch((error) => {
-    console.error("gather: could not start the mobile gallery.", error);
+    console.error("grabberX: could not start the mobile gallery.", error);
   });
 }
 

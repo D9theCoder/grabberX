@@ -82,7 +82,7 @@ export class Scheduler {
     try {
       settings = await deps.getSettings();
     } catch (error) {
-      console.error("gather: could not read the settings for the update schedule.", error);
+      console.error("grabberX: could not read the settings for the update schedule.", error);
       this.arm(TICK_MS);
       return;
     }
@@ -94,7 +94,7 @@ export class Scheduler {
     try {
       dueAt = await this.dueAt(settings, now);
     } catch (error) {
-      console.error("gather: could not plan the next update.", error);
+      console.error("grabberX: could not plan the next update.", error);
       this.arm(TICK_MS);
       return;
     }
@@ -165,7 +165,7 @@ export class Scheduler {
         this.notify(finished);
       }
     } catch (error) {
-      console.error("gather: the scheduled update pass failed.", error);
+      console.error("grabberX: the scheduled update pass failed.", error);
     } finally {
       this.passRunning = false;
       if (this.started) this.arm(TICK_MS);
@@ -188,14 +188,14 @@ export class Scheduler {
       if (deps.findActive(entry.folder)) continue;
       const built = buildUpdateSpec(entry.folder, entry, runs, settings);
       if (!built.ok) {
-        console.warn(`gather: the scheduled update skipped ${entry.folder}: ${built.error}`);
+        console.warn(`grabberX: the scheduled update skipped ${entry.folder}: ${built.error}`);
         continue;
       }
       try {
         const run = await deps.enqueue(built.data.spec, { scheduled: true });
         ids.push(run.id);
       } catch (error) {
-        console.error(`gather: could not queue the scheduled update for ${entry.folder}.`, error);
+        console.error(`grabberX: could not queue the scheduled update for ${entry.folder}.`, error);
       }
     }
     return ids;
@@ -214,7 +214,7 @@ export class Scheduler {
     try {
       this.deps.notify(body);
     } catch (error) {
-      console.error("gather: could not show the update notification.", error);
+      console.error("grabberX: could not show the update notification.", error);
     }
   }
 
@@ -222,7 +222,7 @@ export class Scheduler {
     await this.deps
       .saveState({ nextDueAt: nextDueAt.toISOString(), frequency: frequencyKey(frequency) })
       .catch((error: unknown) => {
-        console.error("gather: could not save the update schedule.", error);
+        console.error("grabberX: could not save the update schedule.", error);
       });
   }
 
@@ -277,7 +277,7 @@ function notifyShell(body: string): void {
   try {
     parentPort.postMessage({ kind: "scheduled-pass", body });
   } catch (error) {
-    console.error("gather: could not pass the update notification to the shell.", error);
+    console.error("grabberX: could not pass the update notification to the shell.", error);
   }
 }
 
@@ -295,7 +295,7 @@ function instance(): Promise<Scheduler> {
 export function startScheduler(): void {
   void instance().then(
     (scheduler) => scheduler.start(),
-    (error: unknown) => console.error("gather: could not start the update schedule.", error),
+    (error: unknown) => console.error("grabberX: could not start the update schedule.", error),
   );
 }
 

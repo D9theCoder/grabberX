@@ -53,7 +53,7 @@ export async function deleteFile(account: string, path: string, trashed: boolean
       invalidateAccountStats(account);
       return { ok: true };
     }
-    console.error("gather: could not delete a media file.", error);
+    console.error("grabberX: could not delete a media file.", error);
     return { ok: false, error: "That file couldn't be deleted. Close anything using it and try again." };
   }
 }

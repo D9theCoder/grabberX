@@ -47,7 +47,7 @@ export interface ScheduleState {
 export interface SchedulePlan {
   /** When the next pass should start. A catch-up plan keeps the moment that was missed. */
   nextDueAt: Date;
-  /** True when that moment passed while gather was not running. */
+  /** True when that moment passed while grabberX was not running. */
   catchUp: boolean;
 }
 
@@ -118,7 +118,7 @@ export function nextRunAt(frequency: ScheduleFrequency, after: Date): Date {
 /**
  * What a scheduler that just started should do.
  *
- * A saved due time well in the past means gather was closed at the moment it was waiting for: one
+ * A saved due time well in the past means grabberX was closed at the moment it was waiting for: one
  * pass now, not one pass for every day it missed. A time that has only just passed is simply due —
  * timers fire a few milliseconds late, and a heartbeat can wake up seconds after the moment — so it
  * runs at once without the catch-up delay. A missing or unreadable due time, or one saved for a

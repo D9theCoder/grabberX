@@ -21,7 +21,7 @@ const AUTO_OFF_OPTIONS = [
 ];
 
 const FIREWALL_COMMAND = (port: number) =>
-  `netsh advfirewall firewall add rule name="Gather mobile" dir=in action=allow protocol=TCP localport=${port} profile=private`;
+  `netsh advfirewall firewall add rule name="grabberX mobile" dir=in action=allow protocol=TCP localport=${port} profile=private`;
 
 function LocalTime({ iso }: { iso: string }) {
   const [text, setText] = useState("");

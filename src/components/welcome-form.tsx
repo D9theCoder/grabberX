@@ -45,7 +45,7 @@ export function WelcomeForm({
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div className="flex flex-col gap-2">
-        <h1 className="m-0 text-display">Welcome to gather</h1>
+        <h1 className="m-0 text-display">Welcome to grabberX</h1>
         <p className="m-0 text-ink-2">
           Two choices and you can start. Everything stays on this computer.
         </p>
@@ -85,7 +85,7 @@ export function WelcomeForm({
           ]}
         />
         <span className="text-small text-ink-2">
-          Sign in to the site in that browser first. gather reads its cookies on every run and never copies them.
+          Sign in to the site in that browser first. grabberX reads its cookies on every run and never copies them.
           If a browser can&apos;t be read, you can switch in Settings.
         </span>
       </section>

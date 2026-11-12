@@ -53,7 +53,7 @@ async function queueUpdate(folder: string, plan: UpdatePlan): Promise<QueueOutco
     const run = await runQueue.enqueue(plan.spec);
     return { ok: true, runId: run.id };
   } catch (error) {
-    console.error(`gather: could not queue the update for ${folder}.`, error);
+    console.error(`grabberX: could not queue the update for ${folder}.`, error);
     return { ok: false, active: null };
   } finally {
     enqueueing.delete(key);
@@ -73,7 +73,7 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
   try {
     context = await loadContext(RECENT_RUNS);
   } catch (error) {
-    console.error("gather: could not read the library.", error);
+    console.error("grabberX: could not read the library.", error);
     return { ok: false, error: "The library couldn't be read." };
   }
 
@@ -86,7 +86,7 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
     try {
       context = { ...context, runs: await listRuns(ALL_RUNS) };
     } catch (error) {
-      console.error("gather: could not read the run history.", error);
+      console.error("grabberX: could not read the run history.", error);
       return { ok: false, error: "The library couldn't be read." };
     }
   }
@@ -149,7 +149,7 @@ export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
   try {
     context = await loadContext(ALL_RUNS);
   } catch (error) {
-    console.error("gather: could not read the library.", error);
+    console.error("grabberX: could not read the library.", error);
     return { ok: false, error: "The library couldn't be read." };
   }
 
@@ -163,7 +163,7 @@ export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
     a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
   );
   for (const entry of entries) {
-    // Before the spec is built: a folder that is already running is a harmless skip, even when gather
+    // Before the spec is built: a folder that is already running is a harmless skip, even when grabberX
     // could not rebuild its spec.
     const running = runQueue.findActive(entry.folder);
     if (running) {

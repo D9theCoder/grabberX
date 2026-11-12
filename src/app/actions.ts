@@ -76,7 +76,7 @@ export async function startRun(
     revalidatePath("/library");
     return { ok: true, data: { runId: run.id, position: runQueue.queuePosition(run.id) } };
   } catch (error) {
-    console.error("gather: could not start the run.", error);
+    console.error("grabberX: could not start the run.", error);
     return { ok: false, error: "The run couldn't be started." };
   }
 }
@@ -91,7 +91,7 @@ export async function stopRun(id: string): Promise<ActionResult<null>> {
     revalidatePath("/history");
     return { ok: true, data: null };
   } catch (error) {
-    console.error("gather: could not stop the run.", error);
+    console.error("grabberX: could not stop the run.", error);
     return { ok: false, error: "The run couldn't be stopped." };
   }
 }
@@ -103,14 +103,14 @@ export async function saveSettingsAction(patch: unknown): Promise<ActionResult<S
   try {
     const settings = await saveSettings(patch as Partial<Settings>);
     await runQueue.resume().catch((error: unknown) => {
-      console.error("gather: could not start queued runs after saving the settings.", error);
+      console.error("grabberX: could not start queued runs after saving the settings.", error);
     });
     revalidatePath("/");
     revalidatePath("/library");
     revalidatePath("/settings");
     return { ok: true, data: settings };
   } catch (error) {
-    console.error("gather: could not save the settings.", error);
+    console.error("grabberX: could not save the settings.", error);
     return { ok: false, error: settingsError(error) };
   }
 }
@@ -140,7 +140,7 @@ export async function checkGalleryDl(path?: string): Promise<ActionResult<{ vers
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      console.error("gather: could not run gallery-dl --version.", error);
+      console.error("grabberX: could not run gallery-dl --version.", error);
       resolve({ ok: false, error: `gallery-dl wasn't found at ${exe}.` });
       return;
     }
@@ -252,7 +252,7 @@ export async function accountHint(input: unknown): Promise<AccountHint> {
       folder: parsed.data.folder,
     });
   } catch (error) {
-    console.error("gather: could not inspect the account.", error);
+    console.error("grabberX: could not inspect the account.", error);
     return { kind: "empty" };
   }
 }
@@ -288,7 +288,7 @@ export async function completeSetup(input: unknown): Promise<ActionResult<Settin
     revalidatePath("/", "layout");
     return { ok: true, data: settings };
   } catch (error) {
-    console.error("gather: could not finish the setup.", error);
+    console.error("grabberX: could not finish the setup.", error);
     return { ok: false, error: settingsError(error) };
   }
 }
@@ -341,7 +341,7 @@ const scheduleInput = z.object({
 /** A changed schedule takes effect at once instead of after the next heartbeat. */
 async function applySchedule(): Promise<void> {
   await refreshScheduler().catch((error: unknown) => {
-    console.error("gather: could not re-plan the automatic updates.", error);
+    console.error("grabberX: could not re-plan the automatic updates.", error);
   });
 }
 
@@ -357,7 +357,7 @@ export async function saveScheduleAction(input: unknown): Promise<ActionResult<S
     revalidatePath("/library");
     return { ok: true, data: settings };
   } catch (error) {
-    console.error("gather: could not save the automatic updates.", error);
+    console.error("grabberX: could not save the automatic updates.", error);
     return { ok: false, error: settingsError(error) };
   }
 }
@@ -389,7 +389,7 @@ export async function setAccountPausedAction(input: unknown): Promise<ActionResu
     revalidatePath("/library");
     return { ok: true, data: saved.pausedAccounts };
   } catch (error) {
-    console.error("gather: could not change the pause for an account.", error);
+    console.error("grabberX: could not change the pause for an account.", error);
     return { ok: false, error: settingsError(error) };
   }
 }

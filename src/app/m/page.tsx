@@ -11,14 +11,14 @@ export default async function MobileHomePage() {
     accounts = await listAccounts();
   } catch (error) {
     failed = true;
-    console.error("gather: could not list accounts for the mobile gallery.", error);
+    console.error("grabberX: could not list accounts for the mobile gallery.", error);
   }
 
   return (
     <main className="mx-auto flex max-w-xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <h1 className="m-0 text-display">Library</h1>
       {failed ? (
-        <p className="m-0 text-body text-ink-2">The library couldn&apos;t be read. Check gather on the PC.</p>
+        <p className="m-0 text-body text-ink-2">The library couldn&apos;t be read. Check grabberX on the PC.</p>
       ) : accounts.length === 0 ? (
         <p className="m-0 text-body text-ink-2">Nothing downloaded yet.</p>
       ) : (

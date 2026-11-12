@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Media-scraping workspace with a small Next.js app, **gather**, in the same root. Content is downloaded
-X/Twitter media organized per account, using `gallery-dl` (directly in a terminal, or through gather).
+Media-scraping workspace with a small Next.js app, **grabberX**, in the same root. Content is downloaded
+X/Twitter media organized per account, using `gallery-dl` (directly in a terminal, or through grabberX).
 Git versions the app (`src/`, `public/`, `docs/`, config files), `AGENTS.md`, `.agents/`, and
 `skills-lock.json`. All media folders are git-ignored via `/*/` in `.gitignore` (the app folders are
 re-included one by one), so never `git add -A` blindly and never assume account folders are tracked.
 
-## The gather app
+## The grabberX app
 
 Local front end that builds the `gallery-dl` commands below from a form and runs them. Read
 `docs/DESIGN.md` (screens, copy, states), `docs/ARCHITECTURE.md` (data model, ADRs) and
@@ -20,9 +20,9 @@ npm run test:e2e   # playwright: real pages in Chromium against a dev server
 npm run typecheck  # next typegen && tsc --noEmit
 ```
 
-- Packaging (Windows installer): `npm run dist` builds `release\Gather-Setup-<version>.exe`; `npm run pack` makes the
+- Packaging (Windows installer): `npm run dist` builds `release\grabberX-Setup-<version>.exe`; `npm run pack` makes the
   unpacked app; `npm run test:e2e:packaged` drives the real Electron app (`GATHER_EXE` points it at a built
-  `Gather.exe`). Read `docs/PACKAGING.md` first. The shell is in `electron/` (own `package.json`, `npm ci
+  `grabberX.exe`). Read `docs/PACKAGING.md` first. The shell is in `electron/` (own `package.json`, `npm ci
   --prefix electron`). In the packaged app every path comes from `GATHER_*` variables (`src/server/env.ts`) and a
   missing one is an error, never a `process.cwd()` fallback.
 - E2E tests live in `e2e/` and drive the running app with Playwright (dev dependency). The config
@@ -130,7 +130,7 @@ PowerShell quoting: `-o` takes JSON, so use single quotes outside and **double**
 - **Archive is path-independent** (verified: moved files still report `#` skipped). Keys are source URLs.
   Never delete `<acct>/archive.sqlite3` — it is the only thing preventing full re-downloads.
 - Images and videos share one archive per account; run the two passes **sequentially**, never concurrently,
-  to avoid SQLite lock contention. The exception is gather's **parallel downloads** (ADR-10): workers of
+  to avoid SQLite lock contention. The exception is grabberX's **parallel downloads** (ADR-10): workers of
   one step share the archive safely (gallery-dl opens it with a 60 s lock timeout and commits one row per
   file; audited and stress-tested), because each takes a disjoint `--range i::N` slice and its own
   `downloader.part-directory`. Never run parallel workers with a date-based folder layout.

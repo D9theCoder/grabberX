@@ -261,7 +261,7 @@ export async function getSettings(): Promise<Settings> {
 function warnAboutSettings(reason: string): void {
   if (warnedAboutSettings) return;
   warnedAboutSettings = true;
-  console.warn(`gather: ignoring unreadable settings (${reason}).`);
+  console.warn(`grabberX: ignoring unreadable settings (${reason}).`);
 }
 
 function salvageSettings(json: unknown): Partial<Settings> {

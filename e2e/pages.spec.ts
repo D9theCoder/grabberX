@@ -58,7 +58,7 @@ test("the automatic updates group saves its switch without a client error", asyn
   await page.goto("/settings");
   await expect(page.getByRole("heading", { level: 2, name: "Automatic updates" })).toBeVisible();
   await expect(
-    page.getByText("gather must be running (in the tray) for updates to happen."),
+    page.getByText("grabberX must be running (in the tray) for updates to happen."),
   ).toBeVisible();
 
   // Flipping it saves through a server action; the page must survive the round trip.

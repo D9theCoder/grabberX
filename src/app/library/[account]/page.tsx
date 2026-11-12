@@ -32,7 +32,7 @@ export default async function AccountGalleryPage({ params, searchParams }: PageP
     meta = await knownMeta(full, listing.files);
   } catch (error) {
     problem = error instanceof MediaPathError ? error.message : "That folder couldn't be read.";
-    if (!(error instanceof MediaPathError)) console.error("gather: could not list a library folder.", error);
+    if (!(error instanceof MediaPathError)) console.error("grabberX: could not list a library folder.", error);
   }
 
   const segments = path === "" ? [] : path.split("/");

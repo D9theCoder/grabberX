@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "gather gallery",
-  description: "Your gather library on this phone.",
+  title: "grabberX gallery",
+  description: "Your grabberX library on this phone.",
   manifest: "/manifest.webmanifest",
   robots: { index: false, follow: false },
 };

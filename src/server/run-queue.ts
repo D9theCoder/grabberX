@@ -123,7 +123,7 @@ export class RunQueue {
       startProcess: deps.startProcess ?? startProcess,
     };
     this.ready = this.markInterrupted().catch((error: unknown) => {
-      console.error("gather: could not clean up interrupted runs.", error);
+      console.error("grabberX: could not clean up interrupted runs.", error);
     });
   }
 
@@ -335,7 +335,7 @@ export class RunQueue {
         try {
           settings = await this.deps.getSettings();
         } catch (error) {
-          console.error("gather: could not read settings, so queued runs stay queued.", error);
+          console.error("grabberX: could not read settings, so queued runs stay queued.", error);
           return;
         }
         for (const run of this.queuedInOrder()) {
@@ -447,7 +447,7 @@ export class RunQueue {
         await mkdir(stepTargetDir(active.run.spec, settings, step.label), { recursive: true });
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        this.handleRaw(active, "stderr", `gather: could not create the folder for parallel downloads (${reason}); downloading one file at a time.`);
+        this.handleRaw(active, "stderr", `grabberX: could not create the folder for parallel downloads (${reason}); downloading one file at a time.`);
         return start(step.argv);
       }
     }
@@ -460,7 +460,7 @@ export class RunQueue {
       const dir = resolveAccountDir(settings.mediaRoot, folderNameFor(run.spec));
       await rm(join(dir, WORKER_PARTS_DIR), { recursive: true, force: true });
     } catch (error) {
-      console.warn("gather: could not remove the parallel workers' unfinished files.", error);
+      console.warn("grabberX: could not remove the parallel workers' unfinished files.", error);
     }
   }
 
@@ -529,7 +529,7 @@ export class RunQueue {
     active.logChain = active.logChain
       .then(() => appendLog(id, chunk))
       .catch((error: unknown) => {
-        console.error("gather: could not write the run log.", error);
+        console.error("grabberX: could not write the run log.", error);
       });
     return active.logChain;
   }
@@ -548,7 +548,7 @@ export class RunQueue {
       try {
         listener(event);
       } catch (error) {
-        console.error("gather: an event listener failed.", error);
+        console.error("grabberX: an event listener failed.", error);
       }
     }
   }
@@ -583,7 +583,7 @@ export class RunQueue {
       .catch(() => {})
       .then(() => saveRun(run))
       .catch((error: unknown) => {
-        console.error("gather: could not save the run record.", error);
+        console.error("grabberX: could not save the run record.", error);
       })
       .then(() => {
         this.emit(run.id, event);
@@ -613,7 +613,7 @@ export class RunQueue {
     this.rememberFinished(run.id);
     await this.pump();
     void pruneRuns(settings.historyRetention).catch((error: unknown) => {
-      console.error("gather: could not prune run history.", error);
+      console.error("grabberX: could not prune run history.", error);
     });
   }
 
@@ -622,7 +622,7 @@ export class RunQueue {
     settings: Settings,
     error: unknown,
   ): Promise<void> {
-    console.error("gather: a run failed unexpectedly.", error);
+    console.error("grabberX: a run failed unexpectedly.", error);
     await this.finalize(active, settings, "failed", { errorKind: "unknown" });
   }
 
@@ -632,7 +632,7 @@ export class RunQueue {
       await sweepPartFiles(dir);
       if (!run.spec.simulate) folderChanged(dir);
     } catch (error) {
-      console.warn("gather: could not clean up unfinished files.", error);
+      console.warn("grabberX: could not clean up unfinished files.", error);
     }
   }
 
@@ -667,7 +667,7 @@ export class RunQueue {
       try {
         await saveRun(run);
       } catch (error) {
-        console.error("gather: could not mark a run as interrupted.", error);
+        console.error("grabberX: could not mark a run as interrupted.", error);
       }
       if (!settings) continue;
       await this.sweep(run, settings);

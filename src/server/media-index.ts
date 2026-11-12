@@ -90,7 +90,7 @@ function scheduleSave(folder: string, index: FolderIndex) {
     folder,
     setTimeout(() => {
       pendingSaves.delete(folder);
-      void persist(folder, index).catch((error: unknown) => console.error("gather: could not save the media index.", error));
+      void persist(folder, index).catch((error: unknown) => console.error("grabberX: could not save the media index.", error));
     }, SAVE_DELAY_MS),
   );
 }

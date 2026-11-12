@@ -19,11 +19,11 @@ const iconPath = path.join(__dirname, "icon.png");
 
 const SHUTDOWN_GRACE_MS = 10000;
 const SERVER_START_ATTEMPTS = 3;
-// gather lives in the tray for days; a check at start alone would miss every release after it.
+// grabberX lives in the tray for days; a check at start alone would miss every release after it.
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 // A downloaded update that had to wait (the user was busy) is looked at again this often.
 const UPDATE_RETRY_MS = 5 * 60 * 1000;
-// The installer restarts gather; a marker this fresh means "come back in the tray, not as a window".
+// The installer restarts grabberX; a marker this fresh means "come back in the tray, not as a window".
 const START_HIDDEN_MS = 10 * 60 * 1000;
 const INSTALL_STUCK_MS = 30 * 1000;
 const bootedAt = Date.now();
@@ -46,7 +46,7 @@ let updateNoticeVersion = "";
 let scheduledNotice = null;
 
 function pageHtml(title, body) {
-  const html = `<!doctype html><meta charset="utf-8"><title>gather</title>
+  const html = `<!doctype html><meta charset="utf-8"><title>grabberX</title>
 <body style="font:16px system-ui,sans-serif;margin:0;display:grid;place-items:center;height:100vh;background:#fafafa;color:#161616">
 <main style="max-width:34rem;padding:2rem"><h1 style="font-size:1.25rem;margin:0 0 .75rem">${title}</h1>${body}</main></body>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
@@ -64,7 +64,7 @@ const themeFile = () => path.join(app.getPath("userData"), "theme.txt");
 const updateAttemptFile = () => path.join(app.getPath("userData"), "update-attempt.json");
 const startHiddenFile = () => path.join(app.getPath("userData"), "start-hidden");
 
-/** True once after an update that was installed while gather sat in the tray. */
+/** True once after an update that was installed while grabberX sat in the tray. */
 function consumeStartHidden() {
   try {
     const age = Date.now() - fs.statSync(startHiddenFile()).mtimeMs;
@@ -119,7 +119,7 @@ function showWindow() {
 function showScheduledNotice(body) {
   log.line(`automatic updates: ${body}`);
   if (!Notification.isSupported()) return;
-  scheduledNotice = new Notification({ title: "gather", body, icon: iconPath });
+  scheduledNotice = new Notification({ title: "grabberX", body, icon: iconPath });
   scheduledNotice.on("click", () => {
     showWindow();
     if (win && origin) void win.loadURL(`${origin}/history`);
@@ -141,7 +141,7 @@ function createWindow() {
     minHeight: 600,
     show: false,
     backgroundColor: windowBackground(),
-    title: "gather",
+    title: "grabberX",
     icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
@@ -167,8 +167,8 @@ function createWindow() {
       if (!trayHintShown) {
         trayHintShown = true;
         tray.displayBalloon?.({
-          title: "gather",
-          content: "gather is still running in the tray, so updates and automatic runs keep working. Change this in Settings.",
+          title: "grabberX",
+          content: "grabberX is still running in the tray, so updates and automatic runs keep working. Change this in Settings.",
         });
       }
       void maybeAutoInstall();
@@ -203,7 +203,7 @@ function startServerProcess(port) {
     GATHER_PACKAGED: "1",
     GATHER_PORT: String(port),
     GATHER_HOME: home,
-    GATHER_MEDIA_ROOT: process.env.GATHER_MEDIA_ROOT || path.join(app.getPath("pictures"), "Gather"),
+    GATHER_MEDIA_ROOT: process.env.GATHER_MEDIA_ROOT || path.join(app.getPath("pictures"), "grabberX"),
     GATHER_GALLERY_DL: galleryDlPath,
     GATHER_APP_VERSION: app.getVersion(),
     GATHER_APP_DIR: app.isPackaged ? path.dirname(process.execPath) : repoRoot,
@@ -226,7 +226,7 @@ function startServerProcess(port) {
     serverExited = true;
     log.line(`server exited with code ${code}`);
     if (!quitting && win && origin) {
-      win.loadURL(pageHtml("gather stopped", `<p>The local server exited unexpectedly (code ${code}).</p><p>Close and reopen gather. Details are in <code>${log.file}</code>.</p>`));
+      win.loadURL(pageHtml("grabberX stopped", `<p>The local server exited unexpectedly (code ${code}).</p><p>Close and reopen grabberX. Details are in <code>${log.file}</code>.</p>`));
     }
   });
   return child;
@@ -279,10 +279,10 @@ async function confirmQuit() {
     buttons: ["Stop downloads and quit", "Keep running"],
     defaultId: 1,
     cancelId: 1,
-    title: "gather",
+    title: "grabberX",
     message:
       active === null
-        ? "gather did not answer, so downloads may still be running."
+        ? "grabberX did not answer, so downloads may still be running."
         : `${active} download${active === 1 ? " is" : "s are"} still running.`,
     detail: "Quitting stops them. Files already saved are kept, and the next run continues where it left off.",
   });
@@ -291,7 +291,7 @@ async function confirmQuit() {
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(iconPath));
-  tray.setToolTip("gather");
+  tray.setToolTip("grabberX");
   refreshTrayMenu();
   tray.on("click", showWindow);
 }
@@ -311,7 +311,7 @@ function refreshTrayMenu() {
         };
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open gather", click: showWindow },
+      { label: "Open grabberX", click: showWindow },
       updateItem,
       { type: "separator" },
       {
@@ -334,11 +334,11 @@ function setUpdateState(next) {
     trayCheckPending = false;
     const content =
       next.state === "current"
-        ? `gather ${app.getVersion()} is up to date.`
+        ? `grabberX ${app.getVersion()} is up to date.`
         : next.state === "downloading"
-          ? `gather ${next.version} is downloading. It installs once gather is in the tray with nothing downloading.`
+          ? `grabberX ${next.version} is downloading. It installs once grabberX is in the tray with nothing downloading.`
           : `Could not check for updates: ${next.message}`;
-    tray?.displayBalloon?.({ title: "gather", content });
+    tray?.displayBalloon?.({ title: "grabberX", content });
   }
 }
 
@@ -359,7 +359,7 @@ function checkForUpdates() {
 /**
  * Installs the downloaded update: stops the server's runs, then runs the installer silently and restarts gather.
  * `automatic` skips the "downloads are still running" question (the caller already checked there are none);
- * `hidden` brings gather back in the tray.
+ * `hidden` brings grabberX back in the tray.
  */
 async function installUpdate({ automatic = false, hidden = false } = {}) {
   if (!updater || updateState.state !== "ready" || quitting) return false;
@@ -374,7 +374,7 @@ async function installUpdate({ automatic = false, hidden = false } = {}) {
   }
   quitting = true;
   if (win && !win.isDestroyed() && win.isVisible()) {
-    await win.loadURL(pageHtml(`Updating gather to ${version}…`, "<p>gather restarts by itself in a moment.</p>")).catch(() => {});
+    await win.loadURL(pageHtml(`Updating grabberX to ${version}…`, "<p>grabberX restarts by itself in a moment.</p>")).catch(() => {});
   }
   await stopServer();
   try {
@@ -383,15 +383,15 @@ async function installUpdate({ automatic = false, hidden = false } = {}) {
     await recoverFromInstall(version, error);
     return false;
   }
-  // A successful install quits gather long before this fires; still running means the installer never started.
+  // A successful install quits grabberX long before this fires; still running means the installer never started.
   setTimeout(() => void recoverFromInstall(version), INSTALL_STUCK_MS);
   return true;
 }
 
-/** Puts gather back the way it was when the installer did not start: server running, window on the app, tray working. */
+/** Puts grabberX back the way it was when the installer did not start: server running, window on the app, tray working. */
 async function recoverFromInstall(version, error) {
   if (!quitting) return;
-  log.line(`the installer for ${version} did not start${error ? ` (${error.message})` : ""}; starting gather again`);
+  log.line(`the installer for ${version} did not start${error ? ` (${error.message})` : ""}; starting grabberX again`);
   try {
     fs.rmSync(startHiddenFile(), { force: true });
   } catch {
@@ -404,7 +404,7 @@ async function recoverFromInstall(version, error) {
   } catch (startError) {
     log.line(`could not start again: ${startError.message}`);
     if (win && !win.isDestroyed()) {
-      await win.loadURL(pageHtml("gather could not start", `<p>${startError.message}</p><p>Close and reopen gather.</p>`)).catch(() => {});
+      await win.loadURL(pageHtml("grabberX could not start", `<p>${startError.message}</p><p>Close and reopen grabberX.</p>`)).catch(() => {});
     }
     return;
   }
@@ -416,7 +416,7 @@ async function recoverFromInstall(version, error) {
 function showUpdateNotice(version) {
   if (updateNoticeVersion === version || !Notification.isSupported()) return;
   updateNoticeVersion = version;
-  updateNotice = new Notification({ title: "gather", body: `gather ${version} is ready. Click to restart and update.`, icon: iconPath });
+  updateNotice = new Notification({ title: "grabberX", body: `grabberX ${version} is ready. Click to restart and update.`, icon: iconPath });
   updateNotice.on("click", () => {
     showWindow();
     void installUpdate();
@@ -424,7 +424,7 @@ function showUpdateNotice(version) {
   updateNotice.show();
 }
 
-/** Installs a downloaded update when nobody is using gather; otherwise asks once with a notification. */
+/** Installs a downloaded update when nobody is using grabberX; otherwise asks once with a notification. */
 async function maybeAutoInstall() {
   if (updateState.state !== "ready" || quitting) return;
   const { version } = updateState;
@@ -443,7 +443,7 @@ async function maybeAutoInstall() {
     return;
   }
   if (decision === "blocked" && updateNoticeVersion !== version) {
-    log.line(`installing ${version} was already tried and gather is still on ${app.getVersion()}; waiting for the user`);
+    log.line(`installing ${version} was already tried and grabberX is still on ${app.getVersion()}; waiting for the user`);
   }
   showUpdateNotice(version);
 }
@@ -543,20 +543,20 @@ function registerIpc() {
 async function boot() {
   Menu.setApplicationMenu(null);
   log = lib.createLog(path.join(home, "logs"));
-  log.line(`gather ${app.getVersion()} starting (packaged=${app.isPackaged}, home=${home})`);
+  log.line(`grabberX ${app.getVersion()} starting (packaged=${app.isPackaged}, home=${home})`);
 
   const seeded = lib.seedGalleryDl(seedGalleryDlPath, galleryDlPath);
   log.line(`gallery-dl seed: ${seeded} (${galleryDlPath})`);
 
   registerIpc();
   createWindow();
-  win.loadURL(pageHtml("Starting gather…", "<p>Just a moment.</p>"));
+  win.loadURL(pageHtml("Starting grabberX…", "<p>Just a moment.</p>"));
 
   try {
     await startServer();
   } catch (error) {
     log.line(`could not start: ${error.message}`);
-    if (win) await win.loadURL(pageHtml("gather could not start", `<p>${error.message}</p><p>Details are in <code>${log.file}</code>.</p>`));
+    if (win) await win.loadURL(pageHtml("grabberX could not start", `<p>${error.message}</p><p>Details are in <code>${log.file}</code>.</p>`));
     return;
   }
 

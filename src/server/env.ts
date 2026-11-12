@@ -41,7 +41,7 @@ function fromEnv(name: string): string | undefined {
 function requiredWhenPackaged(name: string): string | undefined {
   const value = fromEnv(name);
   if (value === undefined && isPackaged()) {
-    throw new Error(`${name} must be set when gather runs as the packaged app.`);
+    throw new Error(`${name} must be set when grabberX runs as the packaged app.`);
   }
   return value;
 }

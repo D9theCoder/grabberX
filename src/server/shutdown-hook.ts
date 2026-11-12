@@ -22,7 +22,7 @@ export function listenForShutdown(): void {
       const { runQueue } = await import("@/server/run-queue");
       await runQueue.shutdown();
     } catch (error) {
-      console.error("gather: shutdown could not stop every run.", error);
+      console.error("grabberX: shutdown could not stop every run.", error);
     }
     parentPort.postMessage("shutdown-done");
     process.exit(0);

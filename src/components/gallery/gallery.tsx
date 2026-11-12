@@ -777,7 +777,7 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
                 : window.gatherShell
                   ? "They move to the Recycle Bin."
                   : "They are deleted for good."}{" "}
-              gather still remembers {confirm.length === 1 ? "it" : "them"} in the archive, so a later update will not
+              grabberX still remembers {confirm.length === 1 ? "it" : "them"} in the archive, so a later update will not
               download {confirm.length === 1 ? "it" : "them"} again.
             </p>
             <div className="mt-6 flex justify-end gap-3">

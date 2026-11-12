@@ -300,7 +300,7 @@ describe("buildUpdateSpec", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe(
-      "gather doesn't know which site john.doe came from. Run it once from the Run page first.",
+      "grabberX doesn't know which site john.doe came from. Run it once from the Run page first.",
     );
   });
 });

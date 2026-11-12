@@ -87,7 +87,7 @@ export function AutomaticUpdatesForm({ initial }: { initial: Settings }) {
             ? "Saving…"
             : saved
               ? <Saved />
-              : "gather must be running (in the tray) for updates to happen."
+              : "grabberX must be running (in the tray) for updates to happen."
         }
       />
 

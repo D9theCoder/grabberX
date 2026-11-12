@@ -27,7 +27,7 @@ function loadSharp(): Promise<Sharp | null> {
       return module.default;
     })
     .catch((error: unknown) => {
-      console.error("gather: sharp could not be loaded, thumbnails are off.", error);
+      console.error("grabberX: sharp could not be loaded, thumbnails are off.", error);
       return null;
     });
   return sharpModule;
@@ -200,7 +200,7 @@ export async function getThumbnail(
           .webp({ quality: 72 })
           .toBuffer();
       } catch (error) {
-        console.error("gather: could not make a thumbnail.", error);
+        console.error("grabberX: could not make a thumbnail.", error);
         return null;
       }
       await store(cached, output);

@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"Gather","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"},{"name":"Breadcrumb"},{"name":"FolderCard"},{"name":"Thumbnail"},{"name":"Toolbar"},{"name":"Lightbox"},{"name":"ThemeToggle"},{"name":"ContextMenu"},{"name":"SelectionBar"}]} */
+/* @ds-bundle: {"format":4,"namespace":"grabberX","components":[{"name":"Button"},{"name":"TextField"},{"name":"Segmented"},{"name":"ChoiceList"},{"name":"Switch"},{"name":"Disclosure"},{"name":"CommandBlock"},{"name":"Status"},{"name":"Stat"},{"name":"LogView"},{"name":"Notice"},{"name":"Breadcrumb"},{"name":"FolderCard"},{"name":"Thumbnail"},{"name":"Toolbar"},{"name":"Lightbox"},{"name":"ThemeToggle"},{"name":"ContextMenu"},{"name":"SelectionBar"}]} */
 (function () {
   var React = window.React;
   var h = React.createElement;
@@ -316,7 +316,7 @@
         h("button", { type: "button", className: "g-toolbar__btn g-lightbox__nav g-lightbox__nav--next", "aria-label": "Next" }, h(Icon, { name: "next" }))));
   }
 
-  window.Gather = Object.assign(window.Gather || {}, {
+  window.grabberX = Object.assign(window.grabberX || {}, {
     Breadcrumb: Breadcrumb, FolderCard: FolderCard, Thumbnail: Thumbnail, Toolbar: Toolbar, Lightbox: Lightbox, ThemeToggle: ThemeToggle, ContextMenu: ContextMenu, SelectionBar: SelectionBar,
     Button: Button, TextField: TextField, Segmented: Segmented, ChoiceList: ChoiceList, Switch: Switch,
     Disclosure: Disclosure, CommandBlock: CommandBlock, Status: Status, Stat: Stat, LogView: LogView, Notice: Notice

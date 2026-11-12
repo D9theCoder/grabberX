@@ -71,10 +71,10 @@ describe("path variables when packaged", () => {
   it("accepts them once set", () => {
     process.env.GATHER_PACKAGED = "1";
     process.env.GATHER_HOME = "C:\\Users\\a\\AppData\\Roaming\\gather";
-    process.env.GATHER_MEDIA_ROOT = "C:\\Users\\a\\Pictures\\Gather";
+    process.env.GATHER_MEDIA_ROOT = "C:\\Users\\a\\Pictures\\grabberX";
     process.env.GATHER_GALLERY_DL = "C:\\Users\\a\\AppData\\Roaming\\gather\\bin\\gallery-dl.exe";
     expect(envHome()).toContain("gather");
-    expect(envMediaRoot()).toContain("Gather");
+    expect(envMediaRoot()).toContain("grabberX");
     expect(envGalleryDl()).toContain("gallery-dl.exe");
   });
 });

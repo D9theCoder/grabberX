@@ -126,7 +126,7 @@ function parseServerMessage(message) {
   return { kind: "scheduled-pass", body: body.slice(0, 300) };
 }
 
-/** Closing the window hides gather in the tray unless the user turned that off in Settings. */
+/** Closing the window hides grabberX in the tray unless the user turned that off in Settings. */
 function closesToTray(settings) {
   return !(settings && typeof settings === "object" && settings.closeToTray === false);
 }

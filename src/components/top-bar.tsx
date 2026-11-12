@@ -50,7 +50,7 @@ export function TopBar() {
         className="mx-auto flex h-14 w-full max-w-[1120px] items-stretch gap-3 px-4 sm:gap-6 sm:px-8"
       >
         <Link href="/" className="flex items-center font-mono text-code font-normal text-ink">
-          gather
+          grabberX
         </Link>
         <div className="flex items-stretch gap-1">
           {LINKS.map((link) => {

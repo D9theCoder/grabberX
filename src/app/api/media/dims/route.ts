@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
     if (error instanceof MediaPathError) {
       return Response.json({ ok: false, error: error.message }, { status: error.status });
     }
-    console.error("gather: could not read image sizes.", error);
+    console.error("grabberX: could not read image sizes.", error);
     return Response.json({ ok: false, error: "Image sizes couldn't be read." }, { status: 500 });
   }
 }

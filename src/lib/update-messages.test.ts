@@ -34,7 +34,7 @@ describe("updateAllMessage", () => {
       skipped: [
         {
           folder: "john.doe",
-          reason: "gather doesn't know which site john.doe came from. Run it once from the Run page first.",
+          reason: "grabberX doesn't know which site john.doe came from. Run it once from the Run page first.",
         },
       ],
       assumed: [],
@@ -42,7 +42,7 @@ describe("updateAllMessage", () => {
 
     expect(message.tone).toBe("danger");
     expect(message.text).toBe(
-      "1 update queued. Skipped john.doe: gather doesn't know which site john.doe came from. " +
+      "1 update queued. Skipped john.doe: grabberX doesn't know which site john.doe came from. " +
         "Run it once from the Run page first.",
     );
   });

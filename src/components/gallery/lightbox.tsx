@@ -478,7 +478,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
                 Delete {file.name}?
               </h2>
               <p id="delete-body" className="mt-2 mb-0 text-body text-on-stage/80">
-                {recycle ? "It moves to the Recycle Bin." : "It is deleted for good."} gather still remembers it in the
+                {recycle ? "It moves to the Recycle Bin." : "It is deleted for good."} grabberX still remembers it in the
                 archive, so a later update will not download it again.
               </p>
               <div className="mt-6 flex justify-end gap-3">

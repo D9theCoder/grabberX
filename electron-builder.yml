@@ -1,6 +1,6 @@
 appId: app.gather.desktop
-productName: Gather
-copyright: gather
+productName: grabberX
+copyright: grabberX
 
 directories:
   app: electron
@@ -44,7 +44,7 @@ nsis:
   createStartMenuShortcut: true
   # The library and %APPDATA%\gather hold the user's downloads and settings: an uninstall must never delete them.
   deleteAppDataOnUninstall: false
-  artifactName: Gather-Setup-${version}.${ext}
+  artifactName: grabberX-Setup-${version}.${ext}
 
 # Auto-update: there is deliberately no `publish` block here. CI passes the GitHub owner and repository on the
 # command line (see .github/workflows/build.yml), which makes the build write resources/app-update.yml and

@@ -161,7 +161,7 @@ describe("updateAll", () => {
     expect(data.skipped).toEqual([
       {
         folder: "john.doe",
-        reason: "gather doesn't know which site john.doe came from. Run it once from the Run page first.",
+        reason: "grabberX doesn't know which site john.doe came from. Run it once from the Run page first.",
       },
     ]);
     expect(mocks.enqueue).toHaveBeenCalledTimes(1);
@@ -362,7 +362,7 @@ describe("updateAccount", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "gather doesn't know which site john.doe came from. Run it once from the Run page first.",
+      error: "grabberX doesn't know which site john.doe came from. Run it once from the Run page first.",
     });
     expect(mocks.enqueue).not.toHaveBeenCalled();
   });

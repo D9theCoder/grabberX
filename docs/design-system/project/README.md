@@ -1,4 +1,4 @@
-gather is a quiet, local front end for `gallery-dl`. It should feel like a well-set form on good paper: ink, hairlines, and nothing that asks for attention except the thing you're about to do.
+grabberX is a quiet, local front end for `gallery-dl`. It should feel like a well-set form on good paper: ink, hairlines, and nothing that asks for attention except the thing you're about to do.
 
 ## Principles
 
@@ -65,7 +65,7 @@ gather is a quiet, local front end for `gallery-dl`. It should feel like a well-
 
 ## Components
 
-Use the components in this system (`window.Gather` in previews; in the app, React components with the same props, styled from these tokens):
+Use the components in this system (`window.grabberX` in previews; in the app, React components with the same props, styled from these tokens):
 
 - `Button`: `primary` once per view (Download), `secondary` for the alternative (Preview files), `ghost` for low-weight actions, `danger` for Stop/Cancel.
 - `TextField`: account, numbers, dates. Optional `prefix` (e.g. `@`) and `mono`.

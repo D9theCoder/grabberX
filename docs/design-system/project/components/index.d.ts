@@ -168,7 +168,7 @@ export declare function SelectionBar(props: SelectionBarProps): React.ReactEleme
 
 declare global {
   interface Window {
-    Gather: {
+    grabberX: {
       Button: typeof Button; TextField: typeof TextField; Segmented: typeof Segmented; ChoiceList: typeof ChoiceList;
       Switch: typeof Switch; Disclosure: typeof Disclosure; CommandBlock: typeof CommandBlock; Status: typeof Status;
       Stat: typeof Stat; LogView: typeof LogView; Notice: typeof Notice;
