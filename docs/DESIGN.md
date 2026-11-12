@@ -1,6 +1,6 @@
 # Design Handoff: grabberX
 
-> Working name **grabberX**: a local web front end for `gallery-dl`. Rename freely; nothing depends on it.
+> **grabberX**: a local web front end for `gallery-dl`.
 >
 > **Design system (source of truth for tokens and components):** https://claude.ai/artifact/QqeuePNc22evgNcg2fzkjD
 > Its files are versioned in [`docs/design-system/project/`](design-system/project/): `tokens.json`,
@@ -15,8 +15,8 @@
    is folded away under *Advanced*, with defaults that are already right.
 2. **Show the command.** The exact `gallery-dl` command is always visible and copyable, so every
    run can be reproduced in a terminal.
-3. **Honest progress.** gallery-dl does not know the total file count up front. No percentage bar:
-   counters (saved, skipped, failed), the current file, and elapsed time.
+3. **Honest progress.** gallery-dl does not know the total file count up front, so there is no bar by default.
+   Counters (saved, skipped, failed), the current file, elapsed time, speed and data downloaded are always shown. Where the site reports a count (X, whole-account runs: the profile's `media_count`), an estimated bar and ETA appear, worded "About 12% · ~N files", and never reach 100% until the run ends.
 4. **Monochrome, words for status.** Ink and greys on `paper` (#FCFCFC). Selection is an ink fill
    or an ink radio, never a tinted fill with a colored border. Status is a word with a glyph, never a
    pill or an uppercase label. Color only means *failed* (`danger`) or *wait* (`warn`).
@@ -235,6 +235,7 @@ A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the
 | Header | `Status` with account and elapsed `mm:ss` as its detail: "Running · username · 02:14" |
 | Counters | Three `Stat`s: **saved** (default), **skipped** (`muted`), **failed** (`danger` when > 0). |
 | Current file | One mono line, truncated in the middle (`Video/18342…_1.mp4`), full path in `title`. |
+| Speed and ETA | `RunProgress` (src/lib/progress.ts): speed over a 15 s window, bytes from the saved files, all workers and the whole run combined. Bar and "about N min left" only when `total` is known (X, media "All", no date or range limits; one `gallery-dl -j --range 1` probe reads `media_count`). After the run: "avg speed · size downloaded". The task bubble shows `~%` and speed per run. |
 | Phase | For "All": `Step 1 of 2 · images`. |
 | Rate-limit wait | `Notice` (warning): "Rate limited · retrying in 0:42 (2 of 4)", counting down. |
 | Log | `LogView`, collapsed to the last 6 lines and expandable to 320 px max height, scrolling. `#` skipped lines are `ink-2`, warnings `warn`, errors `danger`. Auto-scrolls only while the user is at the bottom. |

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LogView } from "@/components/ui/log-view";
 import { Notice } from "@/components/ui/notice";
 import { Stat } from "@/components/ui/stat";
+import { RunProgressView } from "@/components/run-progress";
 import { Status } from "@/components/ui/status";
 import type { RunStreamState } from "@/components/run-stream-reducer";
 import { useNow } from "@/components/use-now";
@@ -32,7 +33,7 @@ function formatCountdown(seconds: number): string {
 }
 
 export function RunPanel({ stream, galleryDlPath, onRunAgain, runAgainPending, className }: RunPanelProps) {
-  const { run, counts, currentFile, lines, wait } = stream;
+  const { run, counts, currentFile, lines, wait, progress } = stream;
   const active = run ? isActiveStatus(run.status) : false;
   const now = useNow(active || Boolean(wait));
   const [expanded, setExpanded] = useState(false);
@@ -113,6 +114,8 @@ export function RunPanel({ stream, galleryDlPath, onRunAgain, runAgainPending, c
           tone={counts.failed > 0 ? "danger" : "default"}
         />
       </div>
+
+      <RunProgressView progress={progress} active={active} />
 
       {multiStep && stepLabel ? (
         <p className="text-small text-ink-2">

@@ -1,6 +1,6 @@
 import type { LogLine } from "@/components/ui/log-view";
 import { maskSecrets } from "@/lib/mask";
-import type { Counts, Run, RunStatus, StreamEvent } from "@/lib/spec";
+import type { Counts, Run, RunProgress, RunStatus, StreamEvent } from "@/lib/spec";
 
 export const MAX_LINES = 500;
 
@@ -22,6 +22,7 @@ export interface RunStreamState {
   currentFile?: string;
   lines: LogLine[];
   wait?: RunWait;
+  progress?: RunProgress;
 }
 
 export const EMPTY: RunStreamState = { counts: { saved: 0, skipped: 0, failed: 0 }, lines: [] };
@@ -40,7 +41,7 @@ function apply(state: RunStreamState, event: StreamEvent, now: number): RunStrea
     case "run":
       // Every SSE connection opens with this snapshot, so a reconnect (dropped connection, laptop
       // sleep, proxy timeout) replays its buffer: start from empty or the replay doubles every line.
-      return { run: event.run, counts: { ...event.run.counts }, lines: [] };
+      return { run: event.run, counts: { ...event.run.counts }, lines: [], progress: event.run.progress };
     case "status":
       return {
         ...state,
@@ -49,6 +50,8 @@ function apply(state: RunStreamState, event: StreamEvent, now: number): RunStrea
       };
     case "counts":
       return { ...state, counts: { saved: event.saved, skipped: event.skipped, failed: event.failed } };
+    case "progress":
+      return { ...state, progress: event.progress };
     case "file": {
       const path = maskSecrets(event.path);
       return {

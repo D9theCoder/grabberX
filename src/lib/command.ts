@@ -221,6 +221,14 @@ function outputFlags(advanced: Advanced): string[] {
   return flags;
 }
 
+/** One cheap `-j` call for the first item, to read the account's media count. It writes nothing and uses no archive. */
+export function probeArgv(spec: JobSpec, settings: Pick<Settings, "cookies">): string[] {
+  const argv = ["-j", "--range", "1", "--no-colors", ...cookieFlags(spec, settings)];
+  if (spec.advanced.proxy) argv.push("--proxy", spec.advanced.proxy);
+  argv.push(siteDef(spec.site).urlFor(spec.account));
+  return argv;
+}
+
 function cookieFlags(
   spec: JobSpec,
   settings: Pick<Settings, "cookies">,

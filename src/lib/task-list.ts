@@ -1,4 +1,5 @@
 import { folderNameFor } from "@/lib/sites";
+import { formatSpeed, progressFraction } from "@/lib/progress";
 import type { Run, RunStatus, SiteId, Step } from "@/lib/spec";
 
 /** One active run as the top-bar task list shows it. */
@@ -12,6 +13,9 @@ export interface TaskSummary {
   steps: number;
   saved: number;
   failed: number;
+  /** Live speed, and the estimated percent when the site gave a total; both absent before the first tick. */
+  bytesPerSec?: number;
+  percent?: number;
   simulate: boolean;
   scheduled: boolean;
   /** 1-based place in the queue; 0 once the run has started. */
@@ -37,6 +41,8 @@ export function summarizeTasks(runs: Run[], positionOf: (id: string) => number):
       steps: run.steps.length,
       saved: run.counts.saved,
       failed: run.counts.failed,
+      bytesPerSec: run.progress?.bytesPerSec,
+      percent: percentOf(run),
       simulate: run.spec.simulate === true,
       scheduled: run.scheduled === true,
       position: run.status === "queued" ? positionOf(run.id) : 0,
@@ -60,6 +66,8 @@ export function taskDetail(task: TaskSummary): string {
   if (task.step) parts.push(task.steps > 1 ? `${STEP_WORDS[task.step]} ${task.stepIndex + 1}/${task.steps}` : STEP_WORDS[task.step]);
   parts.push(`${task.saved.toLocaleString("en-US")} ${task.simulate ? "found" : "saved"}`);
   if (task.failed > 0) parts.push(`${task.failed.toLocaleString("en-US")} failed`);
+  if (task.percent !== undefined) parts.push(`~${task.percent}%`);
+  if (task.bytesPerSec) parts.push(formatSpeed(task.bytesPerSec));
   return parts.join(" · ");
 }
 
@@ -76,4 +84,9 @@ export function taskCountLabel(tasks: TaskSummary[]): string {
 /** Tells the task bubble to refresh now instead of at its next poll. */
 export function notifyRunsChanged(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(RUNS_CHANGED_EVENT));
+}
+
+function percentOf(run: Run): number | undefined {
+  const fraction = progressFraction(run.progress, false);
+  return fraction === null ? undefined : Math.min(99, Math.floor(fraction * 100));
 }

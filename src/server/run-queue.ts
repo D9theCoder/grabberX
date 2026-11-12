@@ -1,9 +1,10 @@
 import "server-only";
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { buildCommand, stepTargetDir, WORKER_PARTS_DIR } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
+import { ProgressTracker } from "@/lib/progress";
 import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
@@ -21,6 +22,8 @@ import { resolveAccountDir } from "@/server/paths";
 import { folderChanged } from "@/server/warm-signal";
 import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
+import { probeTotal as defaultProbeTotal } from "@/server/total-probe";
+import type { ProbeTotal } from "@/server/total-probe";
 import { startWorkers } from "@/server/workers";
 import {
   appendLog,
@@ -37,6 +40,7 @@ const BUFFERED_EVENTS = 500;
 const LOG_FLUSH_MS = 250;
 const LOG_FLUSH_BYTES = 64 * 1024;
 const FINISHED_KEPT = 50;
+const PROGRESS_TICK_MS = 1000;
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set([
   "done",
@@ -81,6 +85,7 @@ function cloneRun(run: Run): Run {
 interface QueueDeps {
   getSettings?: () => Promise<Settings>;
   startProcess?: StartProcess;
+  probeTotal?: ProbeTotal;
 }
 
 interface ActiveRun {
@@ -88,6 +93,12 @@ interface ActiveRun {
   stopRequested: boolean;
   handle?: ProcessHandle;
   finished: Promise<void>;
+  tracker: ProgressTracker;
+  mediaRoot: string;
+  /** File-size lookups still in flight, so the closing numbers wait for them. */
+  pendingStats: Set<Promise<void>>;
+  progressTimer?: NodeJS.Timeout;
+  probeAbort?: AbortController;
   /** Kinds seen so far, not the lines: a verbose run can log error lines without end. */
   errorKinds: Set<ErrorKind>;
   logBuffer: string[];
@@ -109,6 +120,7 @@ export class RunQueue {
   private readonly buffers = new Map<string, RunEvent[]>();
   private readonly latestCounts = new Map<string, RunEvent>();
   private readonly latestStatus = new Map<string, RunEvent>();
+  private readonly latestProgress = new Map<string, RunEvent>();
   private readonly statusWrites = new Map<string, Promise<void>>();
   private readonly listeners = new Map<string, Set<(event: StreamEvent) => void>>();
   private readonly finished: string[] = [];
@@ -121,6 +133,7 @@ export class RunQueue {
     this.deps = {
       getSettings: deps.getSettings ?? loadSettings,
       startProcess: deps.startProcess ?? startProcess,
+      probeTotal: deps.probeTotal ?? defaultProbeTotal,
     };
     this.ready = this.markInterrupted().catch((error: unknown) => {
       console.error("grabberX: could not clean up interrupted runs.", error);
@@ -268,6 +281,8 @@ export class RunQueue {
     const events = [...(this.buffers.get(id) ?? [])];
     const counts = this.latestCounts.get(id);
     if (counts) events.push(counts);
+    const progress = this.latestProgress.get(id);
+    if (progress) events.push(progress);
     const status =
       this.latestStatus.get(id) ??
       ({ t: "status", status: run.status, stepIndex: run.stepIndex } satisfies RunEvent);
@@ -366,6 +381,9 @@ export class RunQueue {
       run,
       stopRequested: false,
       finished: Promise.resolve(),
+      tracker: new ProgressTracker(Date.now()),
+      mediaRoot: settings.mediaRoot,
+      pendingStats: new Set(),
       errorKinds: new Set(),
       logBuffer: [],
       logBytes: 0,
@@ -380,6 +398,9 @@ export class RunQueue {
       ),
     );
     this.active.set(run.id, active);
+    active.progressTimer = setInterval(() => this.publishProgress(active), PROGRESS_TICK_MS);
+    active.progressTimer.unref?.();
+    this.startProbe(active, settings);
     try {
       await this.setStatus(run, "running");
     } finally {
@@ -468,8 +489,13 @@ export class RunQueue {
     const { run } = active;
     switch (event.t) {
       case "file":
-        if (event.kind === "saved") run.counts.saved += 1;
-        else run.counts.skipped += 1;
+        if (event.kind === "saved") {
+          run.counts.saved += 1;
+          this.recordSavedFile(active, event.path);
+        } else {
+          run.counts.skipped += 1;
+          active.tracker.record(Date.now(), 0);
+        }
         this.buffer(run.id, event);
         this.emit(run.id, event);
         this.emitCounts(run);
@@ -492,6 +518,51 @@ export class RunQueue {
         // counts and status belong to the queue, not to the parser.
         break;
     }
+  }
+
+  /** The size comes from the file itself: gallery-dl prints only the path. A file that cannot be read counts as 0 bytes. */
+  private recordSavedFile(active: ActiveRun, path: string): void {
+    if (active.run.spec.simulate) {
+      active.tracker.record(Date.now(), 0);
+      return;
+    }
+    const lookup: Promise<void> = stat(resolve(active.mediaRoot, path))
+      .then(
+        (info) => active.tracker.record(Date.now(), info.size),
+        () => active.tracker.record(Date.now(), 0),
+      )
+      .finally(() => {
+        active.pendingStats.delete(lookup);
+      });
+    active.pendingStats.add(lookup);
+  }
+
+  /**
+   * The account media count is read in the background: a slow or failed lookup never delays the download,
+   * it only means no progress bar.
+   */
+  private startProbe(active: ActiveRun, settings: Settings): void {
+    const abort = new AbortController();
+    active.probeAbort = abort;
+    void this.deps
+      .probeTotal(active.run.spec, settings, abort.signal)
+      .then((total) => {
+        if (total === undefined || abort.signal.aborted || !this.active.has(active.run.id)) return;
+        active.tracker.setTotal(total);
+        this.publishProgress(active);
+      })
+      .catch(() => {});
+  }
+
+  private publishProgress(active: ActiveRun, final = false): void {
+    const { run } = active;
+    const processed = run.counts.saved + run.counts.skipped;
+    const now = Date.now();
+    const progress = final ? active.tracker.finish(now, processed) : active.tracker.snapshot(now, processed);
+    run.progress = progress;
+    const event: RunEvent = { t: "progress", progress };
+    this.latestProgress.set(run.id, event);
+    this.emit(run.id, event);
   }
 
   private handleRaw(active: ActiveRun, _stream: "stdout" | "stderr", line: string): void {
@@ -601,6 +672,13 @@ export class RunQueue {
     const { run } = active;
     if (!this.active.has(run.id)) return;
     this.active.delete(run.id);
+    if (active.progressTimer) {
+      clearInterval(active.progressTimer);
+      active.progressTimer = undefined;
+    }
+    active.probeAbort?.abort();
+    await Promise.all([...active.pendingStats]);
+    this.publishProgress(active, true);
     if (active.logTimer) {
       clearInterval(active.logTimer);
       active.logTimer = undefined;
@@ -645,6 +723,7 @@ export class RunQueue {
       this.buffers.delete(oldest);
       this.latestCounts.delete(oldest);
       this.latestStatus.delete(oldest);
+      this.latestProgress.delete(oldest);
       this.statusWrites.delete(oldest);
       this.requestOrder.delete(oldest);
     }

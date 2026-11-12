@@ -95,6 +95,22 @@ export interface Counts {
   failed: number;
 }
 
+/** Live speed and estimates, computed by the queue from the files that finished. All of the run, not one worker. */
+export interface RunProgress {
+  /** Bytes of the files saved so far. */
+  bytes: number;
+  bytesPerSec: number;
+  /** Finished files (saved or skipped) per second, over the recent window. */
+  itemsPerSec: number;
+  /** Estimated files for the whole run; only where the site reports a count up front (see progress.ts). */
+  total?: number;
+  /** saved + skipped, set together with `total`. */
+  processed?: number;
+  etaSeconds?: number;
+  /** Set on the closing numbers: `bytesPerSec` is then the run average. */
+  done?: true;
+}
+
 export interface Run {
   /** Time-sortable, e.g. 2026-11-11T09-14-02_username */
   id: string;
@@ -109,6 +125,7 @@ export interface Run {
   endedAt?: string;
   exitCode?: number;
   errorKind?: ErrorKind;
+  progress?: RunProgress;
 }
 
 /** What the parser and the runner emit while a run is live. */
@@ -117,7 +134,8 @@ export type RunEvent =
   | { t: "file"; kind: "saved" | "skipped"; path: string }
   | { t: "log"; level: "info" | "warning" | "error"; line: string }
   | { t: "wait"; reason: "rateLimit"; seconds: number; attempt: number; of: number }
-  | { t: "counts"; saved: number; skipped: number; failed: number };
+  | { t: "counts"; saved: number; skipped: number; failed: number }
+  | { t: "progress"; progress: RunProgress };
 
 /** Events sent over SSE: a RunEvent, or the run snapshot sent first on connect. */
 export type StreamEvent = RunEvent | { t: "run"; run: Run };
