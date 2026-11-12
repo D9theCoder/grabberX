@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCommand, formatCommand } from "@/lib/command";
+import { buildCommand, formatCommand, parallelBlock, stepTargetDir, workerArgv, workerCount } from "@/lib/command";
 import { DEFAULT_ADVANCED, type JobSpec, type Settings } from "@/lib/spec";
 
 const ROOT = "D:/Photos/p/scrapper";
@@ -435,5 +435,77 @@ describe("formatCommand", () => {
 
   it("returns just the exe for an empty argv", () => {
     expect(formatCommand([])).toBe("gallery-dl");
+  });
+});
+
+describe("parallel downloads", () => {
+  const bluesky = (advanced: Partial<JobSpec["advanced"]> = {}, overrides: Partial<JobSpec> = {}) =>
+    makeSpec({
+      site: "bluesky",
+      account: "name.bsky.social",
+      media: "all",
+      advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, parallel: 4, ...advanced },
+      ...overrides,
+    });
+
+  it("gives each step one argv per worker, each with its slice and its own part folder", () => {
+    const steps = buildCommand(bluesky(), settings);
+    expect(steps.map((step) => step.workers?.length)).toEqual([4, 4]);
+    const [first, , , fourth] = steps[0]!.workers!;
+    const base = steps[0]!.argv;
+    expect(first!.at(-1)).toBe(base.at(-1));
+    expect(first).toEqual([
+      ...base.slice(0, -1),
+      "--range",
+      "1::4",
+      "-o",
+      `downloader.part-directory="${ROOT}/name.bsky.social/.gather-parts/w1"`,
+      base.at(-1),
+    ]);
+    expect(fourth).toContain("4::4");
+    expect(steps[1]!.workers![1]).toContain(`downloader.part-directory="${ROOT}/name.bsky.social/.gather-parts/w2"`);
+  });
+
+  it("keeps the single-process argv unchanged", () => {
+    const single = buildCommand(bluesky({ parallel: undefined }), settings);
+    const parallel = buildCommand(bluesky(), settings);
+    expect(parallel.map((step) => step.argv)).toEqual(single.map((step) => step.argv));
+    expect(single[0]!.workers).toBeUndefined();
+  });
+
+  it("slices only the newest files when a limit is set", () => {
+    const [step] = buildCommand(bluesky({ range: 100, parallel: 3 }), settings);
+    expect(step!.argv).toContain("1-100");
+    expect(step!.workers!.map((argv) => argv[argv.indexOf("--range") + 1])).toEqual(["1:101:3", "2:101:3", "3:101:3"]);
+    for (const argv of step!.workers!) expect(argv.filter((token) => token === "--range")).toHaveLength(1);
+  });
+
+  it("refuses sites that limit requests and layouts that create folders mid-run", () => {
+    expect(parallelBlock({ site: "x", layout: { kind: "byType" } })).toMatch(/limits requests/);
+    expect(parallelBlock({ site: "bluesky", layout: { kind: "byTypeYear" } })).toMatch(/By type or Flat/);
+    expect(parallelBlock({ site: "url", layout: { kind: "flat" } })).toBeNull();
+    expect(workerCount(makeSpec({ advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, parallel: 4 } }))).toBe(1);
+    expect(workerCount(bluesky({}, { layout: { kind: "byMonth" } }))).toBe(1);
+    expect(buildCommand(bluesky({}, { layout: { kind: "byMonth" } }), settings)[0]!.workers).toBeUndefined();
+  });
+
+  it("adds a pass-everything filter to a step without one", () => {
+    const argv = workerArgv(["-d", ROOT, "https://example.com/a"], 2, 2, `${ROOT}/a/.gather-parts/w2`);
+    expect(argv).toEqual([
+      "-d",
+      ROOT,
+      "--filter",
+      "True",
+      "--range",
+      "2::2",
+      "-o",
+      `downloader.part-directory="${ROOT}/a/.gather-parts/w2"`,
+      "https://example.com/a",
+    ]);
+  });
+
+  it("names the folder to create before the workers start", () => {
+    expect(stepTargetDir(bluesky(), settings, "videos")).toBe(`${ROOT}/name.bsky.social/Video`);
+    expect(stepTargetDir(bluesky({}, { layout: { kind: "flat" } }), settings, "images")).toBe(`${ROOT}/name.bsky.social`);
   });
 });

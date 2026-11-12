@@ -7,18 +7,97 @@ const TWITTER_REPLIES_DEFAULT = true;
 /** gallery-dl's own default for -R. */
 const RETRIES_DEFAULT = 4;
 
+export const MAX_PARALLEL = 4;
+/** Each worker's unfinished files go here, inside the account folder (same drive, so the final move is a rename). */
+export const WORKER_PARTS_DIR = ".gather-parts";
+
+/**
+ * Why this run cannot use parallel downloads, or null when it can. Every worker lists the whole profile, so the
+ * site must not rate-limit its listing; and a layout that creates folders mid-run (by year or month) would have
+ * two workers race to create the same folder, which gallery-dl does not tolerate.
+ */
+export function parallelBlock(spec: Pick<JobSpec, "site" | "layout">): string | null {
+  const site = siteDef(spec.site);
+  if (!site.parallel) return `${site.label} limits requests, so it downloads one file at a time.`;
+  if (spec.layout.kind !== "byType" && spec.layout.kind !== "flat") {
+    return "Parallel downloads need the By type or Flat layout.";
+  }
+  return null;
+}
+
+/** How many gallery-dl processes each step uses: 1 unless the spec asks for more and is allowed to. */
+export function workerCount(spec: JobSpec): number {
+  const asked = spec.advanced.parallel ?? 1;
+  if (asked < 2 || parallelBlock(spec) !== null) return 1;
+  return Math.min(MAX_PARALLEL, Math.floor(asked));
+}
+
 export function buildCommand(
   spec: JobSpec,
   settings: Pick<Settings, "mediaRoot" | "cookies">,
 ): Step[] {
   const steps: Step[] = [];
   if (spec.media !== "videos") {
-    steps.push({ label: "images", argv: argvFor(spec, settings, "images") });
+    steps.push(withWorkers(spec, settings, { label: "images", argv: argvFor(spec, settings, "images") }));
   }
   if (spec.media !== "images") {
-    steps.push({ label: "videos", argv: argvFor(spec, settings, "videos") });
+    steps.push(withWorkers(spec, settings, { label: "videos", argv: argvFor(spec, settings, "videos") }));
   }
   return steps;
+}
+
+function withWorkers(spec: JobSpec, settings: Pick<Settings, "mediaRoot">, step: Step): Step {
+  const count = workerCount(spec);
+  if (count < 2) return step;
+  const partsRoot = `${rootPrefixOf(settings.mediaRoot)}${folderNameFor(spec)}/${WORKER_PARTS_DIR}`;
+  const workers = Array.from({ length: count }, (_, index) =>
+    workerArgv(step.argv, index + 1, count, `${partsRoot}/w${index + 1}`),
+  );
+  return { ...step, workers };
+}
+
+/**
+ * The folder a step writes to, for creating it before the workers start: gallery-dl creates a missing folder
+ * without allowing for another process creating it at the same moment. Only fixed layouts run in parallel, so
+ * the path has no date fields.
+ */
+export function stepTargetDir(spec: JobSpec, settings: Pick<Settings, "mediaRoot">, label: Step["label"]): string {
+  const media = label === "videos" ? "videos" : "images";
+  return `${rootPrefixOf(settings.mediaRoot)}${directoryFor(spec.layout, folderNameFor(spec), media).join("/")}`;
+}
+
+/**
+ * One worker's argv: the step's argv with its file slice (`--range i::N`, or `i:limit+1:N` under "Only the
+ * newest files") and its own folder for `.part` files, so two workers can never write the same unfinished file.
+ */
+export function workerArgv(argv: string[], index: number, count: number, partDir: string): string[] {
+  const out: string[] = [];
+  let limit: number | undefined;
+  for (let at = 0; at < argv.length; at++) {
+    if (argv[at] === "--range") {
+      limit = Number(/^1-(\d+)$/.exec(argv[at + 1] ?? "")?.[1]) || undefined;
+      at++;
+      continue;
+    }
+    out.push(argv[at]!);
+  }
+  // A step without a filter would let gallery-dl count with the extractor's own skip shortcut, and the
+  // workers' slices would no longer line up; every step is expected to carry one.
+  if (!out.includes("--filter")) out.splice(out.length - 1, 0, "--filter", "True");
+  const slice = `${index}:${limit === undefined ? "" : limit + 1}:${count}`;
+  out.splice(out.length - 1, 0, "--range", slice, "-o", `downloader.part-directory=${JSON.stringify(partDir)}`);
+  return out;
+}
+
+function rootOf(mediaRoot: string): string {
+  const trimmed = mediaRoot.replace(/[\\/]+$/, "");
+  // A drive root ("D:\") or "/" loses its meaning without the slash: "D:" is the current folder on D.
+  return trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}/` : trimmed;
+}
+
+function rootPrefixOf(mediaRoot: string): string {
+  const root = rootOf(mediaRoot);
+  return root.endsWith("/") ? root : `${root}/`;
 }
 
 function argvFor(
@@ -28,10 +107,8 @@ function argvFor(
 ): string[] {
   const site = siteDef(spec.site);
   const folder = folderNameFor(spec);
-  const trimmed = settings.mediaRoot.replace(/[\\/]+$/, "");
-  // A drive root ("D:\") or "/" loses its meaning without the slash: "D:" is the current folder on D.
-  const root = trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}/` : trimmed;
-  const rootPrefix = root.endsWith("/") ? root : `${root}/`;
+  const root = rootOf(settings.mediaRoot);
+  const rootPrefix = rootPrefixOf(settings.mediaRoot);
   const argv = [
     "-d",
     root,

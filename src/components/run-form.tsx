@@ -10,6 +10,7 @@ import { TextField } from "@/components/ui/text-field";
 import { formatBytes, formatCount, formatRelative, truncateMiddle } from "@/lib/format";
 import { LAYOUT_LABELS, detectedLayoutOf, layoutPathPreview, layoutSummary } from "@/lib/form-helpers";
 import type { DatePreset, LayoutKind } from "@/lib/form-helpers";
+import { parallelBlock } from "@/lib/command";
 import { SITES, siteDef } from "@/lib/sites";
 import type { AccountHint, Advanced, JobSpec, Media, SiteId } from "@/lib/spec";
 
@@ -262,6 +263,7 @@ export function RunForm(props: RunFormProps) {
           cookiesDefault={props.cookiesDefault}
           supportsSize={site.supportsSize}
           isX={spec.site === "x"}
+          parallelBlock={parallelBlock(spec)}
           folder={props.folderOverride}
           folderError={props.folderError}
           onFolderChange={props.onFolderChange}

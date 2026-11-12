@@ -1,6 +1,7 @@
 import "server-only";
-import { mkdir } from "node:fs/promises";
-import { buildCommand } from "@/lib/command";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { buildCommand, stepTargetDir, WORKER_PARTS_DIR } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
 import { compareRunIds } from "@/lib/run-order";
@@ -13,12 +14,14 @@ import type {
   RunEvent,
   RunStatus,
   Settings,
+  Step,
   StreamEvent,
 } from "@/lib/spec";
 import { resolveAccountDir } from "@/server/paths";
 import { folderChanged } from "@/server/warm-signal";
 import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
+import { startWorkers } from "@/server/workers";
 import {
   appendLog,
   claimQueueLock,
@@ -394,16 +397,13 @@ export class RunQueue {
       // process starts once a stop was requested.
       if (active.stopRequested) break;
       const step = run.steps[index];
-      const handle = this.deps.startProcess({
-        exe: settings.galleryDlPath,
-        argv: step.argv,
-        cwd: settings.mediaRoot,
-        onEvent: (event) => this.handleEvent(active, event),
-        onRaw: (stream, line) => this.handleRaw(active, stream, line),
-      });
+      const handle = await this.startStep(active, settings, step);
       active.handle = handle;
+      // Creating a parallel step's folder awaits; a Stop that landed meanwhile found no handle to stop.
+      if (active.stopRequested) await handle.stop();
       const result = await handle.done;
       active.handle = undefined;
+      if (step.workers) await this.removeWorkerParts(run, settings);
       if (result.exitCode !== null) run.exitCode = result.exitCode;
       if (active.stopRequested) break;
       if (result.spawnError) {
@@ -426,6 +426,33 @@ export class RunQueue {
       return;
     }
     await this.finalize(active, settings, "done");
+  }
+
+  /** One gallery-dl process, or for a parallel step its workers as one handle, log lines tagged "[2/4]". */
+  private async startStep(active: ActiveRun, settings: Settings, step: Step): Promise<ProcessHandle> {
+    const start = (argv: string[], tag?: string): ProcessHandle =>
+      this.deps.startProcess({
+        exe: settings.galleryDlPath,
+        argv,
+        cwd: settings.mediaRoot,
+        onEvent: (event) => this.handleEvent(active, event),
+        onRaw: (stream, line) => this.handleRaw(active, stream, tag ? `${tag} ${line}` : line),
+      });
+    const workers = step.workers;
+    if (!workers || workers.length < 2) return start(step.argv);
+    // gallery-dl creates a missing folder in a way that fails if another worker created it a moment earlier.
+    await mkdir(stepTargetDir(active.run.spec, settings, step.label), { recursive: true }).catch(() => {});
+    return startWorkers(workers.map((argv, index) => () => start(argv, `[${index + 1}/${workers.length}]`)));
+  }
+
+  /** Each worker kept its unfinished files in its own folder; finished files were moved out, so this is empty or debris. */
+  private async removeWorkerParts(run: Run, settings: Settings): Promise<void> {
+    try {
+      const dir = resolveAccountDir(settings.mediaRoot, folderNameFor(run.spec));
+      await rm(join(dir, WORKER_PARTS_DIR), { recursive: true, force: true });
+    } catch (error) {
+      console.warn("gather: could not remove the parallel workers' unfinished files.", error);
+    }
   }
 
   private handleEvent(active: ActiveRun, event: RunEvent): void {

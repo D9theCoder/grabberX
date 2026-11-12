@@ -12,6 +12,8 @@ interface AdvancedFieldsProps {
   cookiesDefault: Advanced["cookies"];
   supportsSize: boolean;
   isX: boolean;
+  /** Why this site or layout cannot download in parallel; null when it can. */
+  parallelBlock: string | null;
   folder: string;
   folderError?: string;
   onFolderChange: (value: string) => void;
@@ -57,6 +59,7 @@ export function AdvancedFields({
   cookiesDefault,
   supportsSize,
   isX,
+  parallelBlock,
   folder,
   folderError,
   onFolderChange,
@@ -159,6 +162,30 @@ export function AdvancedFields({
           {numberField("retries", "Retries", "Empty uses 4.", "4")}
           {textField("limitRate", "Bandwidth cap", "e.g. 2M", "none")}
           {numberField("range", "Only the newest N files", "Useful for a quick test.", "")}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-label">Parallel downloads</span>
+          <Segmented
+            label="Parallel downloads"
+            size="sm"
+            value={parallelBlock === null ? String(advanced.parallel ?? 1) : "1"}
+            onChange={(value) => onChange({ parallel: value === "1" ? undefined : Number(value) })}
+            options={["1", "2", "3", "4"].map((value) => ({
+              value,
+              label: value,
+              disabled: parallelBlock !== null && value !== "1",
+            }))}
+          />
+          <span className="text-small text-ink-2">
+            <Hint
+              text={
+                parallelBlock ??
+                "Files at once from this profile. Each extra download lists the whole profile again, so use it only where the site does not limit requests."
+              }
+              changed={advanced.parallel !== undefined}
+              onReset={() => onChange({ parallel: undefined })}
+            />
+          </span>
         </div>
         <Switch
           label="Stop when caught up"

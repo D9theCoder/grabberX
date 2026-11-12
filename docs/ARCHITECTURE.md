@@ -480,6 +480,35 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
 - **Revisit if:** the size (~150 MB installer) matters; the alternative is a Node-less shell such as Tauri
   with a smaller sidecar, at the cost of Rust glue.
 
+### ADR-10: Parallel downloads as several gallery-dl processes on one profile
+
+- **Decision:** A step can run as 2 to 4 gallery-dl processes ("workers") on the same profile. Worker *i* of
+  *N* gets `--range i::N` (every Nth file, counted after the extension filter) and its own
+  `downloader.part-directory` (`<acct>/.gather-parts/w<i>`). All workers share the step's folder and the
+  account's `archive.sqlite3`. They start 1 s apart (`src/server/workers.ts`); Stop stops every worker and
+  keeps the rest from starting; the step fails if any worker fails, but the others finish. Log lines are
+  tagged `[i/N]`; counts add up into the one run.
+- **Why:** gallery-dl downloads one file at a time and has no option for more. Sites that do not limit their
+  listing (Bluesky, a generic URL) are bound by per-file latency, so N processes are close to N times faster
+  (measured: 40 Bluesky images, 34 s with one process, 19 s with four).
+- **Safety (audited 2026-11-12 against gallery-dl 1.32.19's source):**
+  - The archive is opened with `sqlite3.connect(timeout=60)` in autocommit mode; each file adds one
+    `INSERT OR IGNORE`. A 4-process stress test with gallery-dl's exact calls wrote every entry once, with no
+    errors; the worst lock wait was 3 to 7 s with no download time between writes (0.13 s with 20 ms
+    between files). A real 4-worker download wrote 40 files and 40 archive rows, and a second pass skipped all 40.
+  - Slices cover each file exactly once (checked with `-g` and `--simulate` through the profile URL).
+  - With a `--filter`, the range counts plainly instead of using the extractor's skip shortcut, so every
+    worker numbers the same files; a step without a filter gets `--filter True`.
+  - gallery-dl creates a missing folder without `exist_ok`, so two workers can race on a new folder: the
+    queue creates the step's folder first, and only layouts with fixed folders (By type, Flat) may run in
+    parallel.
+  - New posts during a run can shift the numbering so two workers reach one file together; separate part
+    folders mean they never write the same `.part` file (one finishes, the other's rename replaces it with the
+    same bytes). A file missed by the shift is picked up by the next run.
+- **Consequences:** Each worker lists the whole profile, so N workers make N times the listing requests;
+  `SiteDef.parallel` keeps it off for X, Instagram, Pixiv and Reddit. "Stop when caught up" counts per worker.
+- **Revisit if:** gallery-dl gains in-process parallel downloads, or a site proves to rate-limit the listing.
+
 ## 9. Build order (each step ends with something that works)
 
 1. **Scaffold at the root:** `npx create-next-app@latest . --ts --tailwind --app --src-dir

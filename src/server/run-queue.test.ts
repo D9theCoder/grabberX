@@ -11,12 +11,21 @@ vi.mock("@/lib/sites", () => ({
   folderNameFor: (spec: { account: string; folder?: string }) => spec.folder ?? spec.account,
 }));
 
-vi.mock("@/lib/command", () => ({
-  buildCommand: (spec: JobSpec) => [
-    { label: "images", argv: ["images", spec.account] },
-    { label: "videos", argv: ["videos", spec.account] },
-  ],
-}));
+vi.mock("@/lib/command", () => {
+  const workersFor = (spec: JobSpec, label: string) =>
+    spec.advanced.parallel
+      ? Array.from({ length: spec.advanced.parallel }, (_, index) => [label, spec.account, `w${index + 1}`])
+      : undefined;
+  return {
+    WORKER_PARTS_DIR: ".gather-parts",
+    stepTargetDir: (spec: JobSpec, settings: Settings, label: string) =>
+      `${settings.mediaRoot}/${spec.account}/${label === "videos" ? "Video" : "Image"}`,
+    buildCommand: (spec: JobSpec) => [
+      { label: "images", argv: ["images", spec.account], workers: workersFor(spec, "images") },
+      { label: "videos", argv: ["videos", spec.account], workers: workersFor(spec, "videos") },
+    ],
+  };
+});
 
 vi.mock("@/lib/parse-line", () => ({
   parseLine: () => null,
@@ -649,6 +658,48 @@ describe("RunQueue", () => {
     expect(queue.get(run.id)?.status).toBe("stopped");
     expect(queue.get(run.id)?.endedAt).toBeTruthy();
     expect(await readdir(join(accountDir, "Image"))).toEqual(["keep.jpg"]);
+  });
+
+  it("runs a parallel step as several workers, adds up their counts and cleans their part folders", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const accountDir = join(media, "username");
+    await mkdir(join(accountDir, ".gather-parts", "w1"), { recursive: true });
+
+    const started: string[][] = [];
+    const start: StartProcess = (options) => {
+      started.push(options.argv);
+      options.onRaw("stdout", "saved a file");
+      options.onEvent({ t: "file", kind: "saved", path: `${options.argv[0]}/${options.argv[2]}.jpg` });
+      return { pid: started.length, done: Promise.resolve({ exitCode: 0 }), stop: async () => {} };
+    };
+    const queue = makeQueue(media, start);
+    const run = await queue.enqueue({ ...spec("username"), advanced: { ...spec("username").advanced, parallel: 2 } });
+    await waitFor(() => queue.get(run.id)?.status === "done", 10_000);
+
+    expect(started).toEqual([
+      ["images", "username", "w1"],
+      ["images", "username", "w2"],
+      ["videos", "username", "w1"],
+      ["videos", "username", "w2"],
+    ]);
+    expect(queue.get(run.id)?.counts.saved).toBe(4);
+    expect(await readdir(accountDir)).toEqual(expect.arrayContaining(["Image", "Video"]));
+    expect(await readdir(accountDir)).not.toContain(".gather-parts");
+    await waitUntil(async () => (await storeModule.readLogTail(run.id)).text.includes("[2/2] saved a file"));
+  }, 15_000);
+
+  it("stops every started worker of a parallel step", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const controlled = controlledProcess();
+    const queue = makeQueue(media, controlled.start);
+    const run = await queue.enqueue({ ...spec("username"), advanced: { ...spec("username").advanced, parallel: 2 } });
+    await waitFor(() => controlled.calls.length === 2, 5000);
+
+    expect(await queue.stop(run.id)).toBe(true);
+    expect(queue.get(run.id)?.status).toBe("stopped");
+    expect(controlled.calls).toHaveLength(2);
   });
 
   it("marks a run failed when the exe is missing", async () => {

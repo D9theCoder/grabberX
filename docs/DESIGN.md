@@ -203,6 +203,7 @@ A changed value shows "Changed · Reset" in `small` `ink-2` after its label; the
 | Bandwidth cap | none | `--limit-rate` | "e.g. 2M" |
 | Stop when caught up | **on** for accounts already on disk, off for new | `-A 20` | "Stops after 20 files in a row are already saved. Makes updates fast." |
 | Only the newest N files | empty | `--range 1-N` | Useful for a quick test |
+| Parallel downloads | 1 | N workers, each `--range i::N` (or `i:limit+1:N`) and its own `downloader.part-directory` | `Segmented` (sm) 1 · 2 · 3 · 4. Enabled only for sites that do not limit requests (Bluesky, Other URL) with the By type or Flat layout; otherwise 2–4 are disabled and the hint gives the reason ("X limits requests, so it downloads one file at a time." / "Parallel downloads need the By type or Flat layout."). When active, a line under the command says "Runs as N processes at once…". History shows "Parallel downloads: N at once". |
 
 **Output and session**
 

@@ -17,12 +17,18 @@ interface CommandPanelProps {
   error: string | null;
   /** Shown above the buttons while a run for this account waits in the queue. */
   queuedNote: string | null;
+  /** Parallel downloads: how many gallery-dl processes each step runs as. */
+  workers: number;
   /** A warning above the buttons, e.g. the cookie check. */
   notice?: ReactNode;
   /** Tappable run summary in the sticky bar on narrow screens. */
   barSummary: ReactNode;
   onPreview: () => void;
   onDownload: () => void;
+}
+
+function ordinal(count: number): string {
+  return count === 2 ? "second" : count === 3 ? "third" : `${count}th`;
 }
 
 export function CommandPanel(props: CommandPanelProps) {
@@ -51,6 +57,12 @@ export function CommandPanel(props: CommandPanelProps) {
         ) : (
           <CommandBlock steps={props.steps} />
         )}
+        {props.workers > 1 ? (
+          <p className="mt-2 mb-0 text-small text-ink-2">
+            Runs as {props.workers} processes at once. Each adds <code className="font-mono text-code">--range i::{props.workers}</code>{" "}
+            to take every {ordinal(props.workers)} file, and keeps its unfinished files in its own folder.
+          </p>
+        ) : null}
       </div>
 
       <div
