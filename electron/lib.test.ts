@@ -16,6 +16,14 @@ const lib = require("./lib.cjs") as {
   parseServerMessage(message: unknown): { kind: "scheduled-pass"; body: string } | null;
   closesToTray(settings: unknown): boolean;
   nextUpdateState(previous: Record<string, unknown>, event: string, payload?: unknown): Record<string, unknown>;
+  autoInstallDecision(input: {
+    version: string;
+    sinceBootMs: number;
+    windowVisible: boolean;
+    activeRuns: number;
+    lastAttempt: { version: string; at: string } | null;
+    now: number;
+  }): "visible" | "hidden" | "wait" | "blocked";
 };
 
 let sandbox = "";
@@ -185,5 +193,27 @@ describe("nextUpdateState", () => {
       state: "error",
       message: "net::ERR_INTERNET_DISCONNECTED",
     });
+  });
+});
+
+describe("autoInstallDecision", () => {
+  const now = Date.parse("2026-11-12T10:00:00.000Z");
+  const base = { version: "0.1.5", sinceBootMs: 20_000, windowVisible: true, activeRuns: 0, lastAttempt: null, now };
+
+  it("installs at start, or quietly while hidden in the tray", () => {
+    expect(lib.autoInstallDecision(base)).toBe("visible");
+    expect(lib.autoInstallDecision({ ...base, sinceBootMs: 3_600_000, windowVisible: false })).toBe("hidden");
+  });
+
+  it("waits while the user works or a download runs", () => {
+    expect(lib.autoInstallDecision({ ...base, sinceBootMs: 3_600_000 })).toBe("wait");
+    expect(lib.autoInstallDecision({ ...base, windowVisible: false, activeRuns: 1 })).toBe("wait");
+  });
+
+  it("does not retry the same version within six hours", () => {
+    const lastAttempt = { version: "0.1.5", at: "2026-11-12T09:30:00.000Z" };
+    expect(lib.autoInstallDecision({ ...base, lastAttempt })).toBe("blocked");
+    expect(lib.autoInstallDecision({ ...base, lastAttempt: { ...lastAttempt, at: "2026-11-12T03:00:00.000Z" } })).toBe("visible");
+    expect(lib.autoInstallDecision({ ...base, lastAttempt: { ...lastAttempt, version: "0.1.4" } })).toBe("visible");
   });
 });

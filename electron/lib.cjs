@@ -161,7 +161,30 @@ function nextUpdateState(previous, event, payload) {
   }
 }
 
+/** How long after launch a downloaded update still counts as "found at start". */
+const STARTUP_INSTALL_MS = 2 * 60 * 1000;
+/** A failed silent install must not turn every launch into another install. */
+const RETRY_INSTALL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Whether to install a downloaded update now, without the user pressing anything.
+ * - "visible": right after launch, before the user has started any work, restart into the new version.
+ * - "hidden": the window is hidden in the tray, so restart quietly and stay in the tray.
+ * - "wait": the user is using the app or a download runs; ask with a notification instead.
+ * - "blocked": the same version was already tried recently, so the silent install failed; ask instead.
+ */
+function autoInstallDecision({ version, sinceBootMs, windowVisible, activeRuns, lastAttempt, now }) {
+  if (activeRuns > 0) return "wait";
+  if (lastAttempt && lastAttempt.version === version && now - Date.parse(lastAttempt.at) < RETRY_INSTALL_MS) {
+    return "blocked";
+  }
+  if (!windowVisible) return "hidden";
+  if (sinceBootMs < STARTUP_INSTALL_MS) return "visible";
+  return "wait";
+}
+
 module.exports = {
+  autoInstallDecision,
   closesToTray,
   nextUpdateState,
   findFreePort,
