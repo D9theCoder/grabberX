@@ -48,7 +48,7 @@ export async function GET(request: Request): Promise<Response> {
     const size = parseThumbSize(thumbParam);
     if (size === null) return fail("That thumbnail size isn't available.", 400);
     const isVideo = mimeTypeOf(file.name)?.startsWith("video/") ?? false;
-    // A video's poster exists only once a browser has captured one; until then the tile plays its metadata.
+    // A video's poster comes from a browser capture or the ffmpeg warmer; until then the tile plays its metadata.
     const bytes = isVideo ? await cachedThumbnail(file.full, 480, file.info) : await getThumbnail(file.full, size, file.info);
     if (bytes === null) {
       return isVideo ? fail("No poster yet.", 404) : fail("Thumbnails are unavailable.", 501);

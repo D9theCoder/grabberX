@@ -49,8 +49,6 @@ export function thumbKey(fullPath: string, size: ThumbSize, file: { size: number
     .digest("hex");
 }
 
-let writesSincePrune = 0;
-
 /** Deletes the oldest thumbnails once the cache is over its cap. Runs now and then, never on a read. */
 export async function pruneThumbCache(limit: number = CACHE_LIMIT_BYTES): Promise<void> {
   const dir = thumbCacheDir();
@@ -119,12 +117,24 @@ class Gate {
   }
 }
 
-const gate = new Gate(3);
-const inFlight = new Map<string, Promise<Buffer | null>>();
+// The gate and in-flight map live on globalThis: Next can load this module in more than one chunk, and the
+// grid and the warmer must share one gate for the warmer to step aside.
+interface ThumbState {
+  gate: Gate;
+  inFlight: Map<string, Promise<Buffer | null>>;
+  writesSincePrune: number;
+}
+
+const THUMB_STATE = Symbol.for("gather.thumbs");
+
+function thumbState(): ThumbState {
+  const holder = globalThis as unknown as Record<symbol, ThumbState | undefined>;
+  return (holder[THUMB_STATE] ??= { gate: new Gate(3), inFlight: new Map(), writesSincePrune: 0 });
+}
 
 /** True while the grid is asking for thumbnails; the warmer waits. */
 export function thumbnailsBusy(): boolean {
-  return gate.busy;
+  return thumbState().gate.busy;
 }
 
 async function store(cached: string, output: Buffer) {
@@ -132,9 +142,10 @@ async function store(cached: string, output: Buffer) {
   const temp = `${cached}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   await writeFile(temp, output);
   await rename(temp, cached).catch(() => rm(temp, { force: true }));
-  writesSincePrune += 1;
-  if (writesSincePrune >= PRUNE_EVERY) {
-    writesSincePrune = 0;
+  const state = thumbState();
+  state.writesSincePrune += 1;
+  if (state.writesSincePrune >= PRUNE_EVERY) {
+    state.writesSincePrune = 0;
     void pruneThumbCache().catch(() => {});
   }
 }
@@ -150,9 +161,14 @@ export async function hasThumbnail(fullPath: string, size: ThumbSize, file: { si
   );
 }
 
-/** A cached thumbnail only, never a new one. Video posters exist only once a browser has sent one. */
+/** A cached thumbnail only, never a new one. Video posters come from a browser capture or the ffmpeg warmer. */
 export async function cachedThumbnail(fullPath: string, size: ThumbSize, file: { size: number; mtimeMs: number }) {
   return readFile(cachePath(fullPath, size, file)).catch(() => null);
+}
+
+/** True when sharp loaded; the warmer skips work that would be thrown away. */
+export async function thumbnailsAvailable(): Promise<boolean> {
+  return (await loadSharp()) !== null;
 }
 
 /** Returns WebP bytes, or null when thumbnails are unavailable (sharp missing, or the file can't be decoded). */
@@ -167,9 +183,10 @@ export async function getThumbnail(
   if (hit) return hit;
 
   // Two tiles (or the grid and the warmer) asking for the same thumbnail share one decode.
-  const running = inFlight.get(cached);
+  const state = thumbState();
+  const running = state.inFlight.get(cached);
   if (running) return running;
-  const job = gate
+  const job = state.gate
     .run(priority, async () => {
       const again = await readFile(cached).catch(() => null);
       if (again) return again;
@@ -189,36 +206,38 @@ export async function getThumbnail(
       await store(cached, output);
       return output;
     })
-    .finally(() => inFlight.delete(cached));
-  inFlight.set(cached, job);
+    .finally(() => state.inFlight.delete(cached));
+  state.inFlight.set(cached, job);
   return job;
 }
 
 const POSTER_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
- * Stores a video's poster frame, captured by the browser (there is no ffmpeg here). The bytes are decoded
- * and re-encoded, so whatever the page sends, only a real image of at most 480 px lands in the cache.
+ * Stores a video's poster frame, captured by a browser or the ffmpeg warmer. The bytes are decoded and
+ * re-encoded, so whatever the source sends, only a real image of at most 480 px lands in the cache. Returns
+ * the stored WebP length, or null when the bytes aren't a usable image.
  */
 export async function savePoster(
   fullPath: string,
   file: { size: number; mtimeMs: number },
   bytes: Uint8Array,
-): Promise<boolean> {
-  if (bytes.length === 0 || bytes.length > POSTER_MAX_BYTES) return false;
+  priority: Priority = "now",
+): Promise<number | null> {
+  if (bytes.length === 0 || bytes.length > POSTER_MAX_BYTES) return null;
   const sharp = await loadSharp();
-  if (sharp === null) return false;
+  if (sharp === null) return null;
   try {
-    const output = await gate.run("now", () =>
+    const output = await thumbState().gate.run(priority, () =>
       sharp(bytes, { failOn: "error", limitInputPixels: 4096 * 4096 })
         .resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true })
         .webp({ quality: 72 })
         .toBuffer(),
     );
     await store(cachePath(fullPath, 480, file), output);
-    return true;
+    return output.length;
   } catch {
-    return false;
+    return null;
   }
 }
 

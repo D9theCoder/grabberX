@@ -17,7 +17,7 @@ interface Entry {
   m: number;
   w?: number;
   h?: number;
-  /** Video length in seconds, reported by the browser the first time a tile played its metadata. */
+  /** Video length in seconds, reported by the browser or extracted by the ffmpeg warmer. */
   d?: number;
 }
 
@@ -37,8 +37,19 @@ const MEMORY_MAX = 64;
 const SAVE_DELAY_MS = 1500;
 const CONCURRENCY = 8;
 
-const memory = new Map<string, FolderIndex>();
-const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
+// Next can load this module in more than one chunk. The memory map and pending timers live on globalThis so
+// the warmer, the media routes and the pages see one index, as the mobile gateway state does.
+interface IndexState {
+  memory: Map<string, FolderIndex>;
+  pendingSaves: Map<string, ReturnType<typeof setTimeout>>;
+}
+
+const INDEX_STATE = Symbol.for("gather.media-index");
+
+function indexState(): IndexState {
+  const holder = globalThis as unknown as Record<symbol, IndexState | undefined>;
+  return (holder[INDEX_STATE] ??= { memory: new Map(), pendingSaves: new Map() });
+}
 
 function indexDir(): string {
   return join(gatherHome(), "index");
@@ -50,6 +61,7 @@ function indexFile(folder: string): string {
 }
 
 async function load(folder: string): Promise<FolderIndex> {
+  const memory = indexState().memory;
   const cached = memory.get(folder);
   if (cached) {
     memory.delete(folder);
@@ -72,6 +84,7 @@ async function load(folder: string): Promise<FolderIndex> {
 }
 
 function scheduleSave(folder: string, index: FolderIndex) {
+  const pendingSaves = indexState().pendingSaves;
   clearTimeout(pendingSaves.get(folder));
   pendingSaves.set(
     folder,
@@ -157,7 +170,8 @@ export async function recordDuration(folder: string, file: MediaFile, seconds: n
 
 /** For tests: forget everything held in memory. */
 export function resetMediaIndexMemory(): void {
-  memory.clear();
-  for (const timer of pendingSaves.values()) clearTimeout(timer);
-  pendingSaves.clear();
+  const state = indexState();
+  state.memory.clear();
+  for (const timer of state.pendingSaves.values()) clearTimeout(timer);
+  state.pendingSaves.clear();
 }

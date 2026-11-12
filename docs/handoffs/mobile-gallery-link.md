@@ -215,6 +215,13 @@ must update the advertised URL.
 - The dev server is unsupported for the phone pages: the gateway does not proxy the HMR socket and hydration waits for it. Test with a production build.
 - The CSP allows inline scripts and styles (Next hydration) and `unsafe-eval` only outside production.
 - `/api/media/dims` is blocked by the gateway. `POST /api/media/zip` is allowed (session + same Origin + 1 MB body cap) so a phone can download a selection as a zip; `GET` on it stays blocked.
+- When a video has no saved poster, its `/m` tile falls back to a muted, metadata-only `<video>` that shows the first
+  frame. The phone never posts a poster, so the gateway's `POST /api/media/poster` stays blocked.
+- The phone asks for the same 480 px thumbnails the warmer builds. It used to ask for 240 px, a size no warmer
+  produced, so every mobile image was decoded on demand.
+- The warmer also captures video posters when ffmpeg is available (`GATHER_FFMPEG`; from source it also searches
+  PATH) and records each video's length; without ffmpeg the desktop browser still captures one, and the phone
+  shows its metadata fallback.
 - Phone read features: sort, filter (all / images / videos), multi-select (long press or Select), select all / none, single download, zip download (at most 5,000 files and 4 GB), a details panel (size, dimensions, date, link to the X post).
 - The e2e test caught that `Referrer-Policy: no-referrer` makes Chrome send `Origin: null` on same-origin form POSTs; the gateway uses `same-origin`.
 - The mobile e2e now has its own config and temp state (`npm run test:e2e:mobile`).

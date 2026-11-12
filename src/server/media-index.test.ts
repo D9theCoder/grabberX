@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaFile } from "@/components/gallery/types";
 import { completeMeta, knownMeta, recordDuration, resetMediaIndexMemory } from "@/server/media-index";
 
@@ -59,5 +59,16 @@ describe("media index", () => {
     const meta = await knownMeta(folder, edited);
     expect(meta.dimensions["1_1.jpg"]).toBeUndefined();
     expect(meta.missing).toBe(1);
+  });
+
+  it("shares its memory with another module copy", async () => {
+    await completeMeta(folder, files);
+    await recordDuration(folder, files[2]!, 42.04);
+    // The save is debounced, so the second copy can only see the length through the shared memory state.
+    vi.resetModules();
+    const second = await import("@/server/media-index");
+    const meta = await second.knownMeta(folder, files);
+    expect(meta.durations).toEqual({ "3_1.mp4": 42 });
+    expect(meta.dimensions["1_1.jpg"]).toEqual([640, 480]);
   });
 });

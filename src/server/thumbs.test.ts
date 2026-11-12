@@ -84,13 +84,15 @@ describe("posters and the request gate", () => {
     const video = { size: 1234, mtimeMs: 5678 };
     const frame = await sharp({ create: { width: 1280, height: 720, channels: 3, background: "#404040" } }).jpeg().toBuffer();
     expect(await cachedThumbnail(join(sandbox, "9_1.mp4"), 480, video)).toBeNull();
-    expect(await savePoster(join(sandbox, "9_1.mp4"), video, new Uint8Array(frame))).toBe(true);
+    const stored = await savePoster(join(sandbox, "9_1.mp4"), video, new Uint8Array(frame));
+    expect(stored).not.toBeNull();
     const poster = await cachedThumbnail(join(sandbox, "9_1.mp4"), 480, video);
     expect(poster).not.toBeNull();
+    expect(stored).toBe(poster!.length);
     const meta = await sharp(poster!).metadata();
     expect(meta.format).toBe("webp");
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(480);
-    expect(await savePoster(join(sandbox, "9_2.mp4"), video, new TextEncoder().encode("<html>"))).toBe(false);
+    expect(await savePoster(join(sandbox, "9_2.mp4"), video, new TextEncoder().encode("<html>"))).toBeNull();
   });
 
   it("makes one thumbnail once when two callers ask at the same time", async () => {

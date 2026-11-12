@@ -84,6 +84,9 @@ Settings → Mobile gallery shares the library with an Android phone on the same
 - `gallery-dl` = standalone exe `C:\tools\gallery-dl.exe`, v1.32.19 (bundled Python 3.14). `pip`/`python`
   on PATH is a *different* interpreter (3.11) without gallery-dl installed — do not try to `pip install` it.
 - `yt-dlp` is **not installed** and is not needed: gallery-dl downloads X MP4s natively.
+- `ffmpeg`/`ffprobe` 8.1.1 are on PATH (`C:\ProgramData\chocolatey\bin\`). From source the thumbnail warmer
+  auto-detects `ffmpeg` on PATH to pre-build video posters; the packaged app uses only `GATHER_FFMPEG`, so it never
+  runs an arbitrary PATH binary. It stays optional, and without it the browser captures posters as before.
 - Auth is always `--cookies-from-browser firefox` (129 cookies, profile `a1b2c3d4.default-release-*`).
   Requires the user to be logged into x.com in Firefox; cookies are read fresh each run.
 - Global config `%APPDATA%\gallery-dl\config.json` sets `base-directory: D:/Photos/p/scrapper/` and
@@ -143,7 +146,7 @@ PowerShell quoting: `-o` takes JSON, so use single quotes outside and **double**
   `Move-Item`, then rely on the archive so nothing re-downloads.
 - Media is bulky (one account hit 3.14 GB / 103 videos). Never open, read, or diff binary media; report
   counts, byte totals, and dimensions instead (`System.Drawing` for images; Windows Shell COM
-  `GetDetailsOf($item, 330)` / `328` for video width/height, since ffprobe is not installed).
+  `GetDetailsOf($item, 330)` / `328` for video width/height; ffprobe is on PATH too, but the app never depends on it).
 
 ## Verification commands
 

@@ -159,6 +159,14 @@ test.describe("mobile gallery", () => {
         expect((await phone.request.get(`${GATEWAY}/api/media?${target}`)).status(), target).toBeGreaterThanOrEqual(400);
       }
 
+      // A video with no captured poster still shows a first frame on the phone: the tile falls back to a muted
+      // preview instead of staying blank, and never uploads a poster through the read-only gateway.
+      expect((await phone.request.get(`${video}&thumb=480`)).status()).toBe(404);
+      await mobile.goto(`${GATEWAY}/m/${ACCOUNT}/Video`);
+      const videoTile = mobile.getByRole("button", { name: "Open 1800000000000009999_1.mp4" });
+      await expect(videoTile.locator("video")).toHaveCount(1);
+      await expect(videoTile.locator("video")).toHaveAttribute("preload", "metadata");
+
       // Everything on the desktop is closed to the phone, writes included.
       for (const path of ["/", "/settings", "/library", "/history", "/api/runs", "/api/open-folder", "/api/health", "/api/media/zip", "/api/media/dims"]) {
         expect((await phone.request.get(`${GATEWAY}${path}`)).status(), path).toBe(404);

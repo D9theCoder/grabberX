@@ -350,12 +350,19 @@ The grid never waits on decoding or on a header scan it has done before:
 - **Warmer** (`src/server/thumb-warmer.ts`). After a real run (the queue's sweep emits `folderChanged`) and once
   15 s after start, it walks each account, completes the index and builds missing 480 px thumbnails newest first,
   pausing while the grid is asking. It stops after 768 MB per session; the cache cap is 1 GB.
-  `GATHER_NO_WARM=1` turns it off (tests).
+  `GATHER_NO_WARM=1` turns it off (tests). The phone asks for the same 480 px size, so one warm folder serves both
+  clients; a 240 px request would decode every tile again on the phone. The gate and the media index are kept on
+  `globalThis`, because Next can load those modules in more than one chunk and the grid, routes and warmer must
+  share one copy.
 - **Browser cache.** Thumbnail URLs carry `v=<size-mtime>`; the route answers those with
   `cache-control: immutable`, so a second visit makes no requests at all.
-- **Video posters.** There is no ffmpeg, so the first time a video tile loads its metadata the browser draws the
+- **Video posters.** Without ffmpeg, the first time a desktop video tile loads its metadata the browser draws the
   frame on a canvas and posts it with the length to `/api/media/poster`. The server decodes and re-encodes it with
-  `sharp` (at most 2 MB in, 480 px out), so only a real image lands in the cache.
+  `sharp` (at most 2 MB in, 480 px out), so only a real image lands in the cache. When `ffmpeg` is available
+  (from source on PATH; the packaged app only via `GATHER_FFMPEG`), the warmer captures one frame per video in
+  the background, stores it the same way, and records its length for the duration badge, so both clients get a
+  cached poster without opening a video. The mobile gateway blocks the poster POST: a phone tile with no poster
+  yet shows the first frame from a muted, metadata-only `<video>` instead, so the phone stays read-only.
 - **Run panel.** Log lines carry a stable id, so a capped 500-line log adds and removes one node per line instead
   of rewriting all of them every frame. Library sizes are counted in batches of 64 `stat` calls, and an account
   with an active run is recounted at most every 15 s.

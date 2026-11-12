@@ -44,6 +44,9 @@ Differences from the plan below:
 - **gallery-dl:** the standalone exe is published at `gdl-org/builds`, not the main repo. `scripts/fetch-gallery-dl.mjs`
   pins a tag and SHA-256 and refuses a mismatch. Settings has "Look for updates" / "Update now" (`gallery-dl
   --update-check` and `--update`), refused while a run is active.
+- **Optional ffmpeg:** the thumbnail warmer can pre-build video posters with ffmpeg. From source it detects
+  `ffmpeg` on PATH; the packaged app uses only `GATHER_FFMPEG` and never searches PATH, so an installed binary is
+  not run implicitly. Without it, the desktop browser captures posters as before.
 - **Auto-update of the app** is on for CI builds and off for local ones. The workflow passes this repository as
   the publish target (`-c.publish.*`), so the build writes `app-update.yml` and `latest.yml`, and a `v*` tag
   uploads the installer, its blockmap and `latest.yml` to the GitHub release. The installed app checks on

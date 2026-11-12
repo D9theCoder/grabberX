@@ -67,6 +67,25 @@ function startDownload(account: string, path: string, files: MediaFile[]): void 
   form.remove();
 }
 
+/** A video with no saved poster yet shows its first frame directly; the phone never posts one back. */
+function VideoPreview({ source, className = "" }: { source: string; className?: string }) {
+  return (
+    <video
+      src={`${source}#t=0.1`}
+      preload="metadata"
+      muted
+      playsInline
+      tabIndex={-1}
+      aria-hidden="true"
+      // The fragment seeks on browsers that honor it; setting the time once covers the ones that ignore it.
+      onLoadedMetadata={(event) => {
+        if (event.currentTarget.currentTime === 0) event.currentTarget.currentTime = 0.1;
+      }}
+      className={`pointer-events-none size-full object-cover ${className}`}
+    />
+  );
+}
+
 function Tile({
   file,
   account,
@@ -85,6 +104,7 @@ function Tile({
   onLongPress: () => void;
 }) {
   const [broken, setBroken] = useState(false);
+  const [posterMissing, setPosterMissing] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
 
@@ -120,15 +140,22 @@ function Tile({
       aria-pressed={selecting ? selected : undefined}
       className="relative aspect-square touch-pan-y overflow-hidden bg-sunken p-0 select-none [-webkit-touch-callout:none]"
     >
-      {broken ? null : (
+      {file.kind === "video" && posterMissing ? (
+        // No poster has been captured yet. Load the metadata and show the first frame instead of a blank tile.
+        <VideoPreview source={mediaUrl(account, path, file)} className={selected ? "scale-90" : ""} />
+      ) : broken ? null : (
+        // 480 is the size the warmer pre-builds; asking for 240 would decode every thumbnail on demand.
         // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from the media route with their own cache headers
         <img
-          src={mediaUrl(account, path, file, { thumb: file.kind === "video" ? 480 : 240 })}
+          src={mediaUrl(account, path, file, { thumb: 480 })}
           alt=""
           loading="lazy"
           decoding="async"
           draggable={false}
-          onError={() => setBroken(true)}
+          onError={() => {
+            if (file.kind === "video") setPosterMissing(true);
+            else setBroken(true);
+          }}
           className={`size-full object-cover ${selected ? "scale-90" : ""}`}
         />
       )}

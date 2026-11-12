@@ -33,5 +33,5 @@ export async function POST(request: Request): Promise<Response> {
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.length === 0) return Response.json({ ok: true });
   const saved = await savePoster(file.full, file.info, bytes);
-  return saved ? Response.json({ ok: true }) : fail("That poster isn't a usable image.", 400);
+  return saved !== null ? Response.json({ ok: true }) : fail("That poster isn't a usable image.", 400);
 }

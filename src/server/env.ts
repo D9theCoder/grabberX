@@ -60,6 +60,11 @@ export function envGalleryDl(): string | undefined {
   return requiredWhenPackaged("GATHER_GALLERY_DL");
 }
 
+/** Optional ffmpeg binary for pre-building video posters. Missing is fine: a browser captures one instead. */
+export function envFfmpeg(): string | undefined {
+  return fromEnv("GATHER_FFMPEG");
+}
+
 /** The install directory; a library placed inside it would be lost on update. */
 export function envAppDir(): string | undefined {
   return fromEnv("GATHER_APP_DIR");

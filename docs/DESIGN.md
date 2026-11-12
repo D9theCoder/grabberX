@@ -329,8 +329,10 @@ beyond a breadcrumb, a filter and a sort.
   file's size and modified time, so the URL is cached by the browser for good and a revisited folder paints
   from its cache. Thumbnails are built ahead of time by a background warmer (after each download, and once
   shortly after start) and kept under the state folder (`thumbs/`, capped at 1 GB). Videos show a poster frame
-  that the browser captured the first time the tile loaded the video's metadata, plus a play glyph and the
-  length. If thumbnails are unavailable (`sharp` failed to load) the browser scales the original.
+  that the warmer captures with ffmpeg when available, or one the browser captured the first time the tile
+  loaded the video's metadata; either way the tile also shows a play glyph and the length. The same ffmpeg pass
+  records each video's length in the media index. If thumbnails are unavailable (`sharp` failed to load) the
+  browser scales the original.
 - **Layout without waiting.** Image sizes and video lengths come from a per-folder index on disk
   (`index/`), read with the page, so the justified rows are right on the first paint. Files the index does
   not know yet are filled in by `/api/media/dims`, which reads only image headers.
