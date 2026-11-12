@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LiveRefresh } from "@/components/live-refresh";
 import { RunAgainButton } from "@/components/run-again-button";
 import { CommandBlock } from "@/components/ui/command-block";
 import { LogView } from "@/components/ui/log-view";
@@ -10,10 +11,11 @@ import { formatCommand } from "@/lib/command";
 import { formatElapsed } from "@/lib/format";
 import { LAYOUT_LABELS, MEDIA_LABELS } from "@/lib/form-helpers";
 import { maskSecrets } from "@/lib/mask";
-import { endMessage } from "@/lib/run-copy";
+import { endMessage, isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor, siteDef } from "@/lib/sites";
 import type { Run } from "@/lib/spec";
-import { getRun, getSettings, isValidRunId, readLogTail } from "@/server/store";
+import { getRunLive } from "@/server/history";
+import { getSettings, isValidRunId, readLogTail } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +69,7 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
   const { id } = await params;
   if (!isValidRunId(id)) notFound();
 
-  const [run, settings, tail] = await Promise.all([getRun(id), getSettings(), readLogTail(id)]);
+  const [run, settings, tail] = await Promise.all([getRunLive(id), getSettings(), readLogTail(id)]);
   if (!run) notFound();
 
   const outcome = endMessage(run, settings.galleryDlPath);
@@ -87,6 +89,7 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
 
   return (
     <main className="flex flex-col gap-8 pt-12 pb-16">
+      <LiveRefresh active={isActiveStatus(run.status)} />
       <div className="flex flex-col gap-3">
         <Link href="/history" className="inline-flex min-h-10 items-center self-start text-small text-ink-2 underline underline-offset-2 hover:text-ink">
           Back to history
