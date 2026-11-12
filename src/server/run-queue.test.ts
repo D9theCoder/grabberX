@@ -125,6 +125,7 @@ function makeQueue(mediaRoot: string, start: StartProcess, extra: Partial<Settin
   return new queueModule.RunQueue({
     getSettings: async () => settings(mediaRoot, extra),
     startProcess: start,
+    probeTotal: async () => undefined,
   });
 }
 
@@ -846,5 +847,42 @@ describe("RunQueue", () => {
       async () => (await storeModule.listRuns(Number.MAX_SAFE_INTEGER)).length <= 10,
     );
     expect((await storeModule.listRuns(Number.MAX_SAFE_INTEGER)).length).toBe(10);
+  });
+
+  it("adds up bytes across parallel workers and uses a probed total", async () => {
+    isolationHome();
+    const media = await tempDir();
+    await mkdir(join(media, "username", "Image"), { recursive: true });
+    await writeFile(join(media, "username", "Image", "a.jpg"), Buffer.alloc(2000));
+    await writeFile(join(media, "username", "Image", "b.jpg"), Buffer.alloc(3000));
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let workers = 0;
+    const start: StartProcess = (options) => {
+      // Two processes report into one run, as the workers of a parallel step do.
+      workers += 1;
+      const path = workers === 1 ? "username/Image/a.jpg" : "username/Image/b.jpg";
+      options.onEvent({ t: "file", kind: "saved", path });
+      return { pid: workers, done: gate.then(() => ({ exitCode: 0 })), stop: async () => {} };
+    };
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: start,
+      probeTotal: async () => 100,
+    });
+    const enqueued = await queue.enqueue({ ...spec("username"), media: "images" });
+    await waitFor(() => (queue.get(enqueued.id)?.counts.saved ?? 0) >= 1);
+    await waitFor(() => queue.get(enqueued.id)?.progress?.total === 100);
+    release();
+    await waitFor(() => queue.get(enqueued.id)?.status === "done");
+
+    const finished = queue.get(enqueued.id);
+    expect(finished?.progress?.done).toBe(true);
+    expect(finished?.progress?.bytes).toBe(5000);
+    expect(finished?.progress?.total).toBe(100);
+    expect(queue.snapshot(enqueued.id)?.events.some((event) => event.t === "progress")).toBe(true);
   });
 });
