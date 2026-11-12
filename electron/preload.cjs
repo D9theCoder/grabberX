@@ -5,4 +5,7 @@ contextBridge.exposeInMainWorld("gatherShell", {
   pickFolder: (defaultPath) => ipcRenderer.invoke("gather:pick-folder", defaultPath),
   openLogs: () => ipcRenderer.invoke("gather:open-logs"),
   trashItem: (filePath) => ipcRenderer.invoke("gather:trash-item", filePath),
+  showItem: (filePath) => ipcRenderer.invoke("gather:show-item", filePath),
+  openItem: (filePath) => ipcRenderer.invoke("gather:open-item", filePath),
+  setTheme: (theme) => ipcRenderer.invoke("gather:set-theme", theme),
 });

@@ -14,6 +14,9 @@ import { runQueue } from "@/server/run-queue";
 import { getSettings } from "@/server/store";
 
 const STATS_CACHE_MAX = 64;
+const STAT_BATCH = 64;
+/** While a run writes into an account its folders change every second; recount at most this often. */
+const ACTIVE_RECOUNT_MS = 15_000;
 const YEAR_FOLDER = /^\d{4}$/;
 
 const FOLDER_NAME_MESSAGE =
@@ -22,6 +25,7 @@ const FOLDER_NAME_MESSAGE =
 interface StatsCacheEntry {
   signature: string;
   stats: AccountStats;
+  at: number;
 }
 
 const statsCache = new Map<string, StatsCacheEntry>();
@@ -61,6 +65,7 @@ const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v)$/i;
 async function walkByExtension(dir: string): Promise<AccountStats> {
   const totals: AccountStats = { images: 0, videos: 0, bytes: 0 };
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const media: { path: string; image: boolean }[] = [];
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -71,12 +76,19 @@ async function walkByExtension(dir: string): Promise<AccountStats> {
       continue;
     }
     const isImage = IMAGE_EXTENSION.test(entry.name);
-    if (!entry.isFile() || (!isImage && !VIDEO_EXTENSION.test(entry.name))) continue;
-    const info = await stat(full).catch(() => null);
-    if (!info) continue;
-    if (isImage) totals.images += 1;
-    else totals.videos += 1;
-    totals.bytes += info.size;
+    if (entry.isFile() && (isImage || VIDEO_EXTENSION.test(entry.name))) media.push({ path: full, image: isImage });
+  }
+  // Stats in batches: one at a time took seconds on a big account, while the run itself kept the disk busy.
+  for (let index = 0; index < media.length; index += STAT_BATCH) {
+    const batch = media.slice(index, index + STAT_BATCH);
+    const infos = await Promise.all(batch.map((item) => stat(item.path).catch(() => null)));
+    batch.forEach((item, position) => {
+      const info = infos[position];
+      if (!info) return;
+      if (item.image) totals.images += 1;
+      else totals.videos += 1;
+      totals.bytes += info.size;
+    });
   }
   return totals;
 }
@@ -108,6 +120,7 @@ async function accountStats(folder: string, dir: string): Promise<AccountStats> 
     .join(":");
   const cached = statsCache.get(folder);
   if (cached && cached.signature === signature) return cached.stats;
+  if (cached && Date.now() - cached.at < ACTIVE_RECOUNT_MS && runQueue.findActive(folder)) return cached.stats;
 
   // Typed accounts count only their Image/ and Video/ folders: the cache signature covers just those,
   // and anything else under the account folder (a manual export, a backup) is not downloaded media.
@@ -127,7 +140,7 @@ async function accountStats(folder: string, dir: string): Promise<AccountStats> 
     const oldest = statsCache.keys().next().value;
     if (oldest !== undefined) statsCache.delete(oldest);
   }
-  statsCache.set(folder, { signature, stats });
+  statsCache.set(folder, { signature, stats, at: Date.now() });
   return stats;
 }
 

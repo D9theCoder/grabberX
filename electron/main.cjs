@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, nativeTheme, shell, utilityProcess } = require("electron");
 const lib = require("./lib.cjs");
 
 const repoRoot = path.join(__dirname, "..");
@@ -27,6 +27,7 @@ let server = null;
 let serverExited = false;
 let origin = null;
 let quitting = false;
+let trayHintShown = false;
 /** Windows drops a notification whose object is garbage-collected before it is clicked. */
 let scheduledNotice = null;
 
@@ -35,6 +36,41 @@ function pageHtml(title, body) {
 <body style="font:16px system-ui,sans-serif;margin:0;display:grid;place-items:center;height:100vh;background:#fafafa;color:#161616">
 <main style="max-width:34rem;padding:2rem"><h1 style="font-size:1.25rem;margin:0 0 .75rem">${title}</h1>${body}</main></body>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(home, "settings.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+const themeFile = () => path.join(app.getPath("userData"), "theme.txt");
+
+/** The page's last theme, so the window never flashes light before a dark page loads. */
+function windowBackground() {
+  let theme = "";
+  try {
+    theme = fs.readFileSync(themeFile(), "utf8").trim();
+  } catch {
+    /* first run */
+  }
+  const dark = theme === "dark" || (theme !== "light" && nativeTheme.shouldUseDarkColors);
+  return dark ? "#121212" : "#fcfcfc";
+}
+
+/** Only a media file inside the library folder, whatever the page asks for. */
+function libraryMediaPath(filePath) {
+  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) return null;
+  if (!/\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$/i.test(filePath)) return null;
+  const settings = readSettings();
+  const rootDir = typeof settings.mediaRoot === "string" ? settings.mediaRoot : process.env.GATHER_MEDIA_ROOT;
+  if (!rootDir) return null;
+  const target = path.resolve(filePath);
+  const inside = path.relative(path.resolve(rootDir), target);
+  if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) return null;
+  return target;
 }
 
 function showWindow() {
@@ -69,7 +105,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: "#fafafa",
+    backgroundColor: windowBackground(),
     title: "gather",
     icon: iconPath,
     autoHideMenuBar: true,
@@ -85,14 +121,20 @@ function createWindow() {
   win.on("close", async (event) => {
     if (quitting) return;
     event.preventDefault();
-    const active = origin ? await lib.activeRuns(origin) : 0;
-    if (active > 0) {
+    // Without a tray (the server never started) there is nothing to hide into.
+    if (tray && lib.closesToTray(readSettings())) {
       win.hide();
-      log.line(`window closed with ${active} active run(s); the app keeps running in the tray`);
-      if (tray) tray.displayBalloon?.({ title: "gather", content: "Downloads keep running. Use the tray icon to open or quit." });
-    } else {
-      app.quit();
+      log.line("window closed; the app keeps running in the tray");
+      if (!trayHintShown) {
+        trayHintShown = true;
+        tray.displayBalloon?.({
+          title: "gather",
+          content: "gather is still running in the tray, so updates and automatic runs keep working. Change this in Settings.",
+        });
+      }
+      return;
     }
+    if (await confirmQuit()) app.quit();
   });
   win.on("closed", () => {
     win = null;
@@ -125,6 +167,8 @@ function startServerProcess(port) {
     GATHER_GALLERY_DL: galleryDlPath,
     GATHER_APP_VERSION: app.getVersion(),
     GATHER_APP_DIR: app.isPackaged ? path.dirname(process.execPath) : repoRoot,
+    // Thumbnails, image headers and file reads all share libuv's pool; the default 4 lets a big folder starve page loads.
+    UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || "16",
   };
   delete env.ELECTRON_RUN_AS_NODE;
 
@@ -252,21 +296,39 @@ function registerIpc() {
     await shell.openPath(path.dirname(log.file));
   });
 
-  // Only a media file inside the library folder may be trashed, whatever the page asks for.
   ipcMain.handle("gather:trash-item", async (event, filePath) => {
-    if (!fromApp(event) || typeof filePath !== "string" || !path.isAbsolute(filePath)) return false;
-    if (!/\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$/i.test(filePath)) return false;
+    const target = fromApp(event) ? libraryMediaPath(filePath) : null;
+    if (!target) return false;
     try {
-      const settings = JSON.parse(fs.readFileSync(path.join(home, "settings.json"), "utf8"));
-      const root = path.resolve(typeof settings.mediaRoot === "string" ? settings.mediaRoot : process.env.GATHER_MEDIA_ROOT);
-      const target = path.resolve(filePath);
-      const inside = path.relative(root, target);
-      if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) return false;
       await shell.trashItem(target);
       return true;
     } catch (error) {
       log.line(`could not move a file to the Recycle Bin: ${error.message}`);
       return false;
+    }
+  });
+
+  ipcMain.handle("gather:show-item", (event, filePath) => {
+    const target = fromApp(event) ? libraryMediaPath(filePath) : null;
+    if (!target) return false;
+    shell.showItemInFolder(target);
+    return true;
+  });
+
+  ipcMain.handle("gather:open-item", async (event, filePath) => {
+    const target = fromApp(event) ? libraryMediaPath(filePath) : null;
+    if (!target) return false;
+    // openPath resolves to an error message, empty on success.
+    return (await shell.openPath(target)) === "";
+  });
+
+  ipcMain.handle("gather:set-theme", (event, theme) => {
+    if (!fromApp(event) || (theme !== "light" && theme !== "dark")) return;
+    if (win) win.setBackgroundColor(theme === "dark" ? "#121212" : "#fcfcfc");
+    try {
+      fs.writeFileSync(themeFile(), theme);
+    } catch {
+      /* only a startup color */
     }
   });
 }

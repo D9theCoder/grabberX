@@ -12,6 +12,7 @@ const SETTINGS: Settings = {
   concurrency: 1,
   schedule: { enabled: false, frequency: { kind: "daily", time: "03:00" } },
   pausedAccounts: [],
+  closeToTray: true,
 };
 
 const ENTRY: LibraryEntry = { folder: "username", layout: "byType" };

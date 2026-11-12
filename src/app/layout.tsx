@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fragment_Mono, Schibsted_Grotesk } from "next/font/google";
+import { ContextMenuRoot } from "@/components/context-menu";
 import { TopBar } from "@/components/top-bar";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 const sans = Schibsted_Grotesk({
@@ -23,10 +25,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    // The theme script sets data-theme and color-scheme on <html> before React hydrates.
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-dvh bg-paper text-ink">
-        <TopBar />
-        <div className="mx-auto w-full max-w-[1120px] px-4 sm:px-8">{children}</div>
+        <ContextMenuRoot>
+          <TopBar />
+          <div className="mx-auto w-full max-w-[1120px] px-4 sm:px-8">{children}</div>
+        </ContextMenuRoot>
       </body>
     </html>
   );

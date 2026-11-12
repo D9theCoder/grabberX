@@ -26,9 +26,12 @@ export interface RunStreamState {
 
 export const EMPTY: RunStreamState = { counts: { saved: 0, skipped: 0, failed: 0 }, lines: [] };
 
+let nextLineId = 0;
+
 function pushLine(lines: LogLine[], line: LogLine): LogLine[] {
   const next = lines.length >= MAX_LINES ? lines.slice(lines.length - MAX_LINES + 1) : lines.slice();
-  next.push(line);
+  nextLineId += 1;
+  next.push({ ...line, id: nextLineId });
   return next;
 }
 

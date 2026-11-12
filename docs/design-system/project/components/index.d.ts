@@ -119,6 +119,9 @@ export interface ThumbnailProps {
   kind?: 'image' | 'video';
   duration?: string;
   active?: boolean;
+  /** Select mode: shows the check box and sets aria-pressed. */
+  selectable?: boolean;
+  selected?: boolean;
 }
 export declare function Thumbnail(props: ThumbnailProps): React.ReactElement;
 
@@ -134,6 +137,31 @@ export interface LightboxProps {
 }
 export declare function Lightbox(props: LightboxProps): React.ReactElement;
 
+export interface ThemeToggleProps {
+  theme?: 'light' | 'dark';
+  defaultTheme?: 'light' | 'dark';
+  onChange?: (theme: 'light' | 'dark') => void;
+}
+export declare function ThemeToggle(props: ThemeToggleProps): React.ReactElement;
+
+export interface ContextMenuItem { label: string; icon?: string; shortcut?: string; danger?: boolean; disabled?: boolean; onSelect?: () => void }
+export interface ContextMenuProps {
+  label: string;
+  /** "-" draws a separator. */
+  items: Array<ContextMenuItem | '-'>;
+}
+export declare function ContextMenu(props: ContextMenuProps): React.ReactElement;
+
+export interface SelectionBarProps {
+  count: number;
+  onSelectAll?: () => void;
+  onClear?: () => void;
+  onDownload?: () => void;
+  onDelete?: () => void;
+  onDone?: () => void;
+}
+export declare function SelectionBar(props: SelectionBarProps): React.ReactElement;
+
 declare global {
   interface Window {
     Gather: {
@@ -142,6 +170,7 @@ declare global {
       Stat: typeof Stat; LogView: typeof LogView; Notice: typeof Notice;
       Breadcrumb: typeof Breadcrumb; FolderCard: typeof FolderCard; Thumbnail: typeof Thumbnail;
       Toolbar: typeof Toolbar; Lightbox: typeof Lightbox;
+      ThemeToggle: typeof ThemeToggle; ContextMenu: typeof ContextMenu; SelectionBar: typeof SelectionBar;
     };
   }
 }

@@ -1,0 +1,26 @@
+<!-- @dsCard group="Browse" height=300 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>SelectionBar — preview</title>
+<style>body{margin:0;background:var(--paper)}</style></head>
+<body>
+<div id="root" class="g g-demo g-demo--col"></div>
+<script>
+  var G = window.Gather, h = React.createElement;
+  function Demo() {
+    var picked = React.useState({ 1: true, 2: true });
+    var sel = picked[0];
+    function toggle(i) { var next = Object.assign({}, sel); next[i] = !next[i]; picked[1](next); }
+    var count = Object.keys(sel).filter(function (k) { return sel[k]; }).length;
+    var tiles = [180, 90, 150, 120, 200].map(function (w, i) {
+      return h('div', { key: i, onClick: function () { toggle(i); } }, h(G.Thumbnail, { name: '18000000000000000' + i + '_1.jpg', width: w, height: 110, selectable: true, selected: !!sel[i] }));
+    });
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, width: '100%' } },
+      h('div', { style: { position: 'relative', display: 'flex', gap: 4 } }, tiles,
+        h('span', { className: 'g-marquee', style: { left: 250, top: 30, width: 240, height: 70 } })),
+      h(G.SelectionBar, { count: count, onClear: function () { picked[1]({}); }, onSelectAll: function () { picked[1]({ 0: true, 1: true, 2: true, 3: true, 4: true }); } }));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

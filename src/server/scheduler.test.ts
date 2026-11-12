@@ -71,6 +71,7 @@ function baseSettings(frequency: ScheduleFrequency): Settings {
     concurrency: 1,
     schedule: { enabled: true, frequency },
     pausedAccounts: [],
+    closeToTray: true,
   };
 }
 

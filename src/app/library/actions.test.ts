@@ -36,6 +36,7 @@ const SETTINGS: Settings = {
   concurrency: 1,
   schedule: { enabled: false, frequency: { kind: "daily", time: "03:00" } },
   pausedAccounts: [],
+  closeToTray: true,
 };
 
 function specFor(account: string, overrides: Partial<JobSpec> = {}): JobSpec {

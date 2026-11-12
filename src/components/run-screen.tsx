@@ -225,11 +225,11 @@ export function RunScreen({
     : null;
 
   return (
-    <main onKeyDown={onKeyDown} className="pt-12 pb-40 lg:pb-16">
+    <main onKeyDown={onKeyDown} className="pt-8 pb-40 lg:pb-10">
       {!galleryDlFound ? (
         <Notice
           tone="danger"
-          className="mb-8"
+          className="mb-6"
           action={
             <Link href="/settings" className="font-medium underline underline-offset-2">
               Set the path
@@ -242,7 +242,7 @@ export function RunScreen({
 
       <h1 className="m-0 text-display">New run</h1>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="mt-5 grid gap-8 lg:grid-cols-[minmax(0,1fr)_400px]">
         <RunForm
           spec={spec}
           accountInput={accountInput}
@@ -273,7 +273,7 @@ export function RunScreen({
           advancedChanged={advancedChanged}
         />
 
-        <aside className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-6 lg:self-start">
+        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
           <CommandPanel
             steps={steps}
             reason={reason}
@@ -301,7 +301,7 @@ export function RunScreen({
             onPreview={() => submit(true)}
             onDownload={() => submit(false)}
           />
-          <div id="run-panel" className="scroll-mt-6 rounded-lg border border-line-strong p-6">
+          <div id="run-panel" className="scroll-mt-6 rounded-lg border border-line-strong p-4">
             <RunPanel
               stream={stream}
               galleryDlPath={settings.galleryDlPath}

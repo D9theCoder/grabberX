@@ -8,6 +8,12 @@ export interface GatherShell {
   openLogs(): Promise<void>;
   /** Moves one media file to the Recycle Bin. False when the shell refused or the move failed. */
   trashItem(path: string): Promise<boolean>;
+  /** Opens Explorer with the file selected. Older desktop builds lack it. */
+  showItem?(path: string): Promise<boolean>;
+  /** Opens the file in its default Windows app. */
+  openItem?(path: string): Promise<boolean>;
+  /** Keeps the window background in step with the page theme. */
+  setTheme?(theme: "light" | "dark"): Promise<void>;
 }
 
 declare global {

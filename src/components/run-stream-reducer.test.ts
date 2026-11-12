@@ -1,3 +1,4 @@
+import type { LogLine } from "@/components/ui/log-view";
 import { describe, expect, it } from "vitest";
 import {
   EMPTY,
@@ -7,6 +8,11 @@ import {
 } from "@/components/run-stream-reducer";
 import { DEFAULT_ADVANCED } from "@/lib/spec";
 import type { JobSpec, Run, RunStatus, StreamEvent } from "@/lib/spec";
+
+/** Line ids are only React keys; the tests compare what is shown. */
+function withoutIds(lines: readonly LogLine[]): LogLine[] {
+  return lines.map(({ id: _id, ...line }) => line);
+}
 
 const NOW = 1_700_000_000_000;
 
@@ -51,7 +57,7 @@ describe("reduceEvents", () => {
     expect(state.run).toEqual(run);
     expect(state.counts).toEqual({ saved: 1, skipped: 1, failed: 0 });
     expect(state.currentFile).toBe("D:/x/Image/2_1.jpg");
-    expect(state.lines).toEqual([
+    expect(withoutIds(state.lines)).toEqual([
       { text: "D:/x/Image/1_1.jpg", level: "info" },
       { text: "[twitter][info] Initializing", level: "info" },
       { text: "# D:/x/Image/2_1.jpg", level: "skip" },
@@ -78,7 +84,7 @@ describe("reduceEvents", () => {
     const once = reduceEvents(EMPTY, connection, NOW);
     const twice = reduceEvents(once, connection, NOW);
 
-    expect(twice).toEqual(once);
+    expect({ ...twice, lines: withoutIds(twice.lines) }).toEqual({ ...once, lines: withoutIds(once.lines) });
     expect(twice.lines).toHaveLength(3);
     expect(twice.counts).toEqual({ saved: 1, skipped: 1, failed: 0 });
   });
@@ -99,7 +105,7 @@ describe("reduceEvents", () => {
 
     const reconnected = reduceEvents(reduceEvents(EMPTY, firstHalf, NOW), wholeConnection, NOW);
 
-    expect(reconnected.lines).toEqual(reduceEvents(EMPTY, wholeConnection, NOW).lines);
+    expect(withoutIds(reconnected.lines)).toEqual(withoutIds(reduceEvents(EMPTY, wholeConnection, NOW).lines));
     expect(reconnected.counts).toEqual({ saved: 2, skipped: 0, failed: 0 });
   });
 
@@ -205,7 +211,7 @@ describe("reduceEvents", () => {
       NOW,
     );
 
-    expect(state.lines).toEqual([
+    expect(withoutIds(state.lines)).toEqual([
       { text: "[cookies][info] Cookie: ••••", level: "info" },
       { text: "proxy http://user:••••@10.0.0.1:8080", level: "info" },
       { text: "D:/x/Image/https://u:••••@host/1_1.jpg", level: "info" },

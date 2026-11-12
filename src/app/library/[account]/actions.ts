@@ -57,3 +57,49 @@ export async function deleteFile(account: string, path: string, trashed: boolean
     return { ok: false, error: "That file couldn't be deleted. Close anything using it and try again." };
   }
 }
+
+export type PathsResult = { ok: true; paths: Record<string, string>; recycle: boolean } | { ok: false; error: string };
+
+const BULK_MAX = 5000;
+
+function joinPath(folder: string, name: string): string {
+  return folder === "" ? name : `${folder}/${name}`;
+}
+
+/** Absolute paths for a selection, for the shell (Recycle Bin, Show in folder). Unknown names are left out. */
+export async function getFilePaths(account: string, folder: string, names: string[]): Promise<PathsResult> {
+  if (names.length > BULK_MAX) return { ok: false, error: "That is too many files at once." };
+  const paths: Record<string, string> = {};
+  for (const name of names) {
+    try {
+      paths[name] = (await statMediaFile(account, joinPath(folder, name))).full;
+    } catch {
+      /* gone or invalid: nothing to act on */
+    }
+  }
+  return { ok: true, paths, recycle: isPackaged() };
+}
+
+export type BulkDeleteResult = { ok: true; deleted: string[]; failed: string[] } | { ok: false; error: string };
+
+/**
+ * Deletes a selection. As with one file, the archive is left alone so nothing downloads again. `trashed` lists
+ * the files the desktop shell already moved to the Recycle Bin; those are only checked.
+ */
+export async function deleteFiles(
+  account: string,
+  folder: string,
+  names: string[],
+  trashed: string[],
+): Promise<BulkDeleteResult> {
+  if (names.length > BULK_MAX) return { ok: false, error: "That is too many files at once." };
+  const wasTrashed = new Set(trashed);
+  const deleted: string[] = [];
+  const failed: string[] = [];
+  for (const name of names) {
+    const result = await deleteFile(account, joinPath(folder, name), wasTrashed.has(name));
+    if (result.ok) deleted.push(name);
+    else failed.push(name);
+  }
+  return { ok: true, deleted, failed };
+}
