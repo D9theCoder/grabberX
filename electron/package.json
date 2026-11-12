@@ -1,7 +1,7 @@
 {
   "name": "grabberx",
   "productName": "grabberX",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "A local front end for gallery-dl.",
   "author": "grabberX",
   "private": true,
