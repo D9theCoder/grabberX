@@ -2,10 +2,14 @@
 
 > **grabberX**: a local web front end for `gallery-dl`.
 >
-> **Design system (source of truth for tokens and components):** https://claude.ai/artifact/QqeuePNc22evgNcg2fzkjD
-> Its files are versioned in [`docs/design-system/project/`](design-system/project/): `tokens.json`,
-> the brand book `README.md`, and one guideline + live preview per component. This file covers
+> **Design system (source of truth for tokens and components):** [`docs/design-system/project/`](design-system/project/) in git, mirrored to https://claude.ai/artifact/QqeuePNc22evgNcg2fzkjD
+> It holds `tokens.json`, the brand book `README.md`, and one guideline + live preview per component. This file covers
 > screens, behavior and edge cases; when it names a token or component, the design system defines it.
+>
+> **Sync rule:** always keep the two copies identical. The git copy is the source: commit a change there first, then publish it to the artifact. Never edit the artifact by hand, and never let the artifact overwrite the git copy.
+> - Publish order: the content files first, then `project/design-system.json` last, with `lastChange` set to the time and the commit (`c962c35` style).
+> - Stage the files from `git show HEAD:<path>` (LF) so the artifact matches the committed blobs, not CRLF working copies.
+> - Check after publishing: read back `project/design-system.json` and one changed file, and confirm the sha256 matches the staged copy.
 
 ---
 
