@@ -233,6 +233,7 @@ describe("the running gateway", () => {
   });
 
   it("serves the pairing page and static assets without a cookie", async () => {
+    expect(classifyRoute("GET", "/m/ca.crt")).toBe("ca");
     const pair = await get("/m/pair");
     expect(pair.status).toBe(200);
     expect(await pair.text()).toBe("<p>page</p>");
@@ -244,6 +245,50 @@ describe("the running gateway", () => {
     expect(sw.headers.get("service-worker-allowed")).toBe("/m");
     expect(sw.headers.get("cache-control")).toBe("no-cache");
     await sw.arrayBuffer();
+  });
+
+  it("serves both HTTP and HTTPS on the same port and downloads the Root CA at /m/ca.crt", async () => {
+    const { generateRootCa, generateLeafCert } = await import("@/server/mobile/tls");
+    const { get: httpsGet } = await import("node:https");
+    const ca = generateRootCa();
+    const leaf = generateLeafCert(ca, ["127.0.0.1"]);
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+    const tlsGateway = await startGateway({
+      port: 0,
+      host: "127.0.0.1",
+      upstreamPort,
+      authorize: (token) => token === "good",
+      tls: { key: leaf.keyPem, cert: leaf.certPem, caCertDer: ca.certDer },
+    });
+
+    try {
+      const caRes = await fetch(`http://127.0.0.1:${tlsGateway.port}/m/ca.crt`);
+      expect(caRes.status).toBe(200);
+      expect(caRes.headers.get("content-type")).toBe("application/x-x509-ca-cert");
+      expect(Buffer.from(await caRes.arrayBuffer()).equals(ca.certDer)).toBe(true);
+
+      const httpsBody = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+        const req = httpsGet(
+          {
+            host: "127.0.0.1",
+            port: tlsGateway.port,
+            path: "/m",
+            headers: { cookie: "gather_m=good" },
+            ca: ca.certPem,
+            rejectUnauthorized: true,
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }));
+          },
+        );
+        req.on("error", reject);
+      });
+      expect(httpsBody).toEqual({ status: 200, text: "<p>page</p>" });
+    } finally {
+      await tlsGateway.close();
+    }
   });
 
   it("reports a 502 when the app is down", async () => {

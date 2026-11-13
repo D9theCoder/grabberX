@@ -11,6 +11,7 @@ import type { LanAddress } from "@/server/mobile/network";
 import { createPairingToken, resetPairingState } from "@/server/mobile/pairing";
 import { listDevices, revokeAllDevices } from "@/server/mobile/devices";
 import type { DeviceInfo } from "@/server/mobile/devices";
+import { ensureMobileTls } from "@/server/mobile/tls";
 import { gatherHome, writeAtomic } from "@/server/store";
 
 export const AUTO_OFF_CHOICES = [0, 1, 8] as const;
@@ -67,7 +68,17 @@ function stopListener(): Promise<void> {
 
 async function startListener(autoOffAt: number | null): Promise<void> {
   if (running()) return;
-  const handle = await startGateway({ port: mobilePort(), upstreamPort: appPort(), ...createMobileHooks() });
+  const hosts = lanAddresses().map((entry) => entry.address);
+  const tls = await ensureMobileTls(hosts).catch((error) => {
+    console.error("grabberX: could not generate a local TLS certificate for the mobile gallery.", error);
+    return null;
+  });
+  const handle = await startGateway({
+    port: mobilePort(),
+    upstreamPort: appPort(),
+    ...createMobileHooks(),
+    ...(tls ? { tls: { key: tls.leafKeyPem, cert: tls.leafCertPem, caCertDer: tls.caCertDer } } : {}),
+  });
   let timer: NodeJS.Timeout | null = null;
   if (autoOffAt !== null) {
     const wait = Math.max(0, autoOffAt - Date.now());
@@ -128,7 +139,11 @@ export async function getMobileStatus(): Promise<MobileStatus> {
 
 export interface PairingOffer {
   url: string;
+  httpsUrl: string;
+  caCertUrl: string;
   svg: string;
+  httpsSvg: string;
+  caCertSvg: string;
   expiresAt: number;
   addressKind: LanAddress["kind"];
 }
@@ -142,7 +157,15 @@ export async function createPairingOffer(address?: string): Promise<PairingOffer
   const chosen = options.find((entry) => entry.address === address) ?? options[0];
   if (!chosen) return null;
   const { token, expiresAt } = createPairingToken();
-  const url = `http://${chosen.address}:${current.handle.port}/m/pair#${token}`;
-  const svg = await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
-  return { url, svg, expiresAt, addressKind: chosen.kind };
+  const hostPort = `${chosen.address}:${current.handle.port}`;
+  const url = `http://${hostPort}/m/pair#${token}`;
+  const httpsUrl = `https://${hostPort}/m/pair#${token}`;
+  const caCertUrl = `http://${hostPort}/m/ca.crt`;
+  const [svg, httpsSvg, caCertSvg] = await Promise.all([
+    QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
+    QRCode.toString(httpsUrl, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
+    QRCode.toString(caCertUrl, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
+  ]);
+  return { url, httpsUrl, caCertUrl, svg, httpsSvg, caCertSvg, expiresAt, addressKind: chosen.kind };
 }
+

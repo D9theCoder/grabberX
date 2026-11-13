@@ -1,12 +1,15 @@
 import "server-only";
-import { createServer, request as httpRequest } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import type { Socket } from "node:net";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { createServer as createNetServer } from "node:net";
+import type { Server, Socket } from "node:net";
+import type { TLSSocket } from "node:tls";
 import { isPrivatePeer, normalizeAddress } from "@/server/mobile/network";
 
 export const SESSION_COOKIE = "gather_m";
 
-export type RouteClass = "pair" | "logout" | "public" | "session" | "blocked";
+export type RouteClass = "pair" | "logout" | "ca" | "public" | "session" | "blocked";
 
 const PUBLIC_EXACT = new Set(["/m/pair", "/manifest.webmanifest", "/m/sw.js"]);
 const PUBLIC_PREFIXES = ["/_next/static/", "/m-icons/"];
@@ -44,6 +47,7 @@ export function classifyRoute(method: string | undefined, rawUrl: string | undef
     return "blocked";
   }
   if (verb !== "GET" && verb !== "HEAD") return "blocked";
+  if (path === "/m/ca.crt") return "ca";
   if (PUBLIC_EXACT.has(path) || PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return "public";
   if (SESSION_EXACT.has(path) || SESSION_PREFIXES.some((prefix) => path.startsWith(prefix))) return "session";
   return "blocked";
@@ -131,16 +135,25 @@ function reply(res: ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
+export interface GatewayTlsOptions {
+  key: string;
+  cert: string;
+  caCertDer?: Buffer;
+}
+
 export interface GatewayHooks {
   /** True when the cookie value names a live paired phone. */
   authorize(sessionToken: string | null, peerIp: string): boolean;
   /** Handles `POST /m/api/pair`. Absent means pairing is not available and the route answers 404. */
   onPair?(req: IncomingMessage, res: ServerResponse): void;
   onLogout?(req: IncomingMessage, res: ServerResponse): void;
+  /** Optional DER-encoded local Root CA certificate served at `GET /m/ca.crt` so Android can trust LAN HTTPS. */
+  caCertDer?: Buffer;
 }
 
 export interface GatewayOptions extends GatewayHooks {
   upstreamPort: number;
+  tls?: GatewayTlsOptions;
 }
 
 const MAX_POST_BYTES = 1024 * 1024;
@@ -194,12 +207,31 @@ export function peerOf(req: IncomingMessage): string {
   return normalizeAddress(req.socket.remoteAddress ?? "");
 }
 
+function serveCaCert(req: IncomingMessage, res: ServerResponse, caCertDer: Buffer | undefined): void {
+  if (!caCertDer) return reply(res, 404, "Not found.\n");
+  res.writeHead(200, {
+    ...securityHeaders(),
+    "content-type": "application/x-x509-ca-cert",
+    "content-disposition": 'attachment; filename="grabberX-root-ca.crt"',
+    "content-length": String(caCertDer.length),
+    "cache-control": "no-store",
+  });
+  if ((req.method ?? "GET").toUpperCase() === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(caCertDer);
+}
+
 export function createGatewayHandler(options: GatewayOptions) {
+  const caCertDer = options.caCertDer ?? options.tls?.caCertDer;
   return (req: IncomingMessage, res: ServerResponse): void => {
     const route = classifyRoute(req.method, req.url);
     switch (route) {
       case "blocked":
         return reply(res, 404, "Not found.\n");
+      case "ca":
+        return serveCaCert(req, res, caCertDer);
       case "pair":
         return options.onPair ? options.onPair(req, res) : reply(res, 404, "Not found.\n");
       case "logout":
@@ -224,31 +256,88 @@ export interface GatewayHandle {
   close(): Promise<void>;
 }
 
-export function startGateway(options: GatewayOptions & { port: number; host?: string }): Promise<GatewayHandle> {
-  const server = createServer(createGatewayHandler(options));
-  server.headersTimeout = 15_000;
-  server.requestTimeout = 0; // a long video stream is one request
-  server.maxHeadersCount = 64;
+function configureHttpLimits(httpServer: HttpServer): void {
+  httpServer.headersTimeout = 15_000;
+  httpServer.requestTimeout = 0; // a long video stream is one request
+  httpServer.maxHeadersCount = 64;
+}
 
+export function startGateway(options: GatewayOptions & { port: number; host?: string }): Promise<GatewayHandle> {
+  const handler = createGatewayHandler(options);
+  const httpServer = createHttpServer(handler);
+  configureHttpLimits(httpServer);
+
+  const httpsServer = options.tls
+    ? createHttpsServer({ key: options.tls.key, cert: options.tls.cert }, handler)
+    : null;
+  if (httpsServer) {
+    configureHttpLimits(httpsServer);
+    httpsServer.on("tlsClientError", (_err, tlsSocket: TLSSocket) => {
+      tlsSocket.destroy();
+    });
+  }
+
+  const activeSockets = new Set<Socket>();
   const perPeer = new Map<string, number>();
-  server.on("connection", (socket: Socket) => {
+
+  // If TLS is configured, a net.Server sniffs the first byte on each socket: 0x16 (TLS Handshake) goes to
+  // httpsServer and plain ASCII HTTP verbs go to httpServer, so both http:// and https:// work on the same port.
+  const server: Server = httpsServer
+    ? createNetServer({ pauseOnConnect: true }, (socket: Socket) => {
+        if (!acceptSocket(socket)) return;
+        const onReadable = () => {
+          const chunk = socket.read(1) as Buffer | null;
+          if (!chunk) return;
+          socket.removeListener("readable", onReadable);
+          clearTimeout(sniffTimer);
+          const firstByte = chunk[0];
+          socket.unshift(chunk);
+          if (firstByte === 0x16) {
+            httpsServer.emit("connection", socket);
+          } else {
+            httpServer.emit("connection", socket);
+          }
+        };
+        const sniffTimer = setTimeout(() => {
+          socket.removeListener("readable", onReadable);
+          socket.destroy();
+        }, 10_000);
+        sniffTimer.unref();
+        socket.on("readable", onReadable);
+        socket.on("error", () => {
+          clearTimeout(sniffTimer);
+          socket.destroy();
+        });
+      })
+    : httpServer;
+
+  function acceptSocket(socket: Socket): boolean {
     const peer = socket.remoteAddress ? normalizeAddress(socket.remoteAddress) : "";
     if (!isPrivatePeer(peer)) {
       socket.destroy();
-      return;
+      return false;
     }
     const open = (perPeer.get(peer) ?? 0) + 1;
     if (open > MAX_CONNECTIONS_PER_PEER) {
       socket.destroy();
-      return;
+      return false;
     }
     perPeer.set(peer, open);
+    activeSockets.add(socket);
     socket.on("close", () => {
+      activeSockets.delete(socket);
       const left = (perPeer.get(peer) ?? 1) - 1;
       if (left <= 0) perPeer.delete(peer);
       else perPeer.set(peer, left);
     });
-  });
+    return true;
+  }
+
+  if (!httpsServer) {
+    httpServer.on("connection", (socket: Socket) => {
+      acceptSocket(socket);
+    });
+  }
 
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -262,9 +351,12 @@ export function startGateway(options: GatewayOptions & { port: number; host?: st
         close: () =>
           new Promise<void>((done) => {
             server.close(() => done());
-            server.closeAllConnections();
+            httpServer.closeAllConnections();
+            httpsServer?.closeAllConnections();
+            for (const sock of activeSockets) sock.destroy();
           }),
       });
     });
   });
 }
+

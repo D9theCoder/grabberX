@@ -39,6 +39,7 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
   const [address, setAddress] = useState(initial.addresses[0]?.address ?? "");
   const [offer, setOffer] = useState<PairingOffer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [protocol, setProtocol] = useState<"http" | "https">("http");
   const [busy, startBusy] = useTransition();
 
   useEffect(() => {
@@ -151,18 +152,53 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
               </div>
 
               {offer ? (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-label">Connection mode</span>
+                    <Segmented
+                      label="Connection mode"
+                      size="sm"
+                      value={protocol}
+                      onChange={(value) => setProtocol(value as "http" | "https")}
+                      options={[
+                        { value: "http", label: "HTTP (instant)" },
+                        { value: "https", label: "HTTPS (installable PWA)" },
+                      ]}
+                    />
+                  </div>
+                  {protocol === "https" ? (
+                    <div className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-3 text-small text-ink-2">
+                      <span className="font-medium text-ink">First time on this phone: trust the PC&apos;s Root CA certificate</span>
+                      <p className="m-0">
+                        Android Chrome requires trusted HTTPS to install the PWA on your home screen. Open{" "}
+                        <code className="text-ink">{offer.caCertUrl}</code> on your phone (or scan the CA QR below) to download{" "}
+                        <code className="text-ink">grabberX-root-ca.crt</code>, then install it in{" "}
+                        <strong className="font-medium text-ink">Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate</strong>.
+                      </p>
+                      <details className="text-small text-ink-2">
+                        <summary className="cursor-pointer text-ink underline decoration-line-strong underline-offset-4">
+                          Show QR code for the Root CA certificate
+                        </summary>
+                        <div
+                          role="img"
+                          aria-label="QR code for the Root CA certificate"
+                          className="mt-2 size-44 bg-white p-2 [&>svg]:size-full"
+                          dangerouslySetInnerHTML={{ __html: offer.caCertSvg }}
+                        />
+                      </details>
+                    </div>
+                  ) : null}
                   <div
                     role="img"
                     aria-label="QR code for pairing a phone"
                     className="size-56 bg-white p-2 [&>svg]:size-full"
-                    dangerouslySetInnerHTML={{ __html: offer.svg }}
+                    dangerouslySetInnerHTML={{ __html: protocol === "https" ? offer.httpsSvg : offer.svg }}
                   />
                   <details className="text-small text-ink-2">
                     <summary className="cursor-pointer">Can&apos;t scan? Use the link instead</summary>
                     <p className="mt-2 mb-1">Open this link on the phone. Anyone who has it before it expires can pair, so don&apos;t share it.</p>
                     <code data-testid="pairing-link" className="block overflow-x-auto bg-sunken p-2 break-all text-ink">
-                      {offer.url}
+                      {protocol === "https" ? offer.httpsUrl : offer.url}
                     </code>
                   </details>
                   <span className="text-small text-ink-2">
@@ -173,9 +209,9 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
               ) : null}
 
               {selected?.kind === "private" ? (
-                <Notice tone="info" title="Plain HTTP on your home network">
-                  The phone must be on the same Wi-Fi. For access away from home, install Tailscale on both devices. It also
-                  encrypts the connection.
+                <Notice tone="info" title="Home network HTTP & HTTPS">
+                  The gateway answers both HTTP and HTTPS on port {status.port}. Switch to <strong className="font-medium">HTTPS (installable PWA)</strong>{" "}
+                  above (or open <code className="font-mono">/m/ca.crt</code> on an already-paired phone) to install the app on your home screen.
                 </Notice>
               ) : null}
 

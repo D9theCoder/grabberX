@@ -58,7 +58,8 @@ function sessionCookie(token: string, secure: boolean): string {
 
 const CLEAR_COOKIE = `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
 
-// The header is only believed from a proxy on this PC (Tailscale Serve), never from a phone on the LAN.
+// Only set Secure when behind a loopback HTTPS proxy (Tailscale Serve). On the LAN gateway port, both
+// http:// and https:// are served on the same port, so omitting Secure lets a paired phone switch between them.
 function cameOverHttps(req: IncomingMessage): boolean {
   return classifyPeer(peerOf(req)) === "loopback" && req.headers["x-forwarded-proto"] === "https";
 }

@@ -10,6 +10,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const DISMISS_KEY = "gather-m-install-dismissed";
+const HTTPS_HINT_DISMISS_KEY = "gather-m-https-hint-dismissed";
 
 function isStandaloneMode(): boolean {
   if (typeof window === "undefined") return false;
@@ -19,12 +20,16 @@ function isStandaloneMode(): boolean {
 
 /**
  * Registers the mobile gallery service worker (/m/sw.js), offers an in-app Install button when the browser
- * fires `beforeinstallprompt`, and shows a quiet status banner when the phone loses network connectivity.
+ * fires `beforeinstallprompt`, helps switch from plain LAN HTTP to trusted HTTPS so Android Chrome allows
+ * PWA installation, and shows a quiet status banner when the phone loses network connectivity.
  */
 export function MobilePwa() {
   const pathname = usePathname();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [httpsHintDismissed, setHttpsHintDismissed] = useState(false);
+  const [insecureContext, setInsecureContext] = useState(false);
+  const [httpsHref, setHttpsHref] = useState("");
   const [standalone, setStandalone] = useState(false);
   const [offline, setOffline] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -32,12 +37,20 @@ export function MobilePwa() {
   useEffect(() => {
     setStandalone(isStandaloneMode());
     setOffline(!window.navigator.onLine);
+    const insecure = !window.isSecureContext && window.location.protocol === "http:";
+    setInsecureContext(insecure);
+    if (insecure) {
+      setHttpsHref(`https://${window.location.host}${window.location.pathname}${window.location.search}`);
+    }
     try {
       if (window.sessionStorage.getItem(DISMISS_KEY) === "1") {
         setDismissed(true);
       }
+      if (window.localStorage.getItem(HTTPS_HINT_DISMISS_KEY) === "1") {
+        setHttpsHintDismissed(true);
+      }
     } catch {
-      // sessionStorage can throw in restricted browser modes; ignore.
+      // Storage can throw in restricted browser modes; ignore.
     }
 
     if ("serviceWorker" in window.navigator && window.isSecureContext) {
@@ -103,8 +116,18 @@ export function MobilePwa() {
     }
   }
 
+  function dismissHttpsHint() {
+    setHttpsHintDismissed(true);
+    try {
+      window.localStorage.setItem(HTTPS_HINT_DISMISS_KEY, "1");
+    } catch {
+      // ignore
+    }
+  }
+
   const showInstall = Boolean(deferredPrompt) && !dismissed && !standalone;
-  if (!showInstall && !offline) return null;
+  const showHttpsSetup = insecureContext && !httpsHintDismissed && !standalone && pathname === "/m";
+  if (!showInstall && !offline && !showHttpsSetup) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
@@ -133,6 +156,31 @@ export function MobilePwa() {
           </div>
         </section>
       ) : null}
+      {showHttpsSetup ? (
+        <section
+          aria-label="Enable PWA install"
+          className="flex flex-col gap-2 rounded-md border border-line-strong bg-surface px-3 py-2.5 text-small"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-ink">Install as an app (requires HTTPS on Android)</span>
+            <button
+              type="button"
+              onClick={dismissHttpsHint}
+              className="text-small text-ink-2 underline decoration-line-strong underline-offset-4"
+            >
+              Hide
+            </button>
+          </div>
+          <p className="m-0 text-ink-2">
+            1. Download <a href="/m/ca.crt" className="font-medium text-ink underline decoration-line-strong underline-offset-4">grabberX-root-ca.crt</a> and install it in Android{" "}
+            <strong className="font-medium text-ink">Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate</strong>.
+          </p>
+          <p className="m-0 text-ink-2">
+            2. Then open <a href={httpsHref} className="font-mono font-medium text-ink underline decoration-line-strong underline-offset-4">{httpsHref}</a> (or re-pair in HTTPS mode from PC Settings).
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }
+

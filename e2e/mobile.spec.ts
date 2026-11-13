@@ -72,17 +72,26 @@ test.describe("mobile gallery", () => {
       await page.getByText("Can't scan? Use the link instead").click();
       const link = (await page.getByTestId("pairing-link").textContent()) ?? "";
       expect(link).toMatch(new RegExp(`^http://[0-9.]+:${MOBILE_PORT}/m/pair#[a-z2-7]{26}$`));
+      await page.getByRole("radiogroup", { name: "Connection mode" }).getByRole("radio", { name: "HTTPS (installable PWA)" }).click();
+      const httpsLink = (await page.getByTestId("pairing-link").textContent()) ?? "";
+      expect(httpsLink).toMatch(new RegExp(`^https://[0-9.]+:${MOBILE_PORT}/m/pair#[a-z2-7]{26}$`));
       const hash = new URL(link).hash;
 
-      const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, hasTouch: true, isMobile: true });
+      const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, hasTouch: true, isMobile: true, ignoreHTTPSErrors: true });
       const mobile = await phone.newPage();
       const errors: Error[] = [];
       mobile.on("pageerror", (error) => errors.push(error));
 
+      const caCertRes = await phone.request.get(`${GATEWAY}/m/ca.crt`);
+      expect(caCertRes.status()).toBe(200);
+      expect(caCertRes.headers()["content-type"]).toBe("application/x-x509-ca-cert");
+
       expect((await phone.request.get(`${GATEWAY}/m`)).status()).toBe(401);
       expect((await phone.request.get(`${GATEWAY}/api/media?account=${ACCOUNT}&path=Video/1800000000000009999_1.mp4`)).status()).toBe(401);
 
-      await mobile.goto(`${GATEWAY}/m/pair${hash}`);
+      await mobile.goto(`https://127.0.0.1:${MOBILE_PORT}/m/pair${hash}`);
+      await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+      await mobile.goto(`${GATEWAY}/m`);
       await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
       expect(mobile.url()).toBe(`${GATEWAY}/m`);
 
