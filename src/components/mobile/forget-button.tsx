@@ -11,6 +11,9 @@ export function ForgetButton() {
       onClick={async () => {
         if (!window.confirm("Forget this phone? You'll need a new QR code to view the gallery again.")) return;
         setBusy(true);
+        if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: "CLEAR_CACHE" });
+        }
         await fetch("/m/api/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
         window.location.replace("/m");
       }}

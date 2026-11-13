@@ -15,6 +15,17 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  async headers() {
+    return [
+      {
+        source: "/m/sw.js",
+        headers: [
+          { key: "Service-Worker-Allowed", value: "/m" },
+          { key: "Cache-Control", value: "no-cache" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

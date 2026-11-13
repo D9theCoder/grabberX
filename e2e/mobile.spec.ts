@@ -288,6 +288,55 @@ test.describe("mobile gallery", () => {
       await page.reload();
       await expect(page.getByLabel("Phone name")).toHaveCount(1);
       await mobile.goto(`${GATEWAY}/m`);
+
+      // PWA: manifest, active service worker controlling /m, in-app install prompt, and offline fallback.
+      const manifestRes = await phone.request.get(`${GATEWAY}/manifest.webmanifest`);
+      expect(manifestRes.status()).toBe(200);
+      expect(await manifestRes.json()).toMatchObject({
+        id: "/m",
+        name: "grabberX gallery",
+        start_url: "/m",
+        scope: "/m",
+        display: "standalone",
+      });
+      await expect
+        .poll(() =>
+          mobile.evaluate(async () => {
+            if (!("serviceWorker" in navigator)) return null;
+            const reg = await navigator.serviceWorker.ready;
+            return {
+              scope: new URL(reg.scope).pathname,
+              controlled: Boolean(navigator.serviceWorker.controller),
+            };
+          }),
+        )
+        .toEqual({ scope: "/m", controlled: true });
+
+      await mobile.evaluate(() => {
+        const event = new Event("beforeinstallprompt", { cancelable: true }) as Event & {
+          prompt: () => Promise<void>;
+          userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+        };
+        (window as unknown as { __promptCalled?: boolean }).__promptCalled = false;
+        event.prompt = async () => {
+          (window as unknown as { __promptCalled?: boolean }).__promptCalled = true;
+        };
+        event.userChoice = Promise.resolve({ outcome: "accepted", platform: "web" });
+        window.dispatchEvent(event);
+      });
+      const installRegion = mobile.getByRole("region", { name: "Install app" });
+      await expect(installRegion).toBeVisible();
+      await installRegion.getByRole("button", { name: "Install app" }).click();
+      await expect(installRegion).toHaveCount(0);
+      expect(await mobile.evaluate(() => (window as unknown as { __promptCalled?: boolean }).__promptCalled)).toBe(true);
+
+      await phone.setOffline(true);
+      await mobile.reload();
+      await expect(mobile.getByRole("heading", { level: 1, name: /Can.t reach your PC/ })).toBeVisible();
+      await phone.setOffline(false);
+      await mobile.getByRole("button", { name: "Try again" }).click();
+      await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+
       mobile.on("dialog", (dialog) => void dialog.accept());
       await mobile.getByRole("button", { name: "Forget this phone" }).click();
       await expect.poll(async () => (await phone.request.get(`${GATEWAY}/m`)).status()).toBe(401);

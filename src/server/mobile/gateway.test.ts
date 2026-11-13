@@ -239,6 +239,11 @@ describe("the running gateway", () => {
     const asset = await get("/_next/static/chunks/a.js");
     expect(asset.status).toBe(200);
     await asset.arrayBuffer();
+    const sw = await get("/m/sw.js");
+    expect(sw.status).toBe(200);
+    expect(sw.headers.get("service-worker-allowed")).toBe("/m");
+    expect(sw.headers.get("cache-control")).toBe("no-cache");
+    await sw.arrayBuffer();
   });
 
   it("reports a 502 when the app is down", async () => {

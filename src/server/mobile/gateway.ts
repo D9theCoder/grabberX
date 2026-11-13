@@ -166,6 +166,10 @@ function proxy(req: IncomingMessage, res: ServerResponse, upstreamPort: number):
       // The app never sets a cookie a phone should keep.
       delete headers["set-cookie"];
       Object.assign(headers, securityHeaders());
+      if (safePathname(req.url) === "/m/sw.js") {
+        headers["service-worker-allowed"] = "/m";
+        headers["cache-control"] = "no-cache";
+      }
       res.writeHead(upstreamRes.statusCode ?? 502, headers);
       upstreamRes.pipe(res);
       upstreamRes.on("error", () => res.destroy());
