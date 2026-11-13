@@ -93,7 +93,11 @@ test.describe("mobile gallery", () => {
       await mobile.getByRole("link", { name: ACCOUNT }).click();
       await mobile.getByRole("link", { name: "Image", exact: true }).click();
       await mobile.getByRole("link", { name: "2025", exact: true }).click();
-      const tiles = mobile.getByRole("button", { name: /^Open / });
+      await expect(mobile.getByRole("navigation", { name: "Breadcrumb" })).toContainText("2025");
+      const overflow = await mobile.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+
+      const tiles = mobile.locator("button[data-index]");
       await expect(tiles).toHaveCount(5);
       await expect
         .poll(() => tiles.first().locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
@@ -102,18 +106,67 @@ test.describe("mobile gallery", () => {
       await tiles.first().click();
       const viewer = mobile.getByRole("dialog");
       await expect(viewer).toContainText("1 / 5");
-      await mobile.getByRole("button", { name: "Next" }).click();
+      await expect(viewer.getByRole("button", { name: "Previous" })).toHaveCount(0);
+      await expect(viewer.getByRole("button", { name: "Next" })).toHaveCount(0);
+      await expect(viewer.getByRole("button", { name: "Details" })).toBeVisible();
+      await expect(viewer.getByRole("button", { name: "Download" })).toBeVisible();
+      await expect(viewer.getByRole("button", { name: "Close" })).toBeVisible();
+
+      const cdp = await phone.newCDPSession(mobile);
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: 320, y: 450, id: 1 }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: 260, y: 450, id: 1 }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: 90, y: 450, id: 1 }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
       await expect(viewer).toContainText("2 / 5");
+
+      // Pinch-to-zoom scales the media element directly rather than zooming the web page viewport.
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [
+          { x: 170, y: 450, id: 1 },
+          { x: 250, y: 450, id: 2 },
+        ],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [
+          { x: 110, y: 450, id: 1 },
+          { x: 310, y: 450, id: 2 },
+        ],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      const resetZoom = viewer.getByRole("button", { name: "Reset zoom" });
+      await expect(resetZoom).toBeVisible();
+      expect(await mobile.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+      expect(await viewer.locator('img[alt]:not([alt=""])').evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBeGreaterThan(1.1);
+      await resetZoom.click();
+      await expect(resetZoom).toHaveCount(0);
+
       await mobile.goBack();
       await expect(viewer).toHaveCount(0);
       expect(mobile.url()).toContain(`/m/${ACCOUNT}/Image/2025`);
 
       // Sort and filter.
-      await mobile.getByLabel("Sort").selectOption("oldest");
-      await expect(tiles.first()).toHaveAttribute("aria-label", "Open 1800000000000000000_1.png");
-      await mobile.getByLabel("Show").selectOption("video");
+      await mobile.getByRole("radio", { name: "Oldest first" }).click();
+      await expect(tiles.first()).toHaveAttribute("aria-label", "1800000000000000000_1.png");
+      await mobile.getByRole("radio", { name: "Videos" }).click();
       await expect(mobile.getByText("Nothing matches this filter in this folder.")).toBeVisible();
-      await mobile.getByLabel("Show").selectOption("all");
+      await mobile.getByRole("radio", { name: "All" }).click();
 
       // One file downloads from the viewer, with its details.
       await tiles.first().click();
@@ -124,22 +177,58 @@ test.describe("mobile gallery", () => {
       await mobile.goBack();
       await expect(viewer).toHaveCount(0);
 
-      // Select several and download them as one zip.
-      const cells = mobile.locator("button[aria-label$='.png']");
-      await mobile.getByRole("button", { name: "Select", exact: true }).click();
-      await cells.nth(0).click();
-      await cells.nth(1).click();
-      await expect(mobile.getByRole("toolbar", { name: "Selection" })).toContainText("2 selected");
+      // No separate Select button; hold on an image and drag to select a block, then download as one zip.
+      await expect(mobile.getByRole("button", { name: "Select", exact: true })).toHaveCount(0);
+      const startBox = await tiles.nth(0).boundingBox();
+      const endBox = await tiles.nth(2).boundingBox();
+      expect(startBox && endBox).toBeTruthy();
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: startBox!.x + startBox!.width / 2, y: startBox!.y + startBox!.height / 2, id: 1 }],
+      });
+      await mobile.waitForTimeout(480);
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: endBox!.x + endBox!.width / 2, y: endBox!.y + endBox!.height / 2, id: 1 }],
+      });
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+
+      const bar = mobile.getByRole("toolbar", { name: "Selection" });
+      await expect(bar).toContainText("3 files selected");
       await expect(viewer).toHaveCount(0);
-      await mobile.getByRole("button", { name: "All", exact: true }).click();
-      await expect(mobile.getByRole("toolbar", { name: "Selection" })).toContainText("5 selected");
-      await mobile.getByRole("button", { name: "None", exact: true }).click();
-      await cells.nth(2).click();
-      await cells.nth(3).click();
-      const [zip] = await Promise.all([mobile.waitForEvent("download"), mobile.getByRole("button", { name: "Download", exact: true }).click()]);
+      await expect(tiles.nth(0)).toHaveAttribute("aria-pressed", "true");
+      await expect(tiles.nth(1)).toHaveAttribute("aria-pressed", "true");
+      await expect(tiles.nth(2)).toHaveAttribute("aria-pressed", "true");
+
+      // Bottom bar puts the X cancel button on the left and the selection count in the center.
+      const cancelButton = bar.getByRole("button", { name: "Cancel selection" });
+      const countText = bar.getByText("3 files selected");
+      const downloadButton = bar.getByRole("button", { name: "Download", exact: true });
+      const cancelBox = await cancelButton.boundingBox();
+      const countBox = await countText.boundingBox();
+      const downloadBox = await downloadButton.boundingBox();
+      const barBox = await bar.boundingBox();
+      expect(cancelBox && countBox && downloadBox && barBox).toBeTruthy();
+      expect(cancelBox!.x).toBeLessThan(countBox!.x);
+      expect(countBox!.x).toBeLessThan(downloadBox!.x);
+      expect(Math.abs(cancelBox!.y + cancelBox!.height / 2 - (downloadBox!.y + downloadBox!.height / 2))).toBeLessThanOrEqual(2);
+      expect(barBox!.height).toBeLessThanOrEqual(52);
+      expect(Math.abs(countBox!.x + countBox!.width / 2 - (barBox!.x + barBox!.width / 2))).toBeLessThan(20);
+
+      await bar.getByRole("button", { name: "All", exact: true }).click();
+      await expect(bar).toContainText("5 files selected");
+      await bar.getByRole("button", { name: "Clear", exact: true }).click();
+      await expect(bar).toContainText("Nothing selected");
+      await tiles.nth(2).click();
+      await tiles.nth(3).click();
+      await expect(bar).toContainText("2 files selected");
+      const [zip] = await Promise.all([mobile.waitForEvent("download"), bar.getByRole("button", { name: "Download", exact: true }).click()]);
       expect(zip.suggestedFilename()).toMatch(/\.zip$/);
-      await mobile.getByRole("button", { name: "Done" }).click();
-      await expect(mobile.getByRole("toolbar", { name: "Selection" })).toHaveCount(0);
+      await cancelButton.click();
+      await expect(bar).toHaveCount(0);
 
       // The zip request is read only, needs the session and the phone's own page, and cannot leave the library.
       const zipForm = { account: ACCOUNT, path: "Image/2025", name: "1800000000000000000_1.png" };
@@ -163,9 +252,29 @@ test.describe("mobile gallery", () => {
       // preview instead of staying blank, and never uploads a poster through the read-only gateway.
       expect((await phone.request.get(`${video}&thumb=480`)).status()).toBe(404);
       await mobile.goto(`${GATEWAY}/m/${ACCOUNT}/Video`);
-      const videoTile = mobile.getByRole("button", { name: "Open 1800000000000009999_1.mp4" });
+      const videoTile = mobile.getByRole("button", { name: "1800000000000009999_1.mp4" });
       await expect(videoTile.locator("video")).toHaveCount(1);
       await expect(videoTile.locator("video")).toHaveAttribute("preload", "metadata");
+      await videoTile.click();
+      const loopBtn = viewer.getByRole("button", { name: "Loop" });
+      const autoplayBtn = viewer.getByRole("button", { name: "Autoplay" });
+      await expect(loopBtn).toHaveAttribute("aria-pressed", "false");
+      await expect(autoplayBtn).toHaveAttribute("aria-pressed", "false");
+      await loopBtn.click();
+      await autoplayBtn.click();
+      await expect(loopBtn).toHaveAttribute("aria-pressed", "true");
+      await expect(autoplayBtn).toHaveAttribute("aria-pressed", "true");
+      await expect(viewer.locator("video")).toHaveAttribute("loop", "");
+      await mobile.keyboard.press("+");
+      const videoReset = viewer.getByRole("button", { name: "Reset zoom" });
+      await expect(videoReset).toBeVisible();
+      await expect
+        .poll(() => viewer.locator("video").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a))
+        .toBeGreaterThan(1.4);
+      await videoReset.click();
+      await expect(videoReset).toHaveCount(0);
+      await viewer.getByRole("button", { name: "Close" }).click();
+      await expect(viewer).toHaveCount(0);
 
       // Everything on the desktop is closed to the phone, writes included.
       for (const path of ["/", "/settings", "/library", "/history", "/api/runs", "/api/open-folder", "/api/health", "/api/media/zip", "/api/media/dims"]) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centreOf, justify, nearestInRow, rowOfIndex, totalHeight, visibleRows } from "./layout";
+import { centreOf, justify, nearestInRow, rowOfIndex, tileAt, totalHeight, visibleRows } from "./layout";
 
 describe("justify", () => {
   it("returns nothing for no items or no width", () => {
@@ -66,5 +66,21 @@ describe("keyboard helpers", () => {
     const second = rows[1]!;
     const x = centreOf(first, first.start + 1, 0);
     expect(nearestInRow(second, x, 0)).toBe(second.start + 1);
+  });
+});
+
+describe("tileAt", () => {
+  it("returns null for empty rows", () => {
+    expect(tileAt([], 50, 50, 4)).toBeNull();
+  });
+
+  it("picks the exact tile across variable widths and gaps", () => {
+    const rows = justify([3, 1, 1, 1, 1], 404, 100, 4);
+    // Row 0 has two tiles: ~300px wide (0) and ~100px wide (1).
+    expect(tileAt(rows, 280, 50, 4)).toBe(0);
+    expect(tileAt(rows, 350, 50, 4)).toBe(1);
+    // Clamps outside coordinates to the nearest edge tile.
+    expect(tileAt(rows, -20, -10, 4)).toBe(0);
+    expect(tileAt(rows, 900, 900, 4)).toBe(4);
   });
 });

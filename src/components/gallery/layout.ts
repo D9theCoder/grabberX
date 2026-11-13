@@ -87,3 +87,34 @@ export function centreOf(row: Row, index: number, gap: number): number {
   for (let offset = 0; offset < index - row.start; offset++) left += (row.widths[offset] ?? 0) + gap;
   return left + (row.widths[index - row.start] ?? 0) / 2;
 }
+
+/**
+ * The tile at `(x, y)` inside the justified grid, clamping outside coordinates to the nearest edge tile
+ * and snapping gaps to the nearest tile, so continuous drag-select never drops when crossing a gap.
+ */
+export function tileAt(rows: readonly Row[], x: number, y: number, gap: number): number | null {
+  if (rows.length === 0) return null;
+  let target = rows[0]!;
+  if (y >= rows.at(-1)!.top) {
+    target = rows.at(-1)!;
+  } else if (y > target.top) {
+    let low = 0;
+    let high = rows.length - 1;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      const row = rows[mid]!;
+      if (y >= row.top + row.height + gap / 2) low = mid + 1;
+      else high = mid;
+    }
+    target = rows[low]!;
+  }
+  let left = 0;
+  for (let offset = 0; offset < target.widths.length; offset++) {
+    const width = target.widths[offset] ?? 0;
+    if (offset === target.widths.length - 1 || x < left + width + gap / 2) {
+      return target.start + offset;
+    }
+    left += width + gap;
+  }
+  return target.start;
+}

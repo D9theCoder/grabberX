@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { Breadcrumb } from "@/components/gallery/breadcrumb";
 import { MobileGallery } from "@/components/mobile/mobile-gallery";
 import type { FolderListing } from "@/components/gallery/types";
-import { listFolder, MediaPathError } from "@/server/media";
+import { listFolder, MediaPathError, resolveMediaPath } from "@/server/media";
+import { knownMeta } from "@/server/media-index";
+import type { FolderMeta } from "@/server/media-index";
+import { getSettings } from "@/server/store";
 import { ZIP_MAX_BYTES, ZIP_MAX_FILES } from "@/server/zip";
 
 // The gateway caps a phone's POST at 1 MB; each file name adds about 35 bytes, so 5,000 names is about 175 KB.
@@ -24,27 +28,33 @@ export default async function MobileFolderPage({ params }: PageProps<"/m/[accoun
   const path = segments.join("/");
 
   let listing: FolderListing | null = null;
+  let meta: FolderMeta | null = null;
   let problem = "";
   try {
     listing = await listFolder(account, path);
+    // Only what the on-disk index already has: no file is opened here and no client /api/media/dims call is needed.
+    const { full } = await resolveMediaPath((await getSettings()).mediaRoot, account, path);
+    meta = await knownMeta(full, listing.files);
   } catch (error) {
     problem = error instanceof MediaPathError ? error.message : "That folder couldn't be read.";
     if (!(error instanceof MediaPathError)) console.error("grabberX: could not list a folder for the mobile gallery.", error);
   }
 
-  const parentHref =
-    segments.length === 0
-      ? "/m"
-      : `/m/${encodeURIComponent(account)}${segments.length > 1 ? "/" + segments.slice(0, -1).map(encodeURIComponent).join("/") : ""}`;
+  const crumbs = [
+    { label: "Library", href: "/m" },
+    { label: account, href: `/m/${encodeURIComponent(account)}` },
+    ...segments.map((segment, index) => ({
+      label: segment,
+      href: `/m/${encodeURIComponent(account)}/${segments.slice(0, index + 1).map(encodeURIComponent).join("/")}`,
+    })),
+  ];
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-3 pb-10">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-line bg-paper px-2 pt-[env(safe-area-inset-top)]">
-        <Link href={parentHref} aria-label="Back" className="flex size-11 items-center justify-center text-title">
-          ‹
-        </Link>
-        <h1 className="m-0 min-w-0 truncate font-mono text-body font-normal">{segments.at(-1) ?? account}</h1>
-      </header>
+    <main className="mx-auto flex max-w-3xl flex-col gap-5 px-3 pt-[max(1.25rem,env(safe-area-inset-top))] pb-16 sm:px-6">
+      <div className="flex flex-col gap-2">
+        <Breadcrumb items={crumbs} />
+        <h1 className="m-0 font-mono text-display font-normal">{segments.at(-1) ?? account}</h1>
+      </div>
       {listing ? (
         <MobileGallery
           key={`${account}/${path}`}
@@ -53,11 +63,17 @@ export default async function MobileFolderPage({ params }: PageProps<"/m/[accoun
           base={`/m/${encodeURIComponent(account)}${segments.map((s) => "/" + encodeURIComponent(s)).join("")}`}
           folders={listing.folders.map((folder) => folder.name)}
           files={listing.files}
+          initialDurations={meta?.durations}
           maxZipFiles={PHONE_ZIP_FILES}
           maxZipBytes={ZIP_MAX_BYTES}
         />
       ) : (
-        <p className="m-0 px-4 text-body text-ink-2">{problem}</p>
+        <p className="text-body text-ink-2">
+          {problem}{" "}
+          <Link href="/m" className="underline decoration-line-strong underline-offset-4 hover:text-ink">
+            Back to the library
+          </Link>
+        </p>
       )}
     </main>
   );

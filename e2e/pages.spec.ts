@@ -164,7 +164,7 @@ test.describe("media gallery", () => {
   });
 
   test.afterAll(async () => {
-    await rm(join(mediaRoot, account), { recursive: true, force: true });
+    await rm(join(mediaRoot, account), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   test("folders, a virtualized grid with thumbnails, and the lightbox", async ({ page }) => {
@@ -196,6 +196,12 @@ test.describe("media gallery", () => {
     await expect(dialog).toContainText(`2 of ${imageCount}`);
     await page.keyboard.press("i");
     await expect(dialog.getByRole("complementary", { name: "Details" })).toBeVisible();
+    await page.keyboard.press("+");
+    await expect(dialog.getByRole("button", { name: "Reset zoom" })).toBeVisible();
+    await expect
+      .poll(() => dialog.locator("img").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a))
+      .toBeGreaterThan(1.4);
+    await dialog.getByRole("button", { name: "Reset zoom" }).click();
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -242,6 +248,19 @@ test.describe("media gallery", () => {
     await page.goto(`/library/${account}`);
     await page.getByRole("link", { name: "Video", exact: true }).click();
     await expect(page.locator("button[data-index]")).toHaveCount(1);
+    await page.locator("button[data-index]").first().click();
+    const videoDialog = page.getByRole("dialog");
+    await expect(videoDialog.locator("video")).toBeVisible();
+    await page.keyboard.press("+");
+    const videoReset = videoDialog.getByRole("button", { name: "Reset zoom" });
+    await expect(videoReset).toBeVisible();
+    await expect
+      .poll(() => videoDialog.locator("video").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a))
+      .toBeGreaterThan(1.4);
+    await videoReset.click();
+    await expect(videoReset).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(videoDialog).toHaveCount(0);
     await page.goto(`/library/${account}?path=Image/2025`);
     await page.getByRole("radio", { name: "Videos" }).click();
     await expect(page.getByText("Nothing matches this filter in this folder.")).toBeVisible();

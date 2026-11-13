@@ -20,9 +20,11 @@ export interface ThumbnailProps {
   selected: boolean;
   /** Length from the media index, when a browser has reported it before. */
   duration?: number;
+  /** Desktop posts captured video posters back to the server; the read-only mobile gateway forbids it. */
+  capturePoster?: boolean;
   onPress: (index: number, event: ReactMouseEvent) => void;
   onActivate: (index: number) => void;
-  onMenu: (index: number, event: ReactMouseEvent) => void;
+  onMenu?: (index: number, event: ReactMouseEvent) => void;
 }
 
 /** The same version string the media route puts in its etag, so a thumbnail URL changes only with the file. */
@@ -56,7 +58,19 @@ function sendPoster(video: HTMLVideoElement, account: string, relative: string) 
   canvas.toBlob(send, "image/webp", 0.8);
 }
 
-function VideoFallback({ source, relative, account, onDuration }: { source: string; relative: string; account: string; onDuration: (seconds: number) => void }) {
+function VideoFallback({
+  source,
+  relative,
+  account,
+  capturePoster,
+  onDuration,
+}: {
+  source: string;
+  relative: string;
+  account: string;
+  capturePoster: boolean;
+  onDuration: (seconds: number) => void;
+}) {
   const sent = useRef(false);
   return (
     <video
@@ -66,9 +80,12 @@ function VideoFallback({ source, relative, account, onDuration }: { source: stri
       playsInline
       tabIndex={-1}
       aria-hidden="true"
-      onLoadedMetadata={(event) => onDuration(event.currentTarget.duration)}
+      onLoadedMetadata={(event) => {
+        if (event.currentTarget.currentTime === 0) event.currentTarget.currentTime = 0.1;
+        onDuration(event.currentTarget.duration);
+      }}
       onLoadedData={(event) => {
-        if (sent.current) return;
+        if (!capturePoster || sent.current) return;
         sent.current = true;
         const element = event.currentTarget;
         // The #t=0.1 seek lands a moment after loadeddata; draw once the frame is there.
@@ -76,7 +93,7 @@ function VideoFallback({ source, relative, account, onDuration }: { source: stri
         if (element.seeking) element.addEventListener("seeked", capture, { once: true });
         else capture();
       }}
-      className="size-full object-cover"
+      className="pointer-events-none size-full object-cover"
     />
   );
 }
@@ -97,6 +114,7 @@ export const Thumbnail = memo(function Thumbnail({
   selecting,
   selected,
   duration,
+  capturePoster = true,
   onPress,
   onActivate,
   onMenu,
@@ -104,13 +122,22 @@ export const Thumbnail = memo(function Thumbnail({
   const [fallback, setFallback] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [seconds, setSeconds] = useState<number | null>(duration ?? null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const relative = path === "" ? file.name : `${path}/${file.name}`;
   const source = mediaUrl(account, path, file.name);
   const thumb = mediaUrl(account, path, file.name, 480, versionOf(file));
+  const imgSrc = file.kind === "image" && fallback ? source : thumb;
 
   useEffect(() => {
     if (duration !== undefined) setSeconds(duration);
   }, [duration]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !img.complete) return;
+    if (img.naturalWidth > 0) setLoaded(true);
+    else setFallback(true);
+  }, [imgSrc]);
 
   return (
     <button
@@ -122,17 +149,21 @@ export const Thumbnail = memo(function Thumbnail({
       tabIndex={active ? 0 : -1}
       onClick={(event) => onPress(index, event)}
       onFocus={() => onActivate(index)}
-      onContextMenu={(event) => onMenu(index, event)}
+      onContextMenu={(event) => {
+        if (onMenu) onMenu(index, event);
+        else event.preventDefault();
+      }}
       style={{ width, height }}
       className={cn(
-        "group relative block flex-none overflow-hidden rounded-sm border bg-sunken p-0 transition-colors duration-120",
+        "group relative block flex-none select-none overflow-hidden rounded-sm border bg-sunken p-0 [-webkit-touch-callout:none] transition-colors duration-120",
         selected ? "border-ink" : "border-line hover:border-ink-2",
       )}
     >
       {file.kind === "image" || !fallback ? (
         // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from our own route, next/image would re-encode them
         <img
-          src={file.kind === "image" && fallback ? source : thumb}
+          ref={imgRef}
+          src={imgSrc}
           alt=""
           decoding="async"
           draggable={false}
@@ -141,7 +172,13 @@ export const Thumbnail = memo(function Thumbnail({
           className={cn("size-full object-cover transition-opacity duration-120", loaded ? "opacity-100" : "opacity-0")}
         />
       ) : (
-        <VideoFallback source={source} relative={relative} account={account} onDuration={setSeconds} />
+        <VideoFallback
+          source={source}
+          relative={relative}
+          account={account}
+          capturePoster={capturePoster}
+          onDuration={setSeconds}
+        />
       )}
       {selected ? <span className="pointer-events-none absolute inset-0 rounded-sm shadow-[inset_0_0_0_2px_var(--color-ink)]" /> : null}
       {selecting ? (

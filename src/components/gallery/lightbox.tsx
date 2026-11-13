@@ -28,26 +28,15 @@ export interface LightboxProps {
   menuEntries?: (file: MediaFile) => MenuEntry[];
 }
 
-interface View {
-  scale: number;
-  x: number;
-  y: number;
-}
-
-const FIT: View = { scale: 1, x: 0, y: 0 };
-const MAX_SCALE = 16;
-
-function clampScale(scale: number): number {
-  return Math.min(MAX_SCALE, Math.max(1, scale));
-}
-
-/** Zooms around a point given relative to the centre of the stage, so the pixel under the cursor stays put. */
-function zoomAt(view: View, nextScale: number, px: number, py: number): View {
-  const scale = clampScale(nextScale);
-  if (scale === 1) return FIT;
-  const ratio = scale / view.scale;
-  return { scale, x: px - (px - view.x) * ratio, y: py - (py - view.y) * ratio };
-}
+import {
+  doubleTapScale,
+  FIT_VIEW,
+  mediaBoundsOf,
+  panZoomView,
+  pinchZoomAt,
+  zoomAt,
+  type ZoomView,
+} from "@/components/gallery/zoom";
 
 const FOCUSABLE = 'button:not([disabled]), a[href], video[controls], [tabindex]:not([tabindex="-1"])';
 
@@ -62,7 +51,8 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   const video = useRef<HTMLVideoElement>(null);
   const opener = useRef<Element | null>(null);
 
-  const [view, setView] = useState<View>(FIT);
+  const [view, setView] = useState<ZoomView>(FIT_VIEW);
+  const [zoomAnimating, setZoomAnimating] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [details, setDetails] = useState<FileDetails | null>(null);
   const [size, setSize] = useState<[number, number] | null>(null);
@@ -72,8 +62,14 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const pinchStart = useRef<{ distance: number; view: View } | null>(null);
+  const pinchStart = useRef<{ distance: number; px: number; py: number; view: ZoomView } | null>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const dragged = useRef(false);
+
+  const activeMedia = useCallback(
+    (): HTMLElement | null => (file?.kind === "video" ? video.current : image.current),
+    [file?.kind],
+  );
 
   useEffect(() => {
     opener.current = document.activeElement;
@@ -88,7 +84,8 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   }, []);
 
   useEffect(() => {
-    setView(FIT);
+    setView(FIT_VIEW);
+    setZoomAnimating(false);
     setSize(null);
     setDetails(null);
     setConfirming(false);
@@ -112,45 +109,86 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
     }
   }, [account, path, files, index]);
 
-  const zoomBy = useCallback((factor: number, px = 0, py = 0) => {
-    setView((current) => zoomAt(current, current.scale * factor, px, py));
+  const zoomBy = useCallback(
+    (factor: number, px = 0, py = 0, animate = false) => {
+      setZoomAnimating(animate);
+      setView((current) => zoomAt(current, current.scale * factor, px, py, mediaBoundsOf(stage.current, activeMedia())));
+    },
+    [activeMedia],
+  );
+
+  const resetZoom = useCallback((animate = true) => {
+    setZoomAnimating(animate);
+    setView(FIT_VIEW);
   }, []);
 
   useEffect(() => {
     const element = stage.current;
-    if (!element || file?.kind !== "image") return;
+    if (!element || !file) return;
     function onWheel(event: WheelEvent) {
       event.preventDefault();
       const rect = element!.getBoundingClientRect();
       const px = event.clientX - rect.left - rect.width / 2;
       const py = event.clientY - rect.top - rect.height / 2;
-      zoomBy(Math.exp(-event.deltaY * 0.0015), px, py);
+      zoomBy(Math.exp(-event.deltaY * 0.0015), px, py, false);
     }
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [file?.kind, zoomBy, relative]);
+  }, [file, zoomBy, relative]);
 
-  function toggleActualSize(event: { clientX: number; clientY: number }) {
-    const element = image.current;
-    if (!element) return;
-    if (view.scale > 1) {
-      setView(FIT);
+  function inVideoControlBar(target: EventTarget | null, clientY: number): boolean {
+    if (!(target instanceof HTMLVideoElement)) return false;
+    const rect = target.getBoundingClientRect();
+    return clientY > rect.bottom - 52;
+  }
+
+  function toggleActualSize(event: { clientX: number; clientY: number; target: EventTarget | null }) {
+    const element = activeMedia();
+    if (!element || !stage.current) return;
+    if (view.scale <= 1.01 && inVideoControlBar(event.target, event.clientY)) return;
+    if (view.scale > 1.01) {
+      resetZoom(true);
       return;
     }
-    const rect = stage.current!.getBoundingClientRect();
-    const actual = element.naturalWidth / Math.max(1, element.clientWidth);
-    if (actual <= 1.01) return;
-    zoomBy(actual, event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2);
+    const rect = stage.current.getBoundingClientRect();
+    const intrinsicWidth =
+      element instanceof HTMLVideoElement
+        ? element.videoWidth
+        : element instanceof HTMLImageElement
+          ? element.naturalWidth
+          : 0;
+    const target = doubleTapScale(intrinsicWidth, element.clientWidth, 2);
+    setZoomAnimating(true);
+    setView(
+      zoomAt(
+        FIT_VIEW,
+        target,
+        event.clientX - rect.left - rect.width / 2,
+        event.clientY - rect.top - rect.height / 2,
+        mediaBoundsOf(stage.current, element),
+      ),
+    );
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (file?.kind !== "image") return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (!file) return;
+    if (view.scale <= 1.01 && inVideoControlBar(event.target, event.clientY)) return;
+    setZoomAnimating(false);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    dragged.current = false;
-    if (pointers.current.size === 2) {
+    if (pointers.current.size === 1) {
+      dragOrigin.current = { x: event.clientX, y: event.clientY };
+      dragged.current = false;
+    }
+    if (pointers.current.size === 2 && stage.current) {
       const [a, b] = [...pointers.current.values()];
-      pinchStart.current = { distance: Math.hypot(a!.x - b!.x, a!.y - b!.y), view };
+      const rect = stage.current.getBoundingClientRect();
+      pinchStart.current = {
+        distance: Math.hypot(a!.x - b!.x, a!.y - b!.y),
+        px: (a!.x + b!.x) / 2 - rect.left - rect.width / 2,
+        py: (a!.y + b!.y) / 2 - rect.top - rect.height / 2,
+        view,
+      };
+      dragged.current = true;
     }
   }
 
@@ -158,28 +196,48 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.current.size === 2 && pinchStart.current) {
+    if (pointers.current.size === 2 && pinchStart.current && stage.current) {
       const [a, b] = [...pointers.current.values()];
-      const rect = stage.current!.getBoundingClientRect();
+      const rect = stage.current.getBoundingClientRect();
       const distance = Math.hypot(a!.x - b!.x, a!.y - b!.y);
       const px = (a!.x + b!.x) / 2 - rect.left - rect.width / 2;
       const py = (a!.y + b!.y) / 2 - rect.top - rect.height / 2;
       const start = pinchStart.current;
-      setView(zoomAt(start.view, start.view.scale * (distance / Math.max(1, start.distance)), px, py));
+      setView(
+        pinchZoomAt(
+          start.view,
+          start.distance,
+          start.px,
+          start.py,
+          distance,
+          px,
+          py,
+          mediaBoundsOf(stage.current, activeMedia()),
+        ),
+      );
       dragged.current = true;
       return;
     }
-    if (view.scale > 1) {
+    if (view.scale > 1.01) {
       const dx = event.clientX - previous.x;
       const dy = event.clientY - previous.y;
-      if (Math.abs(dx) + Math.abs(dy) > 0) dragged.current = true;
-      setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
+      if (dragOrigin.current && Math.hypot(event.clientX - dragOrigin.current.x, event.clientY - dragOrigin.current.y) > 3) {
+        dragged.current = true;
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+      }
+      setView((current) => panZoomView(current, dx, dy, mediaBoundsOf(stage.current, activeMedia())));
     }
   }
 
   function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     pointers.current.delete(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     if (pointers.current.size < 2) pinchStart.current = null;
+    if (pointers.current.size === 0) dragOrigin.current = null;
   }
 
   function toggleFullscreen() {
@@ -237,12 +295,12 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
       event.preventDefault();
       const element = video.current;
       if (element) void (element.paused ? element.play() : element.pause());
-    } else if ((event.key === "+" || event.key === "=") && file?.kind === "image") {
-      zoomBy(1.5);
-    } else if (event.key === "-" && file?.kind === "image") {
-      zoomBy(1 / 1.5);
-    } else if (event.key === "0" && file?.kind === "image") {
-      setView(FIT);
+    } else if ((event.key === "+" || event.key === "=") && file) {
+      zoomBy(1.5, 0, 0, true);
+    } else if (event.key === "-" && file) {
+      zoomBy(1 / 1.5, 0, 0, true);
+    } else if (event.key === "0" && file) {
+      resetZoom(true);
     }
   }
 
@@ -311,7 +369,11 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   const postDate = postId ? postDateOf(postId) : null;
   const source = mediaUrl(account, path, file.name);
   const recycle = details?.ok ? details.recycle : false;
-  const zoomed = view.scale > 1;
+  const zoomed = view.scale > 1.01;
+  const mediaStyle = {
+    transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
+    transition: zoomAnimating ? "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)" : "none",
+  };
 
   return (
     <div
@@ -336,7 +398,17 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
               <ToolbarButton label="Loop" pressed={loop} onClick={() => setLoop((on) => !on)}>
                 <LoopIcon />
               </ToolbarButton>
-              <ToolbarButton label="Autoplay" pressed={autoplay} onClick={() => setAutoplay((on) => !on)}>
+              <ToolbarButton
+                label="Autoplay"
+                pressed={autoplay}
+                onClick={() =>
+                  setAutoplay((on) => {
+                    const next = !on;
+                    if (next && video.current?.paused) void video.current.play().catch(() => {});
+                    return next;
+                  })
+                }
+              >
                 <AutoplayIcon />
               </ToolbarButton>
             </>
@@ -370,7 +442,14 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onDoubleClick={file.kind === "image" ? toggleActualSize : undefined}
+          onClickCapture={(event) => {
+            if (dragged.current) {
+              event.preventDefault();
+              event.stopPropagation();
+              dragged.current = false;
+            }
+          }}
+          onDoubleClick={toggleActualSize}
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -382,7 +461,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
           }}
           style={{ touchAction: "none" }}
           className={`relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
-            file.kind === "image" ? (zoomed ? "cursor-grab" : "cursor-zoom-in") : ""
+            zoomed ? "cursor-grab active:cursor-grabbing" : file.kind === "image" ? "cursor-zoom-in" : ""
           }`}
         >
           {file.kind === "image" ? (
@@ -394,7 +473,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
               alt={file.name}
               draggable={false}
               onLoad={(event) => setSize([event.currentTarget.naturalWidth, event.currentTarget.naturalHeight])}
-              style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+              style={mediaStyle}
               className="max-h-full max-w-full select-none object-contain"
             />
           ) : (
@@ -407,12 +486,27 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
               autoPlay={autoplay}
               loop={loop}
               onLoadedMetadata={(event) => setSize([event.currentTarget.videoWidth, event.currentTarget.videoHeight])}
+              style={mediaStyle}
               className="max-h-full max-w-full"
             >
               <track kind="captions" />
             </video>
           )}
         </div>
+
+        {zoomed ? (
+          <button
+            type="button"
+            aria-label="Reset zoom"
+            onClick={() => {
+              resetZoom(true);
+              dialog.current?.focus();
+            }}
+            className="absolute right-3 bottom-3 z-10 rounded-full border border-on-stage/30 bg-stage/80 px-3 py-1 text-small text-on-stage tabular-nums backdrop-blur-xs transition-colors duration-120 hover:bg-stage"
+          >
+            {view.scale.toFixed(1)}× · Reset
+          </button>
+        ) : null}
 
         <ToolbarButton
           label="Previous"
