@@ -20,7 +20,9 @@ import { folderChanges } from "@/server/warm-signal";
 
 const START_DELAY_MS = 15_000;
 const BUSY_WAIT_MS = 300;
-const SESSION_BUDGET_BYTES = 768 * 1024 * 1024;
+const BUDGET_WINDOW_BYTES = 768 * 1024 * 1024;
+/** Reset the warm-up byte budget every 24 hours so long-lived tray sessions keep warming new downloads. */
+const BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 interface VideoBatch {
   dir: string;
@@ -33,12 +35,31 @@ const failedPosters = new Set<string>();
 let running = false;
 let started = false;
 let warmedBytes = 0;
+let budgetStartedAt = Date.now();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function refreshBudget(): void {
+  const now = Date.now();
+  if (now - budgetStartedAt >= BUDGET_WINDOW_MS) {
+    warmedBytes = 0;
+    budgetStartedAt = now;
+  }
+}
+
 function enqueue(dir: string) {
+  refreshBudget();
   if (!queue.includes(dir)) queue.push(dir);
   void drain();
+}
+
+function enqueueVideos(dir: string, files: MediaFile[]) {
+  const existing = videoQueue.find((batch) => batch.dir === dir);
+  if (existing) {
+    existing.files = files;
+    return;
+  }
+  videoQueue.push({ dir, files });
 }
 
 async function drain() {
@@ -46,7 +67,9 @@ async function drain() {
   running = true;
   try {
     // Images go first for every queued folder; video posters wait until no image folder is waiting.
-    while ((queue.length > 0 || videoQueue.length > 0) && warmedBytes < SESSION_BUDGET_BYTES) {
+    while (queue.length > 0 || videoQueue.length > 0) {
+      refreshBudget();
+      if (warmedBytes >= BUDGET_WINDOW_BYTES) break;
       if (queue.length > 0) await warmTree(queue.shift()!);
       else await warmVideos(videoQueue.shift()!);
     }
@@ -76,7 +99,8 @@ async function warmTree(dir: string) {
   const newestFirst = (a: MediaFile, b: MediaFile) => b.name.localeCompare(a.name, undefined, { numeric: true });
   const images = files.filter((file) => file.kind === "image").sort(newestFirst);
   for (const file of images) {
-    if (warmedBytes >= SESSION_BUDGET_BYTES) return;
+    refreshBudget();
+    if (warmedBytes >= BUDGET_WINDOW_BYTES) return;
     const full = join(dir, file.name);
     if (await hasThumbnail(full, 480, file)) continue;
     while (thumbnailsBusy()) await sleep(BUSY_WAIT_MS);
@@ -87,7 +111,7 @@ async function warmTree(dir: string) {
   // ffmpeg is optional; without it the desktop browser captures a poster the first time the tile is viewed.
   // Videos wait in their own queue so one account's ffmpeg pass never delays another account's images.
   const videos = files.filter((file) => file.kind === "video").sort(newestFirst);
-  if (videos.length > 0) videoQueue.push({ dir, files: videos });
+  if (videos.length > 0) enqueueVideos(dir, videos);
 }
 
 async function warmVideos({ dir, files }: VideoBatch) {
@@ -95,7 +119,8 @@ async function warmVideos({ dir, files }: VideoBatch) {
   const ffmpeg = await findFfmpeg();
   if (ffmpeg === null) return;
   for (const file of files) {
-    if (warmedBytes >= SESSION_BUDGET_BYTES) return;
+    refreshBudget();
+    if (warmedBytes >= BUDGET_WINDOW_BYTES) return;
     const full = join(dir, file.name);
     if (await hasThumbnail(full, 480, file)) continue;
     const key = `${full}|${file.size}|${Math.floor(file.mtimeMs)}`;

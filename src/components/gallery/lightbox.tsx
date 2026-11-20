@@ -4,21 +4,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { deleteFile, getFileDetails } from "@/app/library/[account]/actions";
 import type { FileDetails } from "@/app/library/[account]/actions";
+import { showInFolder } from "@/components/gallery/file-actions";
 import { AutoplayIcon, ExpandIcon, LoopIcon, NextIcon, PrevIcon, TrashIcon } from "@/components/gallery/gallery-icons";
-import { postDateOf, postIdOf, postUrlOf } from "@/components/gallery/format";
+import { postInfoOf } from "@/components/gallery/format";
 import { mediaUrl } from "@/components/gallery/thumbnail";
 import { Toolbar, ToolbarButton } from "@/components/gallery/toolbar";
 import type { MediaFile } from "@/components/gallery/types";
-import { CopyIcon, CrossIcon, ExternalIcon, FolderIcon, InfoIcon } from "@/components/icons";
+import { CopyIcon, CrossIcon, ExternalIcon, FolderIcon, InfoIcon, PlayIcon, StopIcon } from "@/components/icons";
 import { useContextMenu } from "@/components/context-menu";
 import type { MenuEntry } from "@/components/context-menu";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
+import type { SiteId } from "@/lib/spec";
 
 export interface LightboxProps {
   account: string;
   /** Folder shown in the grid, relative to the account. Empty at the account root. */
   path: string;
+  site?: SiteId;
   files: readonly MediaFile[];
   index: number;
   onIndexChange: (index: number) => void;
@@ -40,7 +43,9 @@ import {
 
 const FOCUSABLE = 'button:not([disabled]), a[href], video[controls], [tabindex]:not([tabindex="-1"])';
 
-export function Lightbox({ account, path, files, index, onIndexChange, onClose, onDeleted, menuEntries }: LightboxProps) {
+const SLIDESHOW_INTERVAL_MS = 4000;
+
+export function Lightbox({ account, path, site, files, index, onIndexChange, onClose, onDeleted, menuEntries }: LightboxProps) {
   const menu = useContextMenu();
   const file = files[index];
   const relative = file ? (path === "" ? file.name : `${path}/${file.name}`) : "";
@@ -58,6 +63,7 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   const [size, setSize] = useState<[number, number] | null>(null);
   const [loop, setLoop] = useState(false);
   const [autoplay, setAutoplay] = useState(false);
+  const [slideshow, setSlideshow] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -245,10 +251,29 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
     else void dialog.current?.requestFullscreen?.().catch(() => {});
   }
 
-  function go(step: number) {
-    const next = index + step;
-    if (next >= 0 && next < files.length) onIndexChange(next);
-  }
+  const go = useCallback(
+    (step: number) => {
+      const next = index + step;
+      if (next >= 0 && next < files.length) onIndexChange(next);
+    },
+    [index, files.length, onIndexChange],
+  );
+
+  const jumpRandom = useCallback(() => {
+    if (files.length <= 1) return;
+    let next = Math.floor(Math.random() * (files.length - 1));
+    if (next >= index) next += 1;
+    onIndexChange(next);
+  }, [files.length, index, onIndexChange]);
+
+  // Auto-advance during slideshow (paused while zoomed, confirming delete, or viewing a video).
+  useEffect(() => {
+    if (!slideshow || confirming || view.scale > 1.01 || file?.kind === "video" || files.length <= 1) return;
+    const timer = setTimeout(() => {
+      onIndexChange((index + 1) % files.length);
+    }, SLIDESHOW_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [slideshow, confirming, view.scale, file?.kind, files.length, index, onIndexChange]);
 
   function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "Tab") {
@@ -285,6 +310,13 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
       go(1);
+    } else if (event.key === "Delete" && file) {
+      event.preventDefault();
+      setSlideshow(false);
+      setConfirming(true);
+    } else if ((event.key === "r" || event.key === "R") && files.length > 1) {
+      event.preventDefault();
+      jumpRandom();
     } else if (event.key === "f" || event.key === "F") {
       event.preventDefault();
       toggleFullscreen();
@@ -319,12 +351,9 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
   }
 
   function openInExplorer() {
-    void fetch("/api/open-folder", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ folder: account }),
-    }).then(
-      () => setStatus("Opened the account folder"),
+    if (!file) return;
+    void showInFolder(account, path, file.name).then(
+      (ok) => setStatus(ok ? (window.gatherShell ? "Shown in folder" : "Opened the account folder") : "The folder couldn't be opened."),
       () => setStatus("The folder couldn't be opened."),
     );
   }
@@ -365,8 +394,8 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
 
   if (!file) return null;
 
-  const postId = postIdOf(file.name);
-  const postDate = postId ? postDateOf(postId) : null;
+  const post = postInfoOf(file.name, site);
+  const postDate = post?.date ?? null;
   const source = mediaUrl(account, path, file.name);
   const recycle = details?.ok ? details.recycle : false;
   const zoomed = view.scale > 1.01;
@@ -412,6 +441,15 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
                 <AutoplayIcon />
               </ToolbarButton>
             </>
+          ) : null}
+          {files.length > 1 ? (
+            <ToolbarButton
+              label={slideshow ? "Stop slideshow" : "Slideshow"}
+              pressed={slideshow}
+              onClick={() => setSlideshow((on) => !on)}
+            >
+              {slideshow ? <StopIcon /> : <PlayIcon />}
+            </ToolbarButton>
           ) : null}
           <ToolbarButton label="Details (I)" pressed={showDetails} onClick={() => setShowDetails((open) => !open)}>
             <InfoIcon />
@@ -539,14 +577,14 @@ export function Lightbox({ account, path, files, index, onIndexChange, onClose, 
               <div>
                 <dt className="text-small text-on-stage/70">Original post</dt>
                 <dd className="m-0">
-                  {postId ? (
+                  {post ? (
                     <a
-                      href={postUrlOf(postId)}
+                      href={post.url}
                       target="_blank"
                       rel="noreferrer noopener"
                       className="inline-flex items-center gap-1 underline underline-offset-4"
                     >
-                      Open post
+                      {post.label}
                       <ExternalIcon className="size-3.5" />
                     </a>
                   ) : (

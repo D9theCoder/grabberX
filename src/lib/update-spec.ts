@@ -72,7 +72,9 @@ export function enrichLibraryEntry(
   const hasActive = activeRuns.some(
     (run) => isActiveStatus(run.status) && folderKey(folderNameFor(run.spec)) === key,
   );
-  const latestReal = runsForFolder(entry.folder, runs).find((run) => !run.spec.simulate);
+  const history = runsForFolder(entry.folder, runs);
+  const latestReal = history.find((run) => !run.spec.simulate);
+  const latestAny = latestReal ?? history[0];
   const runTime = latestReal?.endedAt ?? latestReal?.startedAt;
   const lastRunAt = newerIso(entry.lastRunAt, runTime);
   const upToDate =
@@ -83,10 +85,15 @@ export function enrichLibraryEntry(
     latestReal.spec.advanced.range === undefined &&
     latestReal.spec.dateFrom === undefined &&
     latestReal.spec.dateTo === undefined;
+  const lastRunFailed =
+    latestReal !== undefined && (latestReal.status === "failed" || latestReal.counts.failed > 0);
 
   return {
     ...entry,
     ...(lastRunAt ? { lastRunAt } : {}),
+    ...(latestAny ? { site: latestAny.spec.site } : {}),
+    ...(latestReal ? { lastRunStatus: latestReal.status } : {}),
+    lastRunFailed,
     upToDate,
   };
 }

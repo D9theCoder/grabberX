@@ -25,17 +25,31 @@ interface SavedMobile {
 interface Running {
   handle: GatewayHandle;
   timer: NodeJS.Timeout | null;
-  starting?: Promise<void>;
+  autoOffAt: number | null;
+  certHosts: Set<string>;
 }
 
-// The Settings Server Action and instrumentation.ts can be bundled separately; one listener must exist.
+// The Settings Server Action and instrumentation.ts can be bundled separately; one listener and one lock must exist.
 const globalKey = Symbol.for("gather.mobile.service");
-type WithRunning = typeof globalThis & { [globalKey]?: Running | null };
+const lockKey = Symbol.for("gather.mobile.service.lock");
+type WithRunning = typeof globalThis & { [globalKey]?: Running | null; [lockKey]?: Promise<void> };
 
 const running = (): Running | null => (globalThis as WithRunning)[globalKey] ?? null;
 const setRunning = (value: Running | null) => {
   (globalThis as WithRunning)[globalKey] = value;
 };
+
+/** Serializes listener start/stop transitions so overlapping calls never race on the gateway port. */
+function withTransitionLock<T>(fn: () => Promise<T>): Promise<T> {
+  const holder = globalThis as WithRunning;
+  const previous = holder[lockKey] ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(fn);
+  holder[lockKey] = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
 
 function mobileFile(): string {
   return join(gatherHome(), "mobile.json");
@@ -66,6 +80,11 @@ function stopListener(): Promise<void> {
   return current.handle.close();
 }
 
+/** Closes the mobile gateway on server shutdown without altering saved settings or paired devices. */
+export function stopMobileGateway(): Promise<void> {
+  return withTransitionLock(() => stopListener());
+}
+
 async function startListener(autoOffAt: number | null): Promise<void> {
   if (running()) return;
   const hosts = lanAddresses().map((entry) => entry.address);
@@ -86,34 +105,40 @@ async function startListener(autoOffAt: number | null): Promise<void> {
     timer = setTimeout(() => void disableMobileAccess({ forget: false }), wait);
     timer.unref();
   }
-  setRunning({ handle, timer });
+  setRunning({ handle, timer, autoOffAt, certHosts: new Set(hosts) });
 }
 
 /** Called once from instrumentation.ts. Does nothing unless the user turned sharing on and it has not run out. */
-export async function startMobileIfEnabled(): Promise<void> {
-  const saved = await readSaved();
-  if (!saved.enabled) return;
-  if (saved.autoOffAt !== null && saved.autoOffAt <= Date.now()) {
-    await writeSaved({ enabled: false, autoOffAt: null });
-    return;
-  }
-  await startListener(saved.autoOffAt).catch((error) => {
-    console.error("grabberX: could not start the mobile gallery.", error);
+export function startMobileIfEnabled(): Promise<void> {
+  return withTransitionLock(async () => {
+    const saved = await readSaved();
+    if (!saved.enabled) return;
+    if (saved.autoOffAt !== null && saved.autoOffAt <= Date.now()) {
+      await writeSaved({ enabled: false, autoOffAt: null });
+      return;
+    }
+    await startListener(saved.autoOffAt).catch((error) => {
+      console.error("grabberX: could not start the mobile gallery.", error);
+    });
   });
 }
 
-export async function enableMobileAccess(hours: AutoOffHours): Promise<void> {
-  const autoOffAt = hours === 0 ? null : Date.now() + hours * 3600_000;
-  await stopListener();
-  await startListener(autoOffAt);
-  await writeSaved({ enabled: true, autoOffAt });
+export function enableMobileAccess(hours: AutoOffHours): Promise<void> {
+  return withTransitionLock(async () => {
+    const autoOffAt = hours === 0 ? null : Date.now() + hours * 3600_000;
+    await stopListener();
+    await startListener(autoOffAt);
+    await writeSaved({ enabled: true, autoOffAt });
+  });
 }
 
-export async function disableMobileAccess({ forget }: { forget: boolean }): Promise<void> {
-  await stopListener();
-  resetPairingState();
-  await writeSaved({ enabled: false, autoOffAt: null });
-  if (forget) await revokeAllDevices();
+export function disableMobileAccess({ forget }: { forget: boolean }): Promise<void> {
+  return withTransitionLock(async () => {
+    await stopListener();
+    resetPairingState();
+    await writeSaved({ enabled: false, autoOffAt: null });
+    if (forget) await revokeAllDevices();
+  });
 }
 
 export interface MobileStatus {
@@ -150,12 +175,24 @@ export interface PairingOffer {
 
 /** The pairing secret goes after the "#", which a browser never sends in a request. */
 export async function createPairingOffer(address?: string): Promise<PairingOffer | null> {
-  const current = running();
+  let current = running();
   if (!current) return null;
   const options = lanAddresses();
   // Only an address this PC really has may be put into a QR code; the caller picks among them.
   const chosen = options.find((entry) => entry.address === address) ?? options[0];
   if (!chosen) return null;
+  // If the PC gained a new LAN or Tailscale IP after the gateway started, refresh the leaf cert SANs
+  // so HTTPS pairing doesn't fail with ERR_CERT_COMMON_NAME_INVALID.
+  if (!current.certHosts.has(chosen.address)) {
+    const autoOffAt = current.autoOffAt;
+    await withTransitionLock(async () => {
+      if (!running()) return;
+      await stopListener();
+      await startListener(autoOffAt);
+    });
+    current = running();
+    if (!current) return null;
+  }
   const { token, expiresAt } = createPairingToken();
   const hostPort = `${chosen.address}:${current.handle.port}`;
   const url = `http://${hostPort}/m/pair#${token}`;

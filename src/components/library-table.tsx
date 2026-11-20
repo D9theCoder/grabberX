@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { pausedAccountList, setAccountPausedAction } from "@/app/actions";
-import { moveAccount, updateAccount, updateAll } from "@/app/library/actions";
+import { moveAccount, updateAccount, updateAll, updateSelected } from "@/app/library/actions";
 import { FolderIcon, MoreIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
@@ -12,7 +12,8 @@ import { TextField } from "@/components/ui/text-field";
 import { cn } from "@/lib/cn";
 import { formatBytes, formatCount, formatRelative } from "@/lib/format";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
-import type { AccountStats, DetectedLayout, LibraryEntry } from "@/lib/spec";
+import { siteDef } from "@/lib/sites";
+import type { AccountStats, DetectedLayout, LibraryEntry, SiteId } from "@/lib/spec";
 import { notifyRunsChanged } from "@/lib/task-list";
 import {
   isUnchangedFolderName,
@@ -26,7 +27,9 @@ interface Row {
   stats: Promise<AccountStats>;
 }
 
-type SortKey = "lastRun" | "name" | "size";
+type SortKey = "lastRun" | "name" | "size" | "files";
+type StatusFilter = "all" | "needsUpdate" | "upToDate" | "failed" | "paused";
+type SiteFilter = "all" | SiteId;
 
 const LAYOUT_NAMES: Record<DetectedLayout, string> = {
   byType: LAYOUT_LABELS.byType,
@@ -150,6 +153,11 @@ function compare(sort: SortKey, stats: Record<string, AccountStats>) {
   return (a: Row, b: Row) => {
     if (sort === "name") return a.entry.folder.localeCompare(b.entry.folder);
     if (sort === "size") return (stats[b.entry.folder]?.bytes ?? -1) - (stats[a.entry.folder]?.bytes ?? -1);
+    if (sort === "files") {
+      const aCount = stats[a.entry.folder] ? stats[a.entry.folder]!.images + stats[a.entry.folder]!.videos : -1;
+      const bCount = stats[b.entry.folder] ? stats[b.entry.folder]!.images + stats[b.entry.folder]!.videos : -1;
+      return bCount - aCount;
+    }
     return (b.entry.lastRunAt ?? "").localeCompare(a.entry.lastRunAt ?? "");
   };
 }
@@ -157,7 +165,10 @@ function compare(sort: SortKey, stats: Record<string, AccountStats>) {
 export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
   const [stats, setStats] = useState<Record<string, AccountStats>>({});
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [siteFilter, setSiteFilter] = useState<SiteFilter>("all");
   const [sort, setSort] = useState<SortKey>("lastRun");
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const [moveFor, setMoveFor] = useState<string | null>(null);
@@ -222,9 +233,72 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
     };
   }, [rows]);
 
+  const sitesPresent = useMemo(() => {
+    const found = new Set<SiteId>();
+    for (const row of rows) {
+      if (row.entry.site) found.add(row.entry.site);
+    }
+    return [...found];
+  }, [rows]);
+
+  const totals = useMemo(() => {
+    let images = 0;
+    let videos = 0;
+    let bytes = 0;
+    let loaded = 0;
+    for (const row of rows) {
+      const s = stats[row.entry.folder];
+      if (!s) continue;
+      images += s.images;
+      videos += s.videos;
+      bytes += s.bytes;
+      loaded += 1;
+    }
+    return { images, videos, bytes, loaded, total: rows.length };
+  }, [rows, stats]);
+
+  const staleFolders = useMemo(
+    () => rows.filter((row) => !row.entry.upToDate && !isPaused(row.entry.folder)).map((row) => row.entry.folder),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, paused],
+  );
+
   const visible = rows
-    .filter((row) => row.entry.folder.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter((row) => {
+      if (!row.entry.folder.toLowerCase().includes(query.trim().toLowerCase())) return false;
+      if (siteFilter !== "all" && row.entry.site !== siteFilter) return false;
+      if (statusFilter === "upToDate" && !row.entry.upToDate) return false;
+      if (statusFilter === "needsUpdate" && row.entry.upToDate) return false;
+      if (statusFilter === "failed" && !row.entry.lastRunFailed) return false;
+      if (statusFilter === "paused" && !isPaused(row.entry.folder)) return false;
+      return true;
+    })
     .sort(compare(sort, stats));
+
+  const visibleFolders = visible.map((row) => row.entry.folder);
+  const allVisibleSelected =
+    visibleFolders.length > 0 && visibleFolders.every((folder) => selected.has(folder));
+
+  function toggleSelected(folder: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        for (const folder of visibleFolders) next.delete(folder);
+      } else {
+        for (const folder of visibleFolders) next.add(folder);
+      }
+      return next;
+    });
+  }
 
   function update(folder: string) {
     setBusy(folder);
@@ -240,6 +314,27 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
         );
       } catch {
         setMessage({ tone: "danger", text: "The update couldn't be started." });
+      } finally {
+        setBusy(null);
+      }
+    });
+  }
+
+  function updateSubset(folders: string[], key: string) {
+    setBusy(key);
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const result = await updateSelected(folders);
+        if (result.ok && result.data.started > 0) notifyRunsChanged();
+        if (result.ok && key === "selected") setSelected(new Set());
+        setMessage(
+          result.ok
+            ? updateAllMessage(result.data)
+            : { tone: "danger", text: result.error },
+        );
+      } catch {
+        setMessage({ tone: "danger", text: "The updates couldn't be started." });
       } finally {
         setBusy(null);
       }
@@ -361,13 +456,59 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
     );
   }
 
+  const selectedCount = selected.size;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="m-0 text-display">Library</h1>
-        <Button variant="secondary" loading={busy === "*"} disabled={rows.length === 0 || busy !== null} onClick={updateEverything}>
-          Update all
-        </Button>
+        <div className="flex flex-col gap-1">
+          <h1 className="m-0 text-display">Library</h1>
+          {rows.length > 0 ? (
+            <p className="m-0 text-small text-ink-2 tabular-nums">
+              {formatCount(rows.length)} {rows.length === 1 ? "account" : "accounts"}
+              {totals.loaded > 0 ? (
+                <>
+                  {" · "}
+                  {formatCount(totals.images)} images · {formatCount(totals.videos)} videos · {formatBytes(totals.bytes)}
+                  {totals.loaded < totals.total ? "…" : ""}
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedCount > 0 ? (
+            <>
+              <Button
+                variant="primary"
+                loading={busy === "selected"}
+                disabled={busy !== null}
+                onClick={() => updateSubset([...selected], "selected")}
+              >
+                Update selected ({formatCount(selectedCount)})
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+            </>
+          ) : (
+            <>
+              {staleFolders.length > 0 && staleFolders.length < rows.length ? (
+                <Button
+                  variant="secondary"
+                  loading={busy === "stale"}
+                  disabled={busy !== null}
+                  onClick={() => updateSubset(staleFolders, "stale")}
+                >
+                  Update stale ({formatCount(staleFolders.length)})
+                </Button>
+              ) : null}
+              <Button variant="secondary" loading={busy === "*"} disabled={rows.length === 0 || busy !== null} onClick={updateEverything}>
+                Update all
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {rows.length === 0 ? (
@@ -377,12 +518,37 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
           <div className="flex flex-wrap items-end gap-4">
             <TextField
               label="Search"
-              className="w-full sm:w-72"
+              className="w-full sm:w-64"
               placeholder="username"
               mono
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
+            <Segmented
+              label="Filter"
+              size="sm"
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value as StatusFilter)}
+              options={[
+                { value: "all", label: "All" },
+                { value: "needsUpdate", label: "Needs update" },
+                { value: "upToDate", label: "Up to date" },
+                { value: "failed", label: "Failed" },
+                { value: "paused", label: "Paused" },
+              ]}
+            />
+            {sitesPresent.length > 1 ? (
+              <Segmented
+                label="Site"
+                size="sm"
+                value={siteFilter}
+                onChange={(value) => setSiteFilter(value as SiteFilter)}
+                options={[
+                  { value: "all", label: "All sites" },
+                  ...sitesPresent.map((site) => ({ value: site, label: siteDef(site).label })),
+                ]}
+              />
+            ) : null}
             <Segmented
               label="Sort by"
               size="sm"
@@ -392,20 +558,40 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                 { value: "lastRun", label: "Last run" },
                 { value: "name", label: "Name" },
                 { value: "size", label: "Size" },
+                { value: "files", label: "Files" },
               ]}
             />
           </div>
 
           {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
 
+          {visible.length === 0 ? (
+            <p className="text-body text-ink-2">No accounts match these filters.</p>
+          ) : null}
+
           {/* Below md the table cannot show every column, so each account becomes a stacked row. */}
           <div className="md:hidden">
             {visible.map(({ entry }) => {
               const loaded = stats[entry.folder];
+              const checked = selected.has(entry.folder);
               return (
                 <div key={entry.folder} className="flex flex-col gap-2 border-b border-line py-4">
                   <div className="flex items-start justify-between gap-3">
-                    <Link href={`/library/${encodeURIComponent(entry.folder)}`} className="font-mono text-code underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${entry.folder}`}
+                        checked={checked}
+                        onChange={() => toggleSelected(entry.folder)}
+                        className="size-4 accent-ink"
+                      />
+                      <Link href={`/library/${encodeURIComponent(entry.folder)}`} className="truncate font-mono text-code underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link>
+                      {entry.site ? (
+                        <span className="rounded-sm border border-line px-1.5 py-0.5 text-small text-ink-2">
+                          {siteDef(entry.site).label}
+                        </span>
+                      ) : null}
+                    </div>
                     <RowMenu
                       label={`Actions for ${entry.folder}`}
                       actions={[
@@ -450,6 +636,8 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                       <span className="inline-flex items-center gap-1 text-ink">
                         <span aria-hidden="true">✓</span> Up to date
                       </span>
+                    ) : entry.lastRunFailed ? (
+                      <span className="text-danger">Last run failed</span>
                     ) : null}
                     <span>{entry.lastRunAt ? `Last run ${relative(entry.lastRunAt)}` : "No runs yet"}</span>
                     <span>{LAYOUT_NAMES[entry.layout]}</span>
@@ -461,10 +649,20 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
             })}
           </div>
 
+          {visible.length > 0 ? (
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[680px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-line-strong text-small text-ink-2">
+                  <th className="w-8 py-2 pr-2 font-medium">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible accounts"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      className="size-4 accent-ink"
+                    />
+                  </th>
                   <th className="py-2 pr-4 font-medium">Account</th>
                   <th className="py-2 pr-4 text-right font-medium">Images</th>
                   <th className="py-2 pr-4 text-right font-medium">Videos</th>
@@ -479,10 +677,29 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
               <tbody>
                 {visible.map(({ entry }) => {
                   const loaded = stats[entry.folder];
+                  const checked = selected.has(entry.folder);
                   return (
                     <Fragment key={entry.folder}>
                       <tr className="border-b border-line">
-                        <td className="py-3 pr-4 font-mono text-code"><Link href={`/library/${encodeURIComponent(entry.folder)}`} className="underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link></td>
+                        <td className="py-3 pr-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${entry.folder}`}
+                            checked={checked}
+                            onChange={() => toggleSelected(entry.folder)}
+                            className="size-4 accent-ink"
+                          />
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span className="inline-flex items-center gap-2">
+                            <Link href={`/library/${encodeURIComponent(entry.folder)}`} className="font-mono text-code underline decoration-line-strong underline-offset-4 hover:text-ink-2">{entry.folder}</Link>
+                            {entry.site ? (
+                              <span className="rounded-sm border border-line px-1.5 py-0.5 text-small text-ink-2">
+                                {siteDef(entry.site).label}
+                              </span>
+                            ) : null}
+                          </span>
+                        </td>
                         <td className={cn("py-3 pr-4 text-right text-label tabular-nums", !loaded && "text-ink-3")}>
                           {loaded ? formatCount(loaded.images) : "…"}
                         </td>
@@ -498,6 +715,11 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                               <span className="inline-flex items-center gap-1 text-ink">
                                 <span aria-hidden="true">✓</span> Up to date
                               </span>
+                              {entry.lastRunAt ? <span> · {relative(entry.lastRunAt)}</span> : null}
+                            </>
+                          ) : entry.lastRunFailed ? (
+                            <>
+                              <span className="text-danger">Failed</span>
                               {entry.lastRunAt ? <span> · {relative(entry.lastRunAt)}</span> : null}
                             </>
                           ) : entry.lastRunAt ? (
@@ -551,7 +773,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                       </tr>
                       {moveFor === entry.folder ? (
                         <tr>
-                          <td colSpan={7} className="border-b border-line bg-sunken px-4 py-2">
+                          <td colSpan={8} className="border-b border-line bg-sunken px-4 py-2">
                             {moveEditor(entry.folder)}
                           </td>
                         </tr>
@@ -562,6 +784,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
               </tbody>
             </table>
           </div>
+          ) : null}
         </>
       )}
     </div>

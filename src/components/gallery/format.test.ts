@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, postDateOf, postIdOf, postUrlOf, sortFiles } from "./format";
+import { formatDuration, postDateOf, postIdOf, postInfoOf, postUrlOf, sortFiles } from "./format";
 
 describe("post helpers", () => {
   it("reads the post id from a filename", () => {
@@ -15,6 +15,23 @@ describe("post helpers", () => {
 
   it("builds the post link", () => {
     expect(postUrlOf("1800000000000000000")).toBe("https://x.com/i/status/1800000000000000000");
+  });
+
+  it("resolves site-specific post info without mislabeling non-X files as X tweets", () => {
+    expect(postInfoOf("1800000000000000000_1.jpg", "x")).toMatchObject({
+      id: "1800000000000000000",
+      url: "https://x.com/i/status/1800000000000000000",
+      label: "Open on X",
+    });
+    expect(postInfoOf("12345678_p0.png", "pixiv")).toEqual({
+      id: "12345678",
+      date: null,
+      url: "https://www.pixiv.net/artworks/12345678",
+      label: "Open on Pixiv",
+    });
+    expect(postInfoOf("3512345678901234567_1.jpg", "instagram")).toBeNull();
+    // Without a known site, short numeric IDs (e.g. Pixiv/Fapello) are not decoded as X snowflakes.
+    expect(postInfoOf("12345678_1.jpg")).toBeNull();
   });
 });
 

@@ -21,6 +21,10 @@ export function listenForShutdown(): void {
       await stopScheduler();
       const { runQueue } = await import("@/server/run-queue");
       await runQueue.shutdown();
+      const { stopMobileGateway } = await import("@/server/mobile/service");
+      await stopMobileGateway();
+      const { flushMediaIndex } = await import("@/server/media-index");
+      await flushMediaIndex();
     } catch (error) {
       console.error("grabberX: shutdown could not stop every run.", error);
     }

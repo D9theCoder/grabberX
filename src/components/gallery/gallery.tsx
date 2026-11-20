@@ -25,7 +25,9 @@ import type { FolderListing, MediaFile } from "@/components/gallery/types";
 import { CopyIcon, DownloadIcon, FolderIcon, OpenIcon, SelectIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { formatCount } from "@/lib/format";
+import { TextField } from "@/components/ui/text-field";
+import { formatBytes, formatCount } from "@/lib/format";
+import type { SiteId } from "@/lib/spec";
 
 // Matches the `space-1` token. The justified layout needs the number, so it cannot come from a class.
 const GAP = 4;
@@ -34,15 +36,20 @@ const VIDEO_ASPECT = 16 / 9;
 const DEFAULT_ASPECT = 3 / 2;
 const DRAG_THRESHOLD = 6;
 const EDGE_SCROLL = 64;
+const DEFAULT_MAX_ZIP_FILES = 0xfffe;
+const DEFAULT_MAX_ZIP_BYTES = 0xffffffff - 64 * 1024 * 1024;
 
 export interface GalleryProps {
   account: string;
   path: string;
+  site?: SiteId;
   listing: FolderListing;
   initialFile?: string;
   /** What the media index already knew when the page rendered, so the first layout is the real one. */
   initialDimensions?: Record<string, [number, number]>;
   initialDurations?: Record<string, number>;
+  maxZipFiles?: number;
+  maxZipBytes?: number;
 }
 
 export function folderHref(account: string, path: string): string {
@@ -72,9 +79,20 @@ function tilesIn(rows: readonly Row[], rect: Marquee): number[] {
   return hits;
 }
 
-export function Gallery({ account, path, listing, initialFile, initialDimensions, initialDurations }: GalleryProps) {
+export function Gallery({
+  account,
+  path,
+  site,
+  listing,
+  initialFile,
+  initialDimensions,
+  initialDurations,
+  maxZipFiles = DEFAULT_MAX_ZIP_FILES,
+  maxZipBytes = DEFAULT_MAX_ZIP_BYTES,
+}: GalleryProps) {
   const [kind, setKind] = useState<KindFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [search, setSearch] = useState("");
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const [dimensions, setDimensions] = useState<Record<string, [number, number]>>(initialDimensions ?? {});
   const [durations, setDurations] = useState<Record<string, number>>(initialDurations ?? {});
@@ -107,11 +125,23 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
   const suppressClick = useRef(false);
 
   const files = useMemo(() => {
+    const needle = search.trim().toLowerCase();
     const visible = listing.files.filter(
-      (file) => !removed.has(file.name) && (kind === "all" || file.kind === kind),
+      (file) =>
+        !removed.has(file.name) &&
+        (kind === "all" || file.kind === kind) &&
+        (needle === "" || file.name.toLowerCase().includes(needle)),
     );
     return sortFiles(visible, sort);
-  }, [listing.files, removed, kind, sort]);
+  }, [listing.files, removed, kind, sort, search]);
+
+  const filesByName = useMemo(() => new Map(files.map((file) => [file.name, file])), [files]);
+  const totalBytes = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files]);
+  const selectedBytes = useMemo(() => {
+    let sum = 0;
+    for (const name of selected) sum += filesByName.get(name)?.size ?? 0;
+    return sum;
+  }, [selected, filesByName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,6 +397,34 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
 
   const say = useCallback((text: string) => setMessage(text), []);
 
+  const zipProblemFor = useCallback(
+    (names: readonly string[]): string | null => {
+      if (names.length <= 1) return null;
+      if (names.length > maxZipFiles) {
+        return `Choose ${formatCount(maxZipFiles)} files or fewer for one zip.`;
+      }
+      let bytes = 0;
+      for (const name of names) bytes += filesByName.get(name)?.size ?? 0;
+      if (bytes > maxZipBytes) {
+        return "Those files are over 4 GB together. Choose fewer.";
+      }
+      return null;
+    },
+    [filesByName, maxZipFiles, maxZipBytes],
+  );
+
+  const downloadSafe = useCallback(
+    (names: readonly string[]) => {
+      const problem = zipProblemFor(names);
+      if (problem) {
+        say(problem);
+        return;
+      }
+      downloadFiles(account, path, names);
+    },
+    [account, path, say, zipProblemFor],
+  );
+
   const run = useCallback(
     (label: string, task: () => Promise<unknown>) => {
       void task().catch((error: unknown) => {
@@ -440,7 +498,7 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
     (names: string[]): MenuEntry[] => {
       const count = `${formatCount(names.length)} files`;
       return [
-        { label: `Download ${count}`, icon: <DownloadIcon />, onSelect: () => downloadFiles(account, path, names) },
+        { label: `Download ${count}`, icon: <DownloadIcon />, onSelect: () => downloadSafe(names) },
         {
           label: `Copy ${names.length} paths`,
           icon: <CopyIcon />,
@@ -451,7 +509,7 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
         { label: `Delete ${count}`, icon: <TrashIcon />, shortcut: "Del", danger: true, onSelect: () => setConfirm(names) },
       ];
     },
-    [account, path, run, say],
+    [account, path, run, say, downloadSafe],
   );
 
   const onTileMenu = useCallback(
@@ -483,19 +541,20 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
         label: "Download all",
         icon: <DownloadIcon />,
         disabled: files.length === 0,
-        onSelect: () => downloadFiles(account, path, files.map((file) => file.name)),
+        onSelect: () => downloadSafe(files.map((file) => file.name)),
       },
       {
         label: "Open account folder",
         icon: <FolderIcon />,
         onSelect: () =>
-          run("Opening the folder", () =>
-            fetch("/api/open-folder", {
+          run("Opening the folder", async () => {
+            const response = await fetch("/api/open-folder", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ folder: account }),
-            }),
-          ),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          }),
       },
     ]);
   }
@@ -608,41 +667,56 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
       ) : null}
 
       {listing.files.length > 0 ? (
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <Segmented
-            label="Show"
-            size="sm"
-            value={kind}
-            onChange={(value) => setKind(value as KindFilter)}
-            options={[
-              { value: "all", label: "All" },
-              { value: "image", label: "Images" },
-              { value: "video", label: "Videos" },
-            ]}
-          />
-          <div className="flex flex-wrap items-end gap-3">
-            <Segmented
-              label="Sort by"
-              size="sm"
-              value={sort}
-              onChange={(value) => setSort(value as SortKey)}
-              options={[
-                { value: "newest", label: "Newest first" },
-                { value: "oldest", label: "Oldest first" },
-                { value: "name", label: "Name" },
-              ]}
-            />
-            <Button
-              size="sm"
-              variant={selecting ? "primary" : "secondary"}
-              aria-pressed={selecting}
-              onClick={() => (selecting ? stopSelecting() : startSelecting())}
-              className="h-10"
-            >
-              <SelectIcon className="size-4" />
-              {selecting ? "Done" : "Select"}
-            </Button>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <Segmented
+                label="Show"
+                size="sm"
+                value={kind}
+                onChange={(value) => setKind(value as KindFilter)}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "image", label: "Images" },
+                  { value: "video", label: "Videos" },
+                ]}
+              />
+              <TextField
+                label="Filter"
+                mono
+                placeholder="post id or name"
+                className="w-48"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <Segmented
+                label="Sort by"
+                size="sm"
+                value={sort}
+                onChange={(value) => setSort(value as SortKey)}
+                options={[
+                  { value: "newest", label: "Newest first" },
+                  { value: "oldest", label: "Oldest first" },
+                  { value: "name", label: "Name" },
+                ]}
+              />
+              <Button
+                size="sm"
+                variant={selecting ? "primary" : "secondary"}
+                aria-pressed={selecting}
+                onClick={() => (selecting ? stopSelecting() : startSelecting())}
+                className="h-10"
+              >
+                <SelectIcon className="size-4" />
+                {selecting ? "Done" : "Select"}
+              </Button>
+            </div>
           </div>
+          <p className="m-0 text-small text-ink-2 tabular-nums">
+            {formatCount(files.length)} {files.length === 1 ? "file" : "files"} · {formatBytes(totalBytes)}
+          </p>
         </div>
       ) : null}
 
@@ -722,7 +796,7 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
           <span className="text-label font-semibold tabular-nums" aria-live="polite">
             {selectedCount === 0
               ? "Nothing selected"
-              : `${formatCount(selectedCount)} ${selectedCount === 1 ? "file" : "files"} selected`}
+              : `${formatCount(selectedCount)} ${selectedCount === 1 ? "file" : "files"} · ${formatBytes(selectedBytes)} selected`}
           </span>
           <div className="flex gap-1">
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(files.map((file) => file.name)))}>
@@ -733,7 +807,12 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
             </Button>
           </div>
           <div className="ml-auto flex flex-wrap gap-1">
-            <Button size="sm" disabled={selectedCount === 0} onClick={() => downloadFiles(account, path, [...selected])}>
+            <Button
+              size="sm"
+              disabled={selectedCount === 0 || zipProblemFor([...selected]) !== null}
+              title={selectedCount > 1 ? (zipProblemFor([...selected]) ?? undefined) : undefined}
+              onClick={() => downloadSafe([...selected])}
+            >
               <DownloadIcon className="size-4" />
               Download
             </Button>
@@ -745,6 +824,11 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
               Done
             </Button>
           </div>
+          {selectedCount > 1 && zipProblemFor([...selected]) ? (
+            <p role="alert" className="m-0 w-full text-small text-danger">
+              {zipProblemFor([...selected])}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -796,6 +880,7 @@ export function Gallery({ account, path, listing, initialFile, initialDimensions
         <Lightbox
           account={account}
           path={path}
+          site={site}
           files={files}
           index={openIndex}
           onIndexChange={(position) => open(files[position]?.name ?? null)}

@@ -51,7 +51,7 @@ describe("isValidFolderName", () => {
 
 describe("isReserved", () => {
   it("knows the app folders, case-insensitively", () => {
-    for (const name of ["src", "SRC", "Public", "NODE_MODULES", ".next", ".GATHER", ".git"]) {
+    for (const name of ["src", "SRC", "Public", "NODE_MODULES", "electron", "E2E", "scripts", "release", "build", ".next", ".GATHER", ".git"]) {
       expect(isReserved(name), name).toBe(true);
     }
   });

@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Run, RunStatus, Settings } from "@/lib/spec";
 import {
-  claimQueueLock,
   appendLog,
+  claimQueueLock,
+  clearFinishedRuns,
+  deleteRun,
   getRun,
   getScheduleState,
   getSettings,
@@ -14,6 +16,7 @@ import {
   listRuns,
   pruneRuns,
   readLogTail,
+  renameFolderInRuns,
   saveRun,
   saveScheduleState,
   saveSettings,
@@ -500,5 +503,44 @@ describe("pruneRuns", () => {
       "2026-11-11T00-00-01_r",
       "2026-11-11T00-00-00_q",
     ]);
+  });
+});
+
+describe("deleteRun, clearFinishedRuns, and renameFolderInRuns", () => {
+  it("deletes a finished run and its log while refusing active runs", async () => {
+    const done = makeRun("2026-11-11T10-00-00_a", undefined, "done");
+    const active = makeRun("2026-11-11T11-00-00_b", undefined, "running");
+    await saveRun(done);
+    await appendLog(done.id, "hello\n");
+    await saveRun(active);
+
+    expect(await deleteRun(active.id)).toBe(false);
+    expect(await deleteRun(done.id)).toBe(true);
+    expect(await getRun(done.id)).toBeUndefined();
+    await expect(stat(join(home, "runs", `${done.id}.log`))).rejects.toThrow();
+    expect(await getRun(active.id)).toBeDefined();
+  });
+
+  it("clears only finished runs", async () => {
+    await saveRun(makeRun("2026-11-11T10-00-00_a", undefined, "done"));
+    await saveRun(makeRun("2026-11-11T10-01-00_b", undefined, "failed"));
+    await saveRun(makeRun("2026-11-11T10-02-00_c", undefined, "queued"));
+
+    expect(await clearFinishedRuns()).toBe(2);
+    expect((await listRuns()).map((run) => run.id)).toEqual(["2026-11-11T10-02-00_c"]);
+  });
+
+  it("retargets run records when an account folder is renamed", async () => {
+    const run = makeRun("2026-11-11T10-00-00_oldname", undefined, "done");
+    run.spec.site = "instagram";
+    run.spec.account = "insta_artist";
+    run.spec.folder = "oldname";
+    await saveRun(run);
+
+    expect(await renameFolderInRuns("oldname", "newname")).toBe(1);
+    const updated = await getRun(run.id);
+    expect(updated?.spec.site).toBe("instagram");
+    expect(updated?.spec.account).toBe("insta_artist");
+    expect(updated?.spec.folder).toBe("newname");
   });
 });

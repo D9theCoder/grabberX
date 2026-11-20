@@ -24,6 +24,7 @@ interface WatchedDir {
   /** `.part` names seen in the folder and not yet gone. */
   names: Set<string>;
   watcher?: FSWatcher;
+  opening?: Promise<void>;
   ready: boolean;
 }
 
@@ -44,7 +45,7 @@ export class PartWatcher {
     if (this.closed || this.dirs.has(dir)) return;
     const state: WatchedDir = { names: new Set(), ready: false };
     this.dirs.set(dir, state);
-    await this.open(dir, state, true);
+    await this.ensureOpen(dir, state, true);
   }
 
   /** Reads the sizes of the known `.part` files. A folder that did not exist yet is tried again here. */
@@ -52,11 +53,20 @@ export class PartWatcher {
     await Promise.all(
       [...this.dirs].map(async ([dir, state]) => {
         // Created after watching began, so anything in it now belongs to this step.
-        if (!state.watcher) await this.open(dir, state, false);
+        if (!state.watcher) await this.ensureOpen(dir, state, false);
         if (!state.ready || this.closed) return;
         for (const [key, size] of await this.read(dir, state)) this.sink.grow(key, size);
       }),
     );
+  }
+
+  private ensureOpen(dir: string, state: WatchedDir, seedExisting: boolean): Promise<void> {
+    if (state.opening) return state.opening;
+    const task = this.open(dir, state, seedExisting).finally(() => {
+      if (state.opening === task) state.opening = undefined;
+    });
+    state.opening = task;
+    return task;
   }
 
   close(): void {

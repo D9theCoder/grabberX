@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { FolderCard } from "@/components/gallery/folder-card";
-import { formatDuration, postDateOf, postIdOf, postUrlOf, sortFiles } from "@/components/gallery/format";
+import { formatDuration, postInfoOf, sortFiles } from "@/components/gallery/format";
 import type { KindFilter, SortKey } from "@/components/gallery/format";
+import type { SiteId } from "@/lib/spec";
 import { AutoplayIcon, LoopIcon } from "@/components/gallery/gallery-icons";
 import { mediaUrl, versionOf } from "@/components/gallery/thumbnail";
 import { Toolbar, ToolbarButton } from "@/components/gallery/toolbar";
@@ -245,6 +246,7 @@ function Viewer({
   index,
   account,
   path,
+  site,
   onIndex,
   onClose,
 }: {
@@ -252,6 +254,7 @@ function Viewer({
   index: number;
   account: string;
   path: string;
+  site?: SiteId;
   onIndex: (next: number) => void;
   onClose: () => void;
 }) {
@@ -626,8 +629,8 @@ function Viewer({
   }
 
   if (!file) return null;
-  const postId = postIdOf(file.name);
-  const posted = postId ? postDateOf(postId) : null;
+  const post = postInfoOf(file.name, site);
+  const posted = post?.date ?? null;
   const zoomed = view.scale > 1.01;
   const activeMediaStyle: CSSProperties = {
     transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
@@ -767,12 +770,12 @@ function Viewer({
           ) : null}
           <dt className="text-white/60">{posted ? "Posted" : "Modified"}</dt>
           <dd className="m-0">{(posted ?? new Date(file.mtimeMs)).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd>
-          {postId ? (
+          {post ? (
             <>
               <dt className="text-white/60">Post</dt>
               <dd className="m-0">
-                <a href={postUrlOf(postId)} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 underline">
-                  Open on X
+                <a href={post.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 underline">
+                  {post.label}
                   <ExternalIcon className="size-3.5" />
                 </a>
               </dd>
@@ -819,6 +822,7 @@ function gridTileAt(element: HTMLElement, clientX: number, clientY: number, coun
 export interface MobileGalleryProps {
   account: string;
   path: string;
+  site?: SiteId;
   base: string;
   folders: string[];
   files: MediaFile[];
@@ -834,6 +838,7 @@ export interface MobileGalleryProps {
 export function MobileGallery({
   account,
   path,
+  site,
   base,
   folders,
   files,
@@ -1278,7 +1283,7 @@ export function MobileGallery({
       ) : null}
 
       {open !== null ? (
-        <Viewer files={shown} index={open} account={account} path={path} onIndex={setOpen} onClose={close} />
+        <Viewer files={shown} index={open} account={account} path={path} site={site} onIndex={setOpen} onClose={close} />
       ) : null}
     </div>
   );

@@ -38,7 +38,7 @@ describe("classifyRoute", () => {
     expect(classifyRoute("GET", "/m")).toBe("session");
     expect(classifyRoute("GET", "/m/acct/Image")).toBe("session");
     expect(classifyRoute("HEAD", "/api/media?account=a&path=b.jpg")).toBe("session");
-    expect(classifyRoute("GET", "/api/media/poster?account=a&path=b.mp4")).toBe("session");
+    expect(classifyRoute("GET", "/api/media/poster?account=a&path=b.mp4")).toBe("blocked");
   });
 
   it("serves only the pairing page and static assets without a session", () => {

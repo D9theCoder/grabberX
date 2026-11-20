@@ -32,12 +32,13 @@ export class MediaPathError extends Error {
   }
 }
 
-// Letters, digits and the punctuation gallery-dl puts in names. Rejects separators, drive colons,
-// wildcards and control characters, which is what traversal and Windows device tricks need.
-const SEGMENT = /^[A-Za-z0-9 _.\-()[\]@+,=~]{1,200}$/;
+// Rejects path separators, drive colons, wildcards, control chars, percent-encoded tricks, and Windows illegal characters,
+// while allowing Unicode filenames (CJK, accented letters) and safe punctuation gallery-dl writes for Pixiv/Reddit/URLs.
+const FORBIDDEN_SEGMENT_CHARS = /[\\/:*?"<>|%\x00-\x1f\x7f]/;
 
 function isValidSegment(segment: string): boolean {
-  if (!SEGMENT.test(segment)) return false;
+  if (segment.length === 0 || segment.length > 200) return false;
+  if (FORBIDDEN_SEGMENT_CHARS.test(segment)) return false;
   if (segment === "." || segment === "..") return false;
   if (segment.endsWith(".") || segment.endsWith(" ")) return false;
   if (segment.startsWith(".")) return false;

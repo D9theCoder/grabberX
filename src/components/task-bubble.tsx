@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
-import { stopRun } from "@/app/actions";
+import { clearQueuedRuns, stopAllRuns, stopRun } from "@/app/actions";
 import { ClockIcon } from "@/components/icons";
 import { Spinner } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
@@ -116,6 +116,7 @@ function TaskRow({ task, onNavigate }: { task: TaskSummary; onNavigate: () => vo
 export function TaskBubble() {
   const tasks = useTasks();
   const [open, setOpen] = useState(false);
+  const [batchPending, startBatch] = useTransition();
   const pathname = usePathname();
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -144,6 +145,7 @@ export function TaskBubble() {
   if (tasks.length === 0 && !open) return null;
 
   const running = tasks.some((task) => task.status !== "queued");
+  const queuedCount = tasks.filter((task) => task.status === "queued").length;
   const summary = taskCountLabel(tasks);
 
   return (
@@ -184,13 +186,49 @@ export function TaskBubble() {
           ) : (
             <p className="m-0 px-2 py-3 text-small text-ink-2">Nothing is running or waiting.</p>
           )}
-          <Link
-            href="/history"
-            onClick={() => setOpen(false)}
-            className="mt-1 rounded-sm border-t border-line px-2 py-2 text-small text-ink-2 transition-colors duration-120 hover:bg-sunken hover:text-ink"
-          >
-            Open History
-          </Link>
+          <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-1 pt-1">
+            <Link
+              href="/history"
+              onClick={() => setOpen(false)}
+              className="rounded-sm px-1.5 py-1.5 text-small text-ink-2 transition-colors duration-120 hover:bg-sunken hover:text-ink"
+            >
+              Open History
+            </Link>
+            {tasks.length > 1 || queuedCount > 0 ? (
+              <div className="flex items-center gap-1">
+                {queuedCount > 0 ? (
+                  <button
+                    type="button"
+                    disabled={batchPending}
+                    onClick={() =>
+                      startBatch(async () => {
+                        await clearQueuedRuns();
+                        notifyRunsChanged();
+                      })
+                    }
+                    className="rounded-sm px-2 py-1.5 text-small text-ink-2 transition-colors duration-120 hover:bg-sunken hover:text-ink disabled:text-ink-3"
+                  >
+                    Clear queue
+                  </button>
+                ) : null}
+                {tasks.length > 1 ? (
+                  <button
+                    type="button"
+                    disabled={batchPending}
+                    onClick={() =>
+                      startBatch(async () => {
+                        await stopAllRuns();
+                        notifyRunsChanged();
+                      })
+                    }
+                    className="rounded-sm px-2 py-1.5 text-small font-medium text-danger transition-colors duration-120 hover:bg-sunken disabled:text-ink-3"
+                  >
+                    Stop all
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

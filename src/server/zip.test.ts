@@ -71,4 +71,18 @@ describe("zipStream", () => {
       expect(entry.data.equals(body)).toBe(true);
     });
   });
+
+  it("disambiguates duplicate names and clamps out-of-range DOS dates", async () => {
+    const filePath = join(sandbox, "dup.jpg");
+    await writeFile(filePath, Buffer.from("abc"));
+    const future = new Date("2150-05-10T12:00:00Z");
+    const zip = await collect(
+      zipStream([
+        { name: "dup.jpg", path: filePath, size: 3, mtime: future },
+        { name: "dup.jpg", path: filePath, size: 3, mtime: future },
+      ]),
+    );
+    const read = readCentral(zip);
+    expect(read.map((entry) => entry.name)).toEqual(["dup.jpg", "dup_2.jpg"]);
+  });
 });

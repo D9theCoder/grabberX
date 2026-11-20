@@ -2,11 +2,14 @@ import Link from "next/link";
 import { Breadcrumb } from "@/components/gallery/breadcrumb";
 import { Gallery } from "@/components/gallery/gallery";
 import type { FolderListing } from "@/components/gallery/types";
+import type { SiteId } from "@/lib/spec";
+import { runsForFolder } from "@/lib/update-spec";
 import { listFolder, MediaPathError, resolveMediaPath } from "@/server/media";
 import { knownMeta } from "@/server/media-index";
 import type { FolderMeta } from "@/server/media-index";
-import { getSettings } from "@/server/store";
+import { getSettings, listRuns } from "@/server/store";
 import { requireSetup } from "@/server/setup";
+import { ZIP_MAX_BYTES, ZIP_MAX_FILES } from "@/server/zip";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +27,20 @@ export default async function AccountGalleryPage({ params, searchParams }: PageP
 
   let listing: FolderListing | null = null;
   let meta: FolderMeta | null = null;
+  let site: SiteId | undefined;
   let problem = "";
   try {
-    listing = await listFolder(account, path);
+    const [folderListing, settings, runs] = await Promise.all([
+      listFolder(account, path),
+      getSettings(),
+      listRuns(200),
+    ]);
+    listing = folderListing;
     // Only what the on-disk index already has: no file is opened here, so the page renders at once.
-    const { full } = await resolveMediaPath((await getSettings()).mediaRoot, account, path);
+    const { full } = await resolveMediaPath(settings.mediaRoot, account, path);
     meta = await knownMeta(full, listing.files);
+    const history = runsForFolder(account, runs);
+    site = (history.find((run) => !run.spec.simulate) ?? history[0])?.spec.site;
   } catch (error) {
     problem = error instanceof MediaPathError ? error.message : "That folder couldn't be read.";
     if (!(error instanceof MediaPathError)) console.error("grabberX: could not list a library folder.", error);
@@ -56,10 +67,13 @@ export default async function AccountGalleryPage({ params, searchParams }: PageP
           key={`${account}/${path}`}
           account={account}
           path={path}
+          site={site}
           listing={listing}
           initialFile={file === "" ? undefined : file}
           initialDimensions={meta?.dimensions}
           initialDurations={meta?.durations}
+          maxZipFiles={ZIP_MAX_FILES}
+          maxZipBytes={ZIP_MAX_BYTES}
         />
       ) : (
         <p className="text-body text-ink-2">

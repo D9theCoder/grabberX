@@ -158,6 +158,12 @@ export interface LibraryEntry {
   layout: DetectedLayout;
   /** True when the account's latest full run finished cleanly with no active run in flight. */
   upToDate?: boolean;
+  /** Site from the account's latest run history (absent for imported folders with no runs yet). */
+  site?: SiteId;
+  /** Status of the latest non-preview run for this folder, when known. */
+  lastRunStatus?: RunStatus;
+  /** True when the latest non-preview run failed or recorded file failures. */
+  lastRunFailed?: boolean;
 }
 
 export type AccountHint =

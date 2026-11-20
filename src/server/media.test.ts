@@ -50,9 +50,11 @@ async function rejects(promise: Promise<unknown>, status: number) {
 }
 
 describe("parseRelativePath", () => {
-  it("accepts an empty path and nested folders", () => {
+  it("accepts an empty path, nested folders, Unicode, and safe punctuation", () => {
     expect(parseRelativePath("")).toEqual([]);
     expect(parseRelativePath("Image/2025/100_1.jpg")).toEqual(["Image", "2025", "100_1.jpg"]);
+    expect(parseRelativePath("Image/作品_12345_p0.png")).toEqual(["Image", "作品_12345_p0.png"]);
+    expect(parseRelativePath("Image/it's & cool! #1.jpg")).toEqual(["Image", "it's & cool! #1.jpg"]);
   });
 
   it.each([

@@ -10,13 +10,23 @@ import { classifyCookieCheck } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
 import { parseJobSpec } from "@/lib/spec-schema";
 import { folderNameFor, siteDef, validateAccount } from "@/lib/sites";
+import { cutoffSiteOf, tipForSpec } from "@/lib/twitter-id";
+import { readArchiveTip } from "@/server/archive";
 import { lastLine, runGalleryDl } from "@/server/gallery-dl";
 import { getAccountHint } from "@/server/library";
 import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
 import { killTreeWindows } from "@/server/runner";
 import { refreshScheduler } from "@/server/scheduler";
-import { getRun, getSettings, isValidRunId, saveSettings } from "@/server/store";
+import {
+  clearFinishedRuns,
+  deleteRun,
+  getRun,
+  getSettings,
+  isValidRunId,
+  listRuns,
+  saveSettings,
+} from "@/server/store";
 
 const VERSION_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_TIMEOUT_MS = 30_000;
@@ -93,6 +103,56 @@ export async function stopRun(id: string): Promise<ActionResult<null>> {
   } catch (error) {
     console.error("grabberX: could not stop the run.", error);
     return { ok: false, error: "The run couldn't be stopped." };
+  }
+}
+
+export async function clearQueuedRuns(): Promise<ActionResult<{ cleared: number }>> {
+  try {
+    const cleared = await runQueue.clearQueued();
+    if (cleared > 0) revalidatePath("/history");
+    return { ok: true, data: { cleared } };
+  } catch (error) {
+    console.error("grabberX: could not clear the queue.", error);
+    return { ok: false, error: "The queue couldn't be cleared." };
+  }
+}
+
+export async function stopAllRuns(): Promise<ActionResult<{ stopped: number }>> {
+  try {
+    const stopped = await runQueue.stopAll();
+    if (stopped > 0) revalidatePath("/history");
+    return { ok: true, data: { stopped } };
+  } catch (error) {
+    console.error("grabberX: could not stop all runs.", error);
+    return { ok: false, error: "The active runs couldn't be stopped." };
+  }
+}
+
+export async function deleteRunAction(id: string): Promise<ActionResult<null>> {
+  if (typeof id !== "string" || !isValidRunId(id)) {
+    return { ok: false, error: "That run doesn't exist." };
+  }
+  try {
+    const removed = await deleteRun(id);
+    if (!removed) return { ok: false, error: "That run can't be deleted right now." };
+    revalidatePath("/history");
+    revalidatePath("/library");
+    return { ok: true, data: null };
+  } catch (error) {
+    console.error("grabberX: could not delete the run.", error);
+    return { ok: false, error: "The run couldn't be deleted." };
+  }
+}
+
+export async function clearHistoryAction(): Promise<ActionResult<{ removed: number }>> {
+  try {
+    const removed = await clearFinishedRuns();
+    revalidatePath("/history");
+    revalidatePath("/library");
+    return { ok: true, data: { removed } };
+  } catch (error) {
+    console.error("grabberX: could not clear history.", error);
+    return { ok: false, error: "History couldn't be cleared." };
   }
 }
 
@@ -259,13 +319,80 @@ export async function accountHint(input: unknown): Promise<AccountHint> {
 
 export async function runAgain(
   id: string,
+  options?: { freshCutoff?: boolean },
 ): Promise<ActionResult<{ runId: string; position: number }>> {
   if (typeof id !== "string" || !isValidRunId(id)) {
     return { ok: false, error: "That run doesn't exist." };
   }
   const previous = await getRun(id);
   if (!previous) return { ok: false, error: "That run isn't in history any more." };
-  return startRun(previous.spec);
+
+  let spec = previous.spec;
+  // When re-running an incremental update (or when freshCutoff is requested), refresh `sincePostId`
+  // from the current archive.sqlite3 so we don't replay a stale cutoff from weeks ago.
+  const shouldRefreshCutoff =
+    !spec.simulate &&
+    cutoffSiteOf(spec) !== null &&
+    (options?.freshCutoff === true || (options?.freshCutoff !== false && Boolean(spec.advanced.sincePostId)));
+  if (shouldRefreshCutoff) {
+    const settings = await getSettings().catch(() => undefined);
+    if (settings) {
+      const tip = await readArchiveTip(settings.mediaRoot, folderNameFor(spec)).catch(() => undefined);
+      const newest = tipForSpec(spec, tip);
+      if (newest) {
+        spec = {
+          ...spec,
+          advanced: {
+            ...spec.advanced,
+            sincePostId: newest,
+          },
+        };
+      }
+    }
+  }
+  return startRun(spec);
+}
+
+/**
+ * Re-queues unique accounts from failed runs (either the specified run IDs, or the latest failed run
+ * per account across history). Skips accounts that are already queued or running.
+ */
+export async function retryFailedRunsAction(
+  runIds?: string[],
+): Promise<ActionResult<{ started: number; skipped: number }>> {
+  try {
+    const runs = await listRuns(Number.MAX_SAFE_INTEGER);
+    const idSet = runIds && runIds.length > 0 ? new Set(runIds) : null;
+    const seenFolders = new Set<string>();
+    const targets = runs.filter((run) => {
+      if (run.status !== "failed") return false;
+      if (idSet && !idSet.has(run.id)) return false;
+      const key = folderNameFor(run.spec).toLowerCase();
+      if (seenFolders.has(key)) return false;
+      seenFolders.add(key);
+      return true;
+    });
+    if (targets.length === 0) {
+      return { ok: false, error: "There are no failed runs to retry." };
+    }
+    let started = 0;
+    let skipped = 0;
+    for (const run of targets) {
+      const folder = folderNameFor(run.spec);
+      if (runQueue.findActive(folder)) {
+        skipped += 1;
+        continue;
+      }
+      const result = await runAgain(run.id, { freshCutoff: true });
+      if (result.ok) started += 1;
+      else skipped += 1;
+    }
+    if (started > 0) revalidatePath("/history");
+    return { ok: true, data: { started, skipped } };
+  } catch (error) {
+    console.error("grabberX: could not retry failed runs.", error);
+    return { ok: false, error: "Failed runs couldn't be retried." };
+  }
 }
 
 const setupInput = z.object({

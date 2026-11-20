@@ -55,6 +55,7 @@ export function RunScreen({
   const [folderOverride, setFolderOverride] = useState("");
   const [caughtUpChoice, setCaughtUpChoice] = useState<boolean | null>(null);
   const [remote, setRemote] = useState<{ key: string; hint: AccountHint } | null>(null);
+  const [hintNonce, setHintNonce] = useState(0);
   const [runId, setRunId] = useState<string | null>(initialRunId);
   const [queuedAhead, setQueuedAhead] = useState<number | null>(null);
   const [pending, setPending] = useState<"preview" | "download" | null>(null);
@@ -90,7 +91,7 @@ export function RunScreen({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [spec.site, account, folderTrimmed, hintKey]);
+  }, [spec.site, account, folderTrimmed, hintKey, hintNonce]);
 
   const defaultCaughtUp = hint?.kind === "exists";
   const caughtUp = caughtUpChoice ?? defaultCaughtUp;
@@ -156,7 +157,10 @@ export function RunScreen({
       }
     }
 
-    if (runTerminal) void pickNextActive();
+    if (runTerminal) {
+      setHintNonce((count) => count + 1);
+      void pickNextActive();
+    }
 
     const onRunsChanged = () => {
       if (!runId || runTerminal) void pickNextActive();

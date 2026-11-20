@@ -1046,4 +1046,64 @@ describe("RunQueue", () => {
     expect(queue.get(failedRun.id)?.progress?.total).toBe(300);
     expect(savedTotals).toEqual([["x:alice", 3]]);
   });
+
+  it("sweeps leftover .part files and notifies the thumbnail warmer after a normal done run", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const imageDir = join(media, "alice", "Image");
+    await mkdir(imageDir, { recursive: true });
+    await writeFile(join(imageDir, "leftover.jpg.part"), "partial");
+
+    const { folderChanges } = await import("@/server/warm-signal");
+    const changed: string[] = [];
+    const onChanged = (dir: string) => changed.push(dir);
+    folderChanges.on("changed", onChanged);
+    try {
+      const queue = makeQueue(media, () => ({
+        pid: 1,
+        done: Promise.resolve({ exitCode: 0 }),
+        stop: async () => {},
+      }));
+      const run = await queue.enqueue({ ...spec("alice"), media: "images" });
+      await waitFor(() => queue.get(run.id)?.status === "done");
+      expect(await readdir(imageDir)).toEqual([]);
+      expect(changed).toContain(join(media, "alice"));
+    } finally {
+      folderChanges.off("changed", onChanged);
+    }
+  });
+
+  it("clears queued runs without stopping active ones, and stopAll stops everything", async () => {
+    isolationHome();
+    const media = await tempDir();
+    let releaseFirst!: () => void;
+    const firstDone = new Promise<{ exitCode: number }>((resolve) => {
+      releaseFirst = () => resolve({ exitCode: 0 });
+    });
+    let stoppedFirst = false;
+    const queue = makeQueue(media, () => ({
+      pid: 1,
+      done: firstDone,
+      stop: async () => {
+        stoppedFirst = true;
+        releaseFirst();
+      },
+    }));
+
+    const first = await queue.enqueue({ ...spec("alice"), media: "images" });
+    await waitFor(() => queue.get(first.id)?.status === "running");
+    const second = await queue.enqueue({ ...spec("bob"), media: "images" });
+    const third = await queue.enqueue({ ...spec("carol"), media: "images" });
+
+    expect(await queue.clearQueued()).toBe(2);
+    expect(queue.get(second.id)?.status).toBe("stopped");
+    expect(queue.get(third.id)?.status).toBe("stopped");
+    expect(queue.get(first.id)?.status).toBe("running");
+
+    const fourth = await queue.enqueue({ ...spec("dave"), media: "images" });
+    expect(await queue.stopAll()).toBe(2);
+    expect(stoppedFirst).toBe(true);
+    await waitFor(() => queue.get(first.id)?.status === "stopped");
+    expect(queue.get(fourth.id)?.status).toBe("stopped");
+  });
 });

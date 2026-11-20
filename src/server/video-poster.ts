@@ -72,7 +72,7 @@ export function resetFfmpegCache(): void {
 }
 
 /** One frame at most 480 px on its longer side, as PNG, so `savePoster` can validate and re-encode it. */
-export function posterArgs(fullPath: string): string[] {
+export function posterArgs(fullPath: string, seekSeconds = "0.1"): string[] {
   return [
     "-hide_banner",
     "-loglevel",
@@ -80,7 +80,7 @@ export function posterArgs(fullPath: string): string[] {
     "-nostats",
     "-nostdin",
     "-ss",
-    "0.1",
+    seekSeconds,
     "-threads",
     "1",
     "-i",
@@ -119,17 +119,24 @@ export async function captureVideoPoster(
   fullPath: string,
   file: { size: number; mtimeMs: number },
 ): Promise<VideoPoster | null> {
-  const frame = await readFrame(binary, fullPath);
+  // Very short clips (< 0.1 s, e.g. 1-frame MP4 loops) seek past EOF at -ss 0.1; fall back to frame 0.
+  const first = await readFrame(binary, fullPath, "0.1");
+  const frame = first.frame ?? (first.spawnFailed ? null : (await readFrame(binary, fullPath, "0")).frame);
   if (frame === null) return null;
   const stored = await savePoster(fullPath, file, frame.png, "idle");
   return stored === null ? null : { bytes: stored, seconds: frame.seconds };
 }
 
-function readFrame(binary: string, fullPath: string): Promise<{ png: Buffer; seconds: number | null } | null> {
+interface ReadFrameResult {
+  frame: { png: Buffer; seconds: number | null } | null;
+  spawnFailed?: boolean;
+}
+
+function readFrame(binary: string, fullPath: string, seekSeconds = "0.1"): Promise<ReadFrameResult> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (value: { png: Buffer; seconds: number | null } | null) => {
+    const finish = (value: ReadFrameResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -137,13 +144,13 @@ function readFrame(binary: string, fullPath: string): Promise<{ png: Buffer; sec
     };
     let child: ChildProcess;
     try {
-      child = spawn(/*turbopackIgnore: true*/ binary, posterArgs(fullPath), {
+      child = spawn(/*turbopackIgnore: true*/ binary, posterArgs(fullPath, seekSeconds), {
         shell: false,
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch {
-      finish(null);
+      finish({ frame: null, spawnFailed: true });
       return;
     }
     const chunks: Buffer[] = [];
@@ -152,13 +159,13 @@ function readFrame(binary: string, fullPath: string): Promise<{ png: Buffer; sec
     let logSize = 0;
     timer = setTimeout(() => {
       killTree(child);
-      finish(null);
+      finish({ frame: null });
     }, CAPTURE_TIMEOUT_MS);
     child.stdout?.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_FRAME_BYTES) {
         killTree(child);
-        finish(null);
+        finish({ frame: null });
         return;
       }
       chunks.push(chunk);
@@ -168,13 +175,13 @@ function readFrame(binary: string, fullPath: string): Promise<{ png: Buffer; sec
       logSize += chunk.length;
       log.push(chunk);
     });
-    child.on("error", () => finish(null));
+    child.on("error", () => finish({ frame: null, spawnFailed: true }));
     child.on("close", (code) => {
       if (code !== 0 || chunks.length === 0) {
-        finish(null);
+        finish({ frame: null });
         return;
       }
-      finish({ png: Buffer.concat(chunks), seconds: durationFromLog(Buffer.concat(log).toString("utf8")) });
+      finish({ frame: { png: Buffer.concat(chunks), seconds: durationFromLog(Buffer.concat(log).toString("utf8")) } });
     });
   });
 }

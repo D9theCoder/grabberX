@@ -9,9 +9,10 @@ import type {
   SiteId,
 } from "@/lib/spec";
 import { folderNameFor, validateAccount } from "@/lib/sites";
+import { invalidateMediaIndex } from "@/server/media-index";
 import { isReserved, isValidFolderName, resolveAccountDir } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
-import { getSettings } from "@/server/store";
+import { getSettings, renameFolderInRuns, saveSettings } from "@/server/store";
 
 const STATS_CACHE_MAX = 64;
 const STAT_BATCH = 64;
@@ -54,7 +55,7 @@ async function detectLayout(dir: string): Promise<DetectedLayout> {
   return hasFiles ? "flat" : "unknown";
 }
 
-const IMAGE_EXTENSION = /\.(jpe?g|png|webp)$/i;
+const IMAGE_EXTENSION = /\.(jpe?g|png|webp|gif)$/i;
 const VIDEO_EXTENSION = /\.(mp4|webm|mov|m4v)$/i;
 
 /**
@@ -247,7 +248,24 @@ export async function moveAccountFolder(from: string, to: string): Promise<void>
     // Both keys, in case an earlier folder held cached stats under the target's name.
     statsCache.delete(source);
     statsCache.delete(target);
+    invalidateMediaIndex(sourceDir);
+    invalidateMediaIndex(targetDir);
   }
+
+  // Keep pause state and run history attached to the moved folder so automatic updates stay paused
+  // and non-X / renamed accounts keep their site, handle, and Up-to-date status.
+  const sourceKey = source.toLowerCase();
+  if (settings.pausedAccounts.some((name) => name.toLowerCase() === sourceKey)) {
+    const updatedPaused = settings.pausedAccounts.map((name) =>
+      name.toLowerCase() === sourceKey ? target : name,
+    );
+    await saveSettings({ pausedAccounts: updatedPaused }).catch((error: unknown) => {
+      console.warn("grabberX: could not update paused accounts after moving a folder.", error);
+    });
+  }
+  await renameFolderInRuns(source, target).catch((error: unknown) => {
+    console.warn("grabberX: could not update run history after moving a folder.", error);
+  });
 }
 
 interface FolderState {

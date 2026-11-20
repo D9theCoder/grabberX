@@ -4,7 +4,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaFile } from "@/components/gallery/types";
-import { completeMeta, knownMeta, recordDuration, resetMediaIndexMemory } from "@/server/media-index";
+import { completeMeta, flushMediaIndex, knownMeta, recordDuration, resetMediaIndexMemory } from "@/server/media-index";
 
 let sandbox = "";
 let folder = "";
@@ -69,6 +69,16 @@ describe("media index", () => {
     const second = await import("@/server/media-index");
     const meta = await second.knownMeta(folder, files);
     expect(meta.durations).toEqual({ "3_1.mp4": 42 });
+    expect(meta.dimensions["1_1.jpg"]).toEqual([640, 480]);
+  });
+
+  it("flushes pending debounced saves immediately on shutdown", async () => {
+    await completeMeta(folder, files);
+    await recordDuration(folder, files[2]!, 19.5);
+    await flushMediaIndex();
+    resetMediaIndexMemory();
+    const meta = await knownMeta(folder, files);
+    expect(meta.durations).toEqual({ "3_1.mp4": 19.5 });
     expect(meta.dimensions["1_1.jpg"]).toEqual([640, 480]);
   });
 });

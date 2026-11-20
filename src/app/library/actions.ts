@@ -147,6 +147,18 @@ export async function moveAccount(
 }
 
 export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
+  return updateFolders();
+}
+
+/** Queues updates for a chosen subset of library folders (or all folders when `folders` is omitted). */
+export async function updateSelected(folders: string[]): Promise<ActionResult<UpdateAllResult>> {
+  if (!Array.isArray(folders) || folders.length === 0) {
+    return { ok: false, error: "Choose at least one account to update." };
+  }
+  return updateFolders(folders);
+}
+
+async function updateFolders(only?: readonly string[]): Promise<ActionResult<UpdateAllResult>> {
   let context: UpdateContext;
   try {
     context = await loadContext(ALL_RUNS);
@@ -155,15 +167,16 @@ export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
     return { ok: false, error: "The library couldn't be read." };
   }
 
+  const wanted = only ? new Set(only.map((folder) => folderKey(folder.trim()))) : null;
   let started = 0;
   const skipped: UpdateSkip[] = [];
   const assumed: string[] = [];
 
   // One after another on purpose: the queue runs them serially anyway, and a bad folder must not stop
   // the rest. Sorted so every click queues in the same order.
-  const entries = [...context.accounts].sort((a, b) =>
-    a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0,
-  );
+  const entries = [...context.accounts]
+    .filter((entry) => !wanted || wanted.has(folderKey(entry.folder)))
+    .sort((a, b) => (a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0));
   for (const entry of entries) {
     // Before the spec is built: a folder that is already running is a harmless skip, even when grabberX
     // could not rebuild its spec.

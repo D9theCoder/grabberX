@@ -13,7 +13,7 @@ export type RouteClass = "pair" | "logout" | "ca" | "public" | "session" | "bloc
 
 const PUBLIC_EXACT = new Set(["/m/pair", "/manifest.webmanifest", "/m/sw.js"]);
 const PUBLIC_PREFIXES = ["/_next/static/", "/m-icons/"];
-const SESSION_EXACT = new Set(["/m", "/api/media", "/api/media/poster"]);
+const SESSION_EXACT = new Set(["/m", "/api/media"]);
 const SESSION_PREFIXES = ["/m/"];
 
 /**

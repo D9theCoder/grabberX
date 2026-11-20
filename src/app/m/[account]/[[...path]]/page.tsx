@@ -2,10 +2,12 @@ import Link from "next/link";
 import { Breadcrumb } from "@/components/gallery/breadcrumb";
 import { MobileGallery } from "@/components/mobile/mobile-gallery";
 import type { FolderListing } from "@/components/gallery/types";
+import type { SiteId } from "@/lib/spec";
+import { runsForFolder } from "@/lib/update-spec";
 import { listFolder, MediaPathError, resolveMediaPath } from "@/server/media";
 import { knownMeta } from "@/server/media-index";
 import type { FolderMeta } from "@/server/media-index";
-import { getSettings } from "@/server/store";
+import { getSettings, listRuns } from "@/server/store";
 import { ZIP_MAX_BYTES, ZIP_MAX_FILES } from "@/server/zip";
 
 // The gateway caps a phone's POST at 1 MB; each file name adds about 35 bytes, so 5,000 names is about 175 KB.
@@ -29,12 +31,20 @@ export default async function MobileFolderPage({ params }: PageProps<"/m/[accoun
 
   let listing: FolderListing | null = null;
   let meta: FolderMeta | null = null;
+  let site: SiteId | undefined;
   let problem = "";
   try {
-    listing = await listFolder(account, path);
+    const [folderListing, settings, runs] = await Promise.all([
+      listFolder(account, path),
+      getSettings(),
+      listRuns(200),
+    ]);
+    listing = folderListing;
     // Only what the on-disk index already has: no file is opened here and no client /api/media/dims call is needed.
-    const { full } = await resolveMediaPath((await getSettings()).mediaRoot, account, path);
+    const { full } = await resolveMediaPath(settings.mediaRoot, account, path);
     meta = await knownMeta(full, listing.files);
+    const history = runsForFolder(account, runs);
+    site = (history.find((run) => !run.spec.simulate) ?? history[0])?.spec.site;
   } catch (error) {
     problem = error instanceof MediaPathError ? error.message : "That folder couldn't be read.";
     if (!(error instanceof MediaPathError)) console.error("grabberX: could not list a folder for the mobile gallery.", error);
@@ -60,6 +70,7 @@ export default async function MobileFolderPage({ params }: PageProps<"/m/[accoun
           key={`${account}/${path}`}
           account={account}
           path={path}
+          site={site}
           base={`/m/${encodeURIComponent(account)}${segments.map((s) => "/" + encodeURIComponent(s)).join("")}`}
           folders={listing.folders.map((folder) => folder.name)}
           files={listing.files}

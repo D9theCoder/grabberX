@@ -95,7 +95,7 @@ function windowBackground() {
   return dark ? "#121212" : "#fcfcfc";
 }
 
-/** Only a media file inside the library folder, whatever the page asks for. */
+/** Only a media file inside the library folder, whatever the page asks for. Checks realpath against symlinks. */
 function libraryMediaPath(filePath) {
   if (typeof filePath !== "string" || !path.isAbsolute(filePath)) return null;
   if (!/\.(jpe?g|png|webp|gif|mp4|webm|mov|m4v)$/i.test(filePath)) return null;
@@ -103,8 +103,17 @@ function libraryMediaPath(filePath) {
   const rootDir = typeof settings.mediaRoot === "string" ? settings.mediaRoot : process.env.GATHER_MEDIA_ROOT;
   if (!rootDir) return null;
   const target = path.resolve(filePath);
-  const inside = path.relative(path.resolve(rootDir), target);
+  const resolvedRoot = path.resolve(rootDir);
+  const inside = path.relative(resolvedRoot, target);
   if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) return null;
+  try {
+    const realRoot = fs.realpathSync(resolvedRoot);
+    const realTarget = fs.realpathSync(target);
+    const realInside = path.relative(realRoot, realTarget);
+    if (realInside === "" || realInside.startsWith("..") || path.isAbsolute(realInside)) return null;
+  } catch {
+    return null;
+  }
   return target;
 }
 

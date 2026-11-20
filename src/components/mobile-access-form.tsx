@@ -104,7 +104,7 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
         onChange={toggle}
         hint={
           on
-            ? "Phones on this network can view your library, read only. They can't download, delete or change anything."
+            ? "Phones on this network can browse and download files from your library, read only. They can't start scrapes, delete files or change anything on this PC."
             : "Off. Nothing listens on the network. Turn on to pair an Android phone with a QR code."
         }
       />

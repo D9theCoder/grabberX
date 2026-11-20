@@ -41,14 +41,25 @@ const CONCURRENCY = 8;
 // the warmer, the media routes and the pages see one index, as the mobile gateway state does.
 interface IndexState {
   memory: Map<string, FolderIndex>;
-  pendingSaves: Map<string, ReturnType<typeof setTimeout>>;
+  pendingSaves: Map<string, { timer: ReturnType<typeof setTimeout>; folder: string; index: FolderIndex }>;
+  writeChains: Map<string, Promise<void>>;
+  tempCounter: number;
 }
 
 const INDEX_STATE = Symbol.for("gather.media-index");
 
 function indexState(): IndexState {
   const holder = globalThis as unknown as Record<symbol, IndexState | undefined>;
-  return (holder[INDEX_STATE] ??= { memory: new Map(), pendingSaves: new Map() });
+  return (holder[INDEX_STATE] ??= {
+    memory: new Map(),
+    pendingSaves: new Map(),
+    writeChains: new Map(),
+    tempCounter: 0,
+  });
+}
+
+function folderCacheKey(folder: string): string {
+  return process.platform === "win32" ? folder.toLowerCase() : folder;
 }
 
 function indexDir(): string {
@@ -62,10 +73,11 @@ function indexFile(folder: string): string {
 
 async function load(folder: string): Promise<FolderIndex> {
   const memory = indexState().memory;
-  const cached = memory.get(folder);
+  const key = folderCacheKey(folder);
+  const cached = memory.get(key);
   if (cached) {
-    memory.delete(folder);
-    memory.set(folder, cached);
+    memory.delete(key);
+    memory.set(key, cached);
     return cached;
   }
   let index: FolderIndex = { v: 1, entries: {} };
@@ -79,28 +91,75 @@ async function load(folder: string): Promise<FolderIndex> {
     const oldest = memory.keys().next().value;
     if (oldest !== undefined) memory.delete(oldest);
   }
-  memory.set(folder, index);
+  memory.set(key, index);
   return index;
 }
 
 function scheduleSave(folder: string, index: FolderIndex) {
-  const pendingSaves = indexState().pendingSaves;
-  clearTimeout(pendingSaves.get(folder));
-  pendingSaves.set(
-    folder,
-    setTimeout(() => {
-      pendingSaves.delete(folder);
-      void persist(folder, index).catch((error: unknown) => console.error("grabberX: could not save the media index.", error));
-    }, SAVE_DELAY_MS),
-  );
+  const state = indexState();
+  const key = folderCacheKey(folder);
+  const existing = state.pendingSaves.get(key);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    state.pendingSaves.delete(key);
+    void persist(folder, index).catch((error: unknown) => console.error("grabberX: could not save the media index.", error));
+  }, SAVE_DELAY_MS);
+  timer.unref?.();
+  state.pendingSaves.set(key, { timer, folder, index });
 }
 
-async function persist(folder: string, index: FolderIndex) {
-  await mkdir(indexDir(), { recursive: true });
-  const file = indexFile(folder);
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(index));
-  await rename(temp, file).catch(() => rm(temp, { force: true }));
+function persist(folder: string, index: FolderIndex): Promise<void> {
+  const state = indexState();
+  const key = folderCacheKey(folder);
+  const payload = JSON.stringify(index);
+  const previous = state.writeChains.get(key) ?? Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(async () => {
+      await mkdir(indexDir(), { recursive: true });
+      const file = indexFile(folder);
+      state.tempCounter += 1;
+      const temp = `${file}.${process.pid}.${state.tempCounter}.tmp`;
+      await writeFile(temp, payload);
+      await rename(temp, file).catch(() => rm(temp, { force: true }));
+    });
+  state.writeChains.set(key, next);
+  return next;
+}
+
+/** Flushes all pending debounced media-index writes to disk (used on clean shutdown). */
+export async function flushMediaIndex(): Promise<void> {
+  const state = indexState();
+  const pending = [...state.pendingSaves.entries()];
+  state.pendingSaves.clear();
+  const tasks: Promise<void>[] = [];
+  for (const [, entry] of pending) {
+    clearTimeout(entry.timer);
+    tasks.push(
+      persist(entry.folder, entry.index).catch((error: unknown) => {
+        console.error("grabberX: could not flush the media index.", error);
+      }),
+    );
+  }
+  tasks.push(...[...state.writeChains.values()].map((p) => p.catch(() => {})));
+  await Promise.all(tasks);
+}
+
+/** Drops in-memory cache and pending saves for a folder tree (e.g. after moving/renaming an account folder). */
+export function invalidateMediaIndex(dirPrefix: string): void {
+  const state = indexState();
+  const prefix = folderCacheKey(dirPrefix).replace(/[\\/]+$/, "");
+  const matches = (key: string) =>
+    key === prefix || key.startsWith(`${prefix}\\`) || key.startsWith(`${prefix}/`);
+  for (const key of [...state.memory.keys()]) {
+    if (matches(key)) state.memory.delete(key);
+  }
+  for (const [key, entry] of [...state.pendingSaves.entries()]) {
+    if (matches(key)) {
+      clearTimeout(entry.timer);
+      state.pendingSaves.delete(key);
+    }
+  }
 }
 
 function fresh(entry: Entry | undefined, file: MediaFile): entry is Entry {
@@ -172,6 +231,7 @@ export async function recordDuration(folder: string, file: MediaFile, seconds: n
 export function resetMediaIndexMemory(): void {
   const state = indexState();
   state.memory.clear();
-  for (const timer of state.pendingSaves.values()) clearTimeout(timer);
+  for (const entry of state.pendingSaves.values()) clearTimeout(entry.timer);
   state.pendingSaves.clear();
+  state.writeChains.clear();
 }

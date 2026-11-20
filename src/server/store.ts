@@ -13,6 +13,7 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { folderNameFor } from "@/lib/sites";
 import { isActiveStatus } from "@/lib/run-copy";
 import { retryTransient } from "@/server/fs-retry";
 import { compareRunIds } from "@/lib/run-order";
@@ -589,7 +590,58 @@ async function prune(retention: number): Promise<number> {
   for (const run of doomed) {
     await unlink(runFile(run.id)).catch(() => {});
     await unlink(logFile(run.id)).catch(() => {});
+    runCache.delete(runFile(run.id));
     removed += 1;
   }
   return removed;
+}
+
+/** Deletes one finished run record and its log. Active runs are refused so live state stays intact. */
+export async function deleteRun(id: string): Promise<boolean> {
+  if (!isValidRunId(id)) return false;
+  const run = await getRun(id);
+  if (!run || isActiveStatus(run.status)) return false;
+  await unlink(runFile(id)).catch(() => {});
+  await unlink(logFile(id)).catch(() => {});
+  runCache.delete(runFile(id));
+  return true;
+}
+
+/** Deletes all finished run records and logs, keeping active runs and downloaded media untouched. */
+export async function clearFinishedRuns(): Promise<number> {
+  const runs = await listRuns(Number.MAX_SAFE_INTEGER);
+  let removed = 0;
+  for (const run of runs) {
+    if (isActiveStatus(run.status)) continue;
+    await unlink(runFile(run.id)).catch(() => {});
+    await unlink(logFile(run.id)).catch(() => {});
+    runCache.delete(runFile(run.id));
+    removed += 1;
+  }
+  return removed;
+}
+
+/**
+ * Updates stored run records after an account folder is moved/renamed so future updates keep the original
+ * site, remote handle, preferences, and Up-to-date status under the new folder name.
+ */
+export async function renameFolderInRuns(from: string, to: string): Promise<number> {
+  const compare = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
+  const fromKey = compare(from);
+  const runs = await listRuns(Number.MAX_SAFE_INTEGER);
+  let updated = 0;
+  for (const run of runs) {
+    if (compare(folderNameFor(run.spec)) !== fromKey) continue;
+    const next: Run = {
+      ...run,
+      spec: {
+        ...run.spec,
+        folder: to,
+      },
+    };
+    await saveRun(next);
+    runCache.delete(runFile(run.id));
+    updated += 1;
+  }
+  return updated;
 }

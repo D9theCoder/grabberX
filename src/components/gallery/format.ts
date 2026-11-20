@@ -1,3 +1,5 @@
+import type { SiteId } from "@/lib/spec";
+
 /** Filenames are `{tweet_id}_{n}.{ext}`; the id is everything before the first underscore. */
 export function postIdOf(name: string): string | null {
   const match = /^(\d{5,25})_\d+\./.exec(name);
@@ -19,6 +21,34 @@ export function postDateOf(id: string): Date | null {
 
 export function postUrlOf(id: string): string {
   return `https://x.com/i/status/${id}`;
+}
+
+export interface PostInfo {
+  id: string;
+  date: Date | null;
+  url: string;
+  label: string;
+}
+
+/**
+ * Extracts post metadata only when the filename matches the account's site, avoiding bogus X Snowflake
+ * dates and dead x.com links on Instagram, Pixiv, Reddit, Bluesky, or custom URL downloads.
+ */
+export function postInfoOf(name: string, site?: SiteId): PostInfo | null {
+  if (site === "pixiv") {
+    const match = /^(\d{4,12})(?:_p\d+|_\d+)?\./.exec(name);
+    const id = match?.[1];
+    return id ? { id, date: null, url: `https://www.pixiv.net/artworks/${id}`, label: "Open on Pixiv" } : null;
+  }
+  if (site && site !== "x") return null;
+  const id = postIdOf(name);
+  if (!id) return null;
+  // When site is unknown (imported folder), require a plausible Twitter Snowflake length (>= 15 digits)
+  // and a date not far in the future so short Pixiv/Fapello IDs aren't decoded as 2010 X tweets.
+  if (!site && id.length < 15) return null;
+  const date = postDateOf(id);
+  if (!site && (!date || date.getTime() > Date.now() + 24 * 3600_000)) return null;
+  return { id, date, url: postUrlOf(id), label: "Open on X" };
 }
 
 export function formatDuration(seconds: number): string {

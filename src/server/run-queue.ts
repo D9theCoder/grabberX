@@ -218,6 +218,24 @@ export class RunQueue {
     return true;
   }
 
+  /** Cancels every run currently waiting in the queue, leaving running downloads alone. */
+  async clearQueued(): Promise<number> {
+    await this.ready;
+    const queuedIds = this.queuedInOrder().map((run) => run.id);
+    if (queuedIds.length === 0) return 0;
+    const results = await Promise.all(queuedIds.map((id) => this.stop(id)));
+    return results.filter(Boolean).length;
+  }
+
+  /** Stops all queued runs first (so nothing new starts) and then stops every running download. */
+  async stopAll(): Promise<number> {
+    await this.ready;
+    const queuedCount = await this.clearQueued();
+    const activeIds = [...this.active.keys()];
+    const activeResults = await Promise.all(activeIds.map((id) => this.stop(id)));
+    return queuedCount + activeResults.filter(Boolean).length;
+  }
+
   /**
    * Stops every active run (taskkill on the tree, then the `.part` sweep) and starts nothing new, for when
    * the app is quitting. Runs still queued keep their record and are cleaned up on the next start.
@@ -446,12 +464,14 @@ export class RunQueue {
       if (result.exitCode !== null) run.exitCode = result.exitCode;
       if (active.stopRequested) break;
       if (result.spawnError) {
+        await this.sweep(active.run, settings);
         await this.finalize(active, settings, "failed", {
           errorKind: result.spawnError === "ENOENT" ? "binaryMissing" : "unknown",
         });
         return;
       }
       if (result.exitCode !== 0) {
+        await this.sweep(active.run, settings);
         await this.finalize(active, settings, "failed", {
           errorKind: pickErrorKind(active.errorKinds),
         });
@@ -464,6 +484,7 @@ export class RunQueue {
       await this.finalize(active, settings, "stopped");
       return;
     }
+    await this.sweep(active.run, settings);
     await this.finalize(active, settings, "done");
   }
 

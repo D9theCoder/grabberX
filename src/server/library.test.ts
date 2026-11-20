@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run } from "@/lib/spec";
 import { getAccountHint, getAccountStats, listAccounts, moveAccountFolder } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
-import { saveSettings } from "@/server/store";
+import { getRun, getSettings, saveRun, saveSettings } from "@/server/store";
 
 vi.mock("@/lib/sites", () => ({
   validateAccount: (_site: string, input: string) =>
@@ -323,5 +323,45 @@ describe("getAccountStats: layouts and cache", () => {
       videos: 1,
       bytes: 6,
     });
+  });
+
+  it("counts .gif files as images and preserves pausedAccounts + run history across moves", async () => {
+    await mkdir(join(media, "old_acct", "Image"), { recursive: true });
+    await writeFile(join(media, "old_acct", "archive.sqlite3"), "db");
+    await writeFile(join(media, "old_acct", "Image", "anim.gif"), "12345");
+    await saveSettings({ mediaRoot: media, pausedAccounts: ["old_acct"] });
+    const run: Run = {
+      id: "2026-11-11T12-00-00_old_acct",
+      spec: {
+        site: "instagram",
+        account: "real_handle",
+        folder: "old_acct",
+        media: "all",
+        layout: { kind: "byType" },
+        simulate: false,
+        advanced: {
+          imageSize: "orig",
+          retweets: false,
+          replies: true,
+          writeMetadata: false,
+          noSkip: false,
+          cookies: { browser: "firefox" },
+        },
+      },
+      steps: [],
+      status: "done",
+      stepIndex: 0,
+      counts: { saved: 1, skipped: 0, failed: 0 },
+    };
+    await saveRun(run);
+
+    await expect(getAccountStats("old_acct")).resolves.toEqual({ images: 1, videos: 0, bytes: 5 });
+
+    await moveAccountFolder("old_acct", "new_acct");
+    expect((await getSettings()).pausedAccounts).toEqual(["new_acct"]);
+    const movedRun = await getRun(run.id);
+    expect(movedRun?.spec.folder).toBe("new_acct");
+    expect(movedRun?.spec.site).toBe("instagram");
+    expect(movedRun?.spec.account).toBe("real_handle");
   });
 });

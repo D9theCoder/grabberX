@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DeleteRunButton, LogActions } from "@/components/history-detail-actions";
 import { LiveRefresh } from "@/components/live-refresh";
 import { RunAgainButton } from "@/components/run-again-button";
 import { CommandBlock } from "@/components/ui/command-block";
@@ -14,6 +15,7 @@ import { maskSecrets } from "@/lib/mask";
 import { endMessage, isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor, siteDef } from "@/lib/sites";
 import type { Run } from "@/lib/spec";
+import { cutoffSiteOf } from "@/lib/twitter-id";
 import { getRunLive } from "@/server/history";
 import { getSettings, isValidRunId, readLogTail } from "@/server/store";
 
@@ -136,7 +138,10 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
       </section>
 
       <section className="flex flex-col gap-3 border-t border-line pt-8">
-        <h2 className="m-0 text-title">Log</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="m-0 text-title">Log</h2>
+          {lines.length > 0 ? <LogActions lines={lines} /> : null}
+        </div>
         {lines.length > 0 ? (
           <>
             {note ? <p className="m-0 text-small text-ink-2">{note}</p> : null}
@@ -147,8 +152,16 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
         )}
       </section>
 
-      <div>
-        <RunAgainButton runId={run.id} />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <RunAgainButton
+          runId={run.id}
+          offerFreshCutoff={
+            !run.spec.simulate &&
+            cutoffSiteOf(run.spec) !== null &&
+            run.spec.advanced.sincePostId === undefined
+          }
+        />
+        {!isActiveStatus(run.status) ? <DeleteRunButton runId={run.id} /> : null}
       </div>
     </main>
   );
