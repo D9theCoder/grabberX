@@ -796,7 +796,7 @@ export function Gallery({
           <span className="text-label font-semibold tabular-nums" aria-live="polite">
             {selectedCount === 0
               ? "Nothing selected"
-              : `${formatCount(selectedCount)} ${selectedCount === 1 ? "file" : "files"} · ${formatBytes(selectedBytes)} selected`}
+              : `${formatCount(selectedCount)} ${selectedCount === 1 ? "file" : "files"} selected · ${formatBytes(selectedBytes)}`}
           </span>
           <div className="flex gap-1">
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(files.map((file) => file.name)))}>

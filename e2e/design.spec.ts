@@ -68,8 +68,8 @@ test.describe("mobile", () => {
     test.skip((await menu.count()) === 0, "this media root has no accounts yet");
 
     await menu.click();
-    await expect(page.getByRole("menuitem", { name: "Update" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "Open folder" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "Use as new run" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Update", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Open folder", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Use as new run", exact: true })).toBeVisible();
   });
 });
