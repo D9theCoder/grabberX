@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -47,6 +47,11 @@ test.describe("mobile gallery", () => {
     await writeFile(join(mediaRoot, ACCOUNT, "archive.sqlite3"), "");
     for (let index = 0; index < 5; index++) await writeFile(join(dir, `180000000000000000${index}_1.png`), PNG_1X1);
     await writeFile(join(mediaRoot, ACCOUNT, "Video", "1800000000000009999_1.mp4"), Buffer.alloc(2048, 7));
+    // Two tiny playable clips for the viewer's own controls, in a folder of their own so the fake video above stays alone.
+    await mkdir(join(mediaRoot, ACCOUNT, "Clips"), { recursive: true });
+    const clip = await readFile(join(process.cwd(), "e2e", "fixtures", "clip.webm"));
+    await writeFile(join(mediaRoot, ACCOUNT, "Clips", "1800000000000009001_1.webm"), clip);
+    await writeFile(join(mediaRoot, ACCOUNT, "Clips", "1800000000000009002_1.webm"), clip);
   });
 
   test.afterAll(async () => {
@@ -282,6 +287,59 @@ test.describe("mobile gallery", () => {
         .toBeGreaterThan(1.4);
       await videoReset.click();
       await expect(videoReset).toHaveCount(0);
+      await viewer.getByRole("button", { name: "Close" }).click();
+      await expect(viewer).toHaveCount(0);
+
+      // The viewer's own video controls, on real clips. Autoplay was switched on above and is remembered, so
+      // the first clip plays as soon as it opens.
+      await mobile.goto(`${GATEWAY}/m/${ACCOUNT}/Clips`);
+      await tiles.first().click();
+      await expect(viewer).toContainText("1 / 2");
+      const activeClip = () => viewer.locator("video[preload=auto]");
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.paused)).toBe(false);
+      await expect(activeClip()).not.toHaveAttribute("controls", /.*/);
+      const controls = viewer.getByRole("group", { name: "Video controls" });
+      await expect(controls).toBeVisible();
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.duration)).toBeGreaterThan(5);
+      await activeClip().evaluate((el: HTMLVideoElement) => {
+        el.pause();
+        el.currentTime = 6;
+      });
+
+      // A double tap on the right third skips 5 seconds forward, the left third back; neither plays nor pauses.
+      const stageBox = (await viewer.locator("[style*='touch-action']").first().boundingBox())!;
+      const tapStage = (fraction: number) => mobile.touchscreen.tap(stageBox.x + stageBox.width * fraction, stageBox.y + stageBox.height * 0.4);
+      await tapStage(0.9);
+      await tapStage(0.9);
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(11, 0);
+      await tapStage(0.1);
+      await tapStage(0.1);
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(6, 0);
+      expect(await activeClip().evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+
+      // Speed and mute set here must survive a swipe: the next slide swaps its source when it becomes active.
+      await viewer.getByRole("button", { name: "Playback speed" }).click();
+      const speedSlider = viewer.getByRole("slider", { name: "Playback speed" });
+      await speedSlider.focus();
+      await mobile.keyboard.press("Home");
+      await mobile.keyboard.press("ArrowRight");
+      await mobile.keyboard.press("ArrowRight");
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.playbackRate)).toBe(0.5);
+      await viewer.getByRole("button", { name: "Mute" }).click();
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: stageBox.x + stageBox.width - 40, y: stageBox.y + 80, id: 1 }],
+      });
+      for (let step = 1; step <= 8; step++) {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: stageBox.x + stageBox.width - 40 - ((stageBox.width - 80) * step) / 8, y: stageBox.y + 80, id: 1 }],
+        });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await expect(viewer).toContainText("2 / 2");
+      await expect.poll(() => activeClip().evaluate((el: HTMLVideoElement) => el.playbackRate)).toBe(0.5);
+      expect(await activeClip().evaluate((el: HTMLVideoElement) => el.muted)).toBe(true);
       await viewer.getByRole("button", { name: "Close" }).click();
       await expect(viewer).toHaveCount(0);
 

@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import type { Page } from "@playwright/test";
@@ -251,6 +251,9 @@ test.describe("media gallery", () => {
     await page.locator("button[data-index]").first().click();
     const videoDialog = page.getByRole("dialog");
     await expect(videoDialog.locator("video")).toBeVisible();
+    // This file is not a playable video: the bar still renders, with nothing to seek.
+    await expect(videoDialog.getByRole("group", { name: "Video controls" })).toBeVisible();
+    await expect(videoDialog.getByRole("slider", { name: "Seek" })).toBeDisabled();
     await page.keyboard.press("+");
     const videoReset = videoDialog.getByRole("button", { name: "Reset zoom" });
     await expect(videoReset).toBeVisible();
@@ -548,4 +551,131 @@ test("parallel downloads are offered only where the site and layout allow them",
   await page.getByRole("radiogroup", { name: "Folder layout" }).getByRole("radio", { name: "Year / month" }).click();
   await expect(parallel.getByRole("radio", { name: "4" })).toBeDisabled();
   await expect(page.getByText(/Runs as 4 processes at once/)).toHaveCount(0);
+});
+
+test.describe("video player", () => {
+  // Two real, tiny clips: the lightbox's own controls need a video the browser can play.
+  const account = "example_player_e2e";
+  const mediaRoot = process.env.GATHER_MEDIA_ROOT ?? process.cwd();
+  const first = "1800000000000009001_1.webm";
+  const second = "1800000000000009002_1.webm";
+
+  test.describe.configure({ mode: "serial" });
+
+  test.beforeAll(async () => {
+    const dir = join(mediaRoot, account, "Video");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(mediaRoot, account, "archive.sqlite3"), "");
+    const clip = await readFile(join(process.cwd(), "e2e", "fixtures", "clip.webm"));
+    await writeFile(join(dir, first), clip);
+    await writeFile(join(dir, second), clip);
+  });
+
+  test.afterAll(async () => {
+    await rm(join(mediaRoot, account), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+
+  async function openFirst(page: Page) {
+    await page.goto(`/library/${account}?path=Video`);
+    await page.locator("button[data-index]").first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator("video")).toBeVisible();
+    await expect.poll(() => dialog.locator("video").evaluate((el: HTMLVideoElement) => el.duration)).toBeGreaterThan(5);
+    return dialog;
+  }
+
+  const scaleOf = (dialog: ReturnType<Page["getByRole"]>) =>
+    dialog.locator("video").evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).a);
+
+  test("zoom scales the picture only, also in fullscreen", async ({ page }) => {
+    const errors: Error[] = [];
+    page.on("pageerror", (error) => errors.push(error));
+    const dialog = await openFirst(page);
+
+    await expect(dialog.locator("video")).not.toHaveAttribute("controls", /.*/);
+    const bar = dialog.getByRole("group", { name: "Video controls" });
+    await expect(bar).toBeVisible();
+    const barBefore = await bar.boundingBox();
+
+    await page.keyboard.press("+");
+    await expect.poll(() => scaleOf(dialog)).toBeGreaterThan(1.4);
+    expect(await bar.boundingBox()).toEqual(barBefore);
+
+    // Fullscreen is the viewer's, never the video's, so the zoom keeps working inside it.
+    await page.keyboard.press("0");
+    await dialog.getByRole("button", { name: "Fullscreen", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("role") ?? null)).toBe("dialog");
+    await page.keyboard.press("+");
+    await expect.poll(() => scaleOf(dialog)).toBeGreaterThan(1.4);
+    await dialog.getByRole("button", { name: "Exit fullscreen" }).click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test("the speed slider snaps through 0.1x to 3x and the viewer keeps it between files", async ({ page }) => {
+    const dialog = await openFirst(page);
+    const rate = () => dialog.locator("video").evaluate((el: HTMLVideoElement) => el.playbackRate);
+
+    await dialog.getByRole("button", { name: "Playback speed" }).click();
+    const slider = dialog.getByRole("slider", { name: "Playback speed" });
+    await expect(slider).toHaveAttribute("max", "12");
+    await expect(slider).toHaveAttribute("step", "1");
+    await slider.focus();
+    await page.keyboard.press("Home");
+
+    const seen: number[] = [];
+    for (let step = 0; step < 13; step++) {
+      seen.push(await rate());
+      await page.keyboard.press("ArrowRight");
+    }
+    expect(seen).toEqual([0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3]);
+
+    // The slider sits on the button row, not on a row of its own, and a double click puts it back to 1x.
+    const barHeight = (await dialog.getByRole("group", { name: "Video controls" }).boundingBox())!.height;
+    await dialog.getByRole("button", { name: "Playback speed" }).click();
+    await expect(slider).toHaveCount(0);
+    expect((await dialog.getByRole("group", { name: "Video controls" }).boundingBox())!.height).toBe(barHeight);
+    await dialog.getByRole("button", { name: "Playback speed" }).click();
+    await slider.dblclick();
+    expect(await rate()).toBe(1);
+    await slider.focus();
+    await page.keyboard.press("ArrowRight");
+    await dialog.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(dialog).toContainText("2 of 2");
+    await expect.poll(rate).toBe(1.25);
+  });
+
+  test("a double click on the outer thirds skips 5 seconds; the middle still zooms", async ({ page }) => {
+    const dialog = await openFirst(page);
+    const time = () => dialog.locator("video").evaluate((el: HTMLVideoElement) => el.currentTime);
+    await dialog.locator("video").evaluate((el: HTMLVideoElement) => {
+      el.pause();
+      el.currentTime = 6;
+    });
+
+    const stage = (await dialog.locator("[style*='touch-action']").first().boundingBox())!;
+    await page.mouse.dblclick(stage.x + stage.width * 0.9, stage.y + stage.height / 2);
+    await expect.poll(time).toBeCloseTo(11, 0);
+    await page.mouse.dblclick(stage.x + stage.width * 0.1, stage.y + stage.height / 2);
+    await expect.poll(time).toBeCloseTo(6, 0);
+    expect(await dialog.locator("video").evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+
+    await page.mouse.dblclick(stage.x + stage.width / 2, stage.y + stage.height / 2);
+    await expect.poll(() => scaleOf(dialog)).toBeGreaterThan(1.1);
+  });
+
+  test("autoplay is remembered, so a video opened later plays", async ({ page }) => {
+    const dialog = await openFirst(page);
+    const paused = () => dialog.locator("video").evaluate((el: HTMLVideoElement) => el.paused);
+    await dialog.getByRole("button", { name: "Autoplay" }).click();
+    await expect(dialog.getByRole("button", { name: "Autoplay" })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(paused).toBe(false);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await page.locator("button[data-index]").nth(1).click();
+    await expect(dialog.getByRole("button", { name: "Autoplay" })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(paused).toBe(false);
+  });
 });
