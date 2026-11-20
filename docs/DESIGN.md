@@ -368,6 +368,13 @@ beyond a breadcrumb, a filter and a sort.
   pan. Left and right arrows move, Esc closes, `F` fullscreen, `I` details, Space plays a video. Counter
   "3 of 128". Details: file, dimensions, size, post date, link to the post. Actions: Open in Explorer (opens the
   account folder), Copy path, Delete.
+- **Video player.** A video has no native controls: zooming transforms only the picture, so a control bar under the
+  stage (play, ±5 s, seek, time, mute and volume, speed, fullscreen) never scales with it. Fullscreen always
+  fullscreens the viewer, never the `<video>`, so zoom still works there. Speed is a short snapping slider on the
+  button row (the speed button shows or hides it), 0.1×, 0.25×, then every 0.25× up to 3×; a double click on the
+  slider resets it to 1×. It holds across the files of one open viewer and starts at 1× next time. A double click (double tap on the phone) on the left third skips 5 s back, on the right third 5 s forward,
+  in the middle it still toggles zoom; a single click or tap plays or pauses. Autoplay, volume and mute are
+  remembered between visits (`localStorage`, key `grabberx.video-player`); loop and speed are not.
 - **Delete.** Asks first: "It moves to the Recycle Bin. grabberX still remembers it in the archive, so a later
   update will not download it again." For a selection the dialog names the count. In the packaged app the files
   go to the Recycle Bin; from source they are deleted for good and the dialog says so. The archive is never

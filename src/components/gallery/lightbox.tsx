@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { deleteFile, getFileDetails } from "@/app/library/[account]/actions";
 import type { FileDetails } from "@/app/library/[account]/actions";
 import { showInFolder } from "@/components/gallery/file-actions";
@@ -10,6 +14,16 @@ import { postInfoOf } from "@/components/gallery/format";
 import { mediaUrl } from "@/components/gallery/thumbnail";
 import { Toolbar, ToolbarButton } from "@/components/gallery/toolbar";
 import type { MediaFile } from "@/components/gallery/types";
+import { SkipFlash, VideoControls } from "@/components/gallery/video-controls";
+import {
+  updateVideoPrefs,
+  useAutoplay,
+  useIsFullscreen,
+  useSkipFlash,
+  useVideoPrefs,
+  useVideoSettings,
+} from "@/components/gallery/video-hooks";
+import { DEFAULT_SPEED, SKIP_SECONDS, tapRegion } from "@/components/gallery/video-player";
 import { CopyIcon, CrossIcon, ExternalIcon, FolderIcon, InfoIcon, PlayIcon, StopIcon } from "@/components/icons";
 import { useContextMenu } from "@/components/context-menu";
 import type { MenuEntry } from "@/components/context-menu";
@@ -41,9 +55,11 @@ import {
   type ZoomView,
 } from "@/components/gallery/zoom";
 
-const FOCUSABLE = 'button:not([disabled]), a[href], video[controls], [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const SLIDESHOW_INTERVAL_MS = 4000;
+// A single click on a video plays or pauses it, but only once it is clear the click is not half of a double click.
+const SINGLE_CLICK_MS = 250;
 
 export function Lightbox({ account, path, site, files, index, onIndexChange, onClose, onDeleted, menuEntries }: LightboxProps) {
   const menu = useContextMenu();
@@ -62,7 +78,12 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
   const [details, setDetails] = useState<FileDetails | null>(null);
   const [size, setSize] = useState<[number, number] | null>(null);
   const [loop, setLoop] = useState(false);
-  const [autoplay, setAutoplay] = useState(false);
+  const prefs = useVideoPrefs();
+  const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const fullscreen = useIsFullscreen();
+  const { flash, skip } = useSkipFlash();
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [slideshow, setSlideshow] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -76,6 +97,23 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
     (): HTMLElement | null => (file?.kind === "video" ? video.current : image.current),
     [file?.kind],
   );
+
+  const setVideo = useCallback((node: HTMLVideoElement | null) => {
+    video.current = node;
+    setVideoEl(node);
+  }, []);
+
+  useVideoSettings(videoEl, { speed, volume: prefs.volume, muted: prefs.muted });
+  useAutoplay(videoEl, prefs.autoplay);
+
+  function cancelPendingClick() {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+  }
+
+  useEffect(() => cancelPendingClick, [relative]);
 
   useEffect(() => {
     opener.current = document.activeElement;
@@ -142,16 +180,9 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
     return () => element.removeEventListener("wheel", onWheel);
   }, [file, zoomBy, relative]);
 
-  function inVideoControlBar(target: EventTarget | null, clientY: number): boolean {
-    if (!(target instanceof HTMLVideoElement)) return false;
-    const rect = target.getBoundingClientRect();
-    return clientY > rect.bottom - 52;
-  }
-
-  function toggleActualSize(event: { clientX: number; clientY: number; target: EventTarget | null }) {
+  function toggleActualSize(event: { clientX: number; clientY: number }) {
     const element = activeMedia();
     if (!element || !stage.current) return;
-    if (view.scale <= 1.01 && inVideoControlBar(event.target, event.clientY)) return;
     if (view.scale > 1.01) {
       resetZoom(true);
       return;
@@ -176,9 +207,36 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
     );
   }
 
+  function onStageClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (file?.kind !== "video") return;
+    cancelPendingClick();
+    if (event.detail > 1) return;
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+      const element = video.current;
+      if (!element) return;
+      if (element.paused) void element.play().catch(() => {});
+      else element.pause();
+    }, SINGLE_CLICK_MS);
+  }
+
+  // On a video, the outer thirds skip and the middle keeps the zoom toggle. Once zoomed, a double click resets the zoom.
+  function onStageDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
+    cancelPendingClick();
+    const stageEl = stage.current;
+    if (file?.kind === "video" && view.scale <= 1.01 && stageEl) {
+      const rect = stageEl.getBoundingClientRect();
+      const region = tapRegion(event.clientX, rect.left, rect.width);
+      if (region !== "middle") {
+        skip(video.current, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
+        return;
+      }
+    }
+    toggleActualSize(event);
+  }
+
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!file) return;
-    if (view.scale <= 1.01 && inVideoControlBar(event.target, event.clientY)) return;
     setZoomAnimating(false);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size === 1) {
@@ -429,14 +487,8 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
               </ToolbarButton>
               <ToolbarButton
                 label="Autoplay"
-                pressed={autoplay}
-                onClick={() =>
-                  setAutoplay((on) => {
-                    const next = !on;
-                    if (next && video.current?.paused) void video.current.play().catch(() => {});
-                    return next;
-                  })
-                }
+                pressed={prefs.autoplay}
+                onClick={() => updateVideoPrefs({ autoplay: !prefs.autoplay })}
               >
                 <AutoplayIcon />
               </ToolbarButton>
@@ -473,7 +525,9 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1">
+        <SkipFlash flash={flash} />
         <div
           ref={stage}
           onPointerDown={onPointerDown}
@@ -487,7 +541,8 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
               dragged.current = false;
             }
           }}
-          onDoubleClick={toggleActualSize}
+          onClick={onStageClick}
+          onDoubleClick={onStageDoubleClick}
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -517,11 +572,9 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
           ) : (
             <video
               key={relative}
-              ref={video}
+              ref={setVideo}
               src={source}
-              controls
               playsInline
-              autoPlay={autoplay}
               loop={loop}
               onLoadedMetadata={(event) => setSize([event.currentTarget.videoWidth, event.currentTarget.videoHeight])}
               style={mediaStyle}
@@ -562,6 +615,20 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
         >
           <NextIcon />
         </ToolbarButton>
+        </div>
+
+        {file.kind === "video" ? (
+          <VideoControls
+            video={videoEl}
+            prefs={prefs}
+            speed={speed}
+            onSpeedChange={setSpeed}
+            onSkip={(delta) => skip(video.current, delta)}
+            onFullscreen={toggleFullscreen}
+            fullscreen={fullscreen}
+            onPointerDone={() => dialog.current?.focus()}
+          />
+        ) : null}
         </div>
 
         {showDetails ? (

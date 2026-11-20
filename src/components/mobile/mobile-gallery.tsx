@@ -11,6 +11,15 @@ import { AutoplayIcon, LoopIcon } from "@/components/gallery/gallery-icons";
 import { mediaUrl, versionOf } from "@/components/gallery/thumbnail";
 import { Toolbar, ToolbarButton } from "@/components/gallery/toolbar";
 import type { MediaFile } from "@/components/gallery/types";
+import { SkipFlash, VideoControls } from "@/components/gallery/video-controls";
+import {
+  updateVideoPrefs,
+  useIsFullscreen,
+  useSkipFlash,
+  useVideoPrefs,
+  useVideoSettings,
+} from "@/components/gallery/video-hooks";
+import { DEFAULT_SPEED, SKIP_SECONDS, tapRegion } from "@/components/gallery/video-player";
 import {
   doubleTapScale,
   FIT_VIEW,
@@ -35,6 +44,17 @@ const HOLD_MOVE_TOLERANCE = 8;
 const LONG_PRESS_MS = 400;
 const SELECTING_HOLD_MS = 75;
 const EDGE_SCROLL = 72;
+const DOUBLE_TAP_MS = 280;
+// A lone tap on a video plays or pauses it, a little after the double-tap window closes.
+const TAP_TOGGLE_MS = DOUBLE_TAP_MS + 5;
+
+function releaseOrientation(): void {
+  try {
+    screen.orientation?.unlock?.();
+  } catch {
+    // Not every browser lets a page hold the orientation, so there is nothing to give back.
+  }
+}
 
 function viewerMediaUrl(
   account: string,
@@ -193,6 +213,7 @@ function MobileVideoSlide({
   active,
   autoplay,
   loop,
+  muted,
   style,
   onMediaNode,
   onSize,
@@ -201,6 +222,7 @@ function MobileVideoSlide({
   active: boolean;
   autoplay: boolean;
   loop: boolean;
+  muted: boolean;
   style?: CSSProperties;
   onMediaNode?: (node: HTMLVideoElement | null) => void;
   onSize: (size: { width: number; height: number }) => void;
@@ -223,10 +245,9 @@ function MobileVideoSlide({
       ref={videoRef}
       src={active ? src : `${src}#t=0.1`}
       preload={active ? "auto" : "metadata"}
-      controls={active}
       autoPlay={active && autoplay}
       loop={active && loop}
-      muted={!active}
+      muted={!active || muted}
       playsInline
       style={style}
       onLoadedMetadata={(event) => {
@@ -284,17 +305,25 @@ function Viewer({
     moved: boolean;
   } | null>(null);
   const lastTap = useRef<{ time: number; x: number; y: number } | null>(null);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDeltaRef = useRef<number>(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const [dragX, setDragX] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [view, setView] = useState<ZoomView>(FIT_VIEW);
   const [zoomAnimating, setZoomAnimating] = useState(false);
   const [loop, setLoop] = useState(false);
-  const [autoplay, setAutoplay] = useState(false);
+  const prefs = useVideoPrefs();
+  const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [activeVideo, setActiveVideo] = useState<HTMLVideoElement | null>(null);
+  const fullscreen = useIsFullscreen();
+  const { flash, skip } = useSkipFlash();
   const [info, setInfo] = useState(false);
+
+  useVideoSettings(activeVideo, { speed, volume: prefs.volume, muted: prefs.muted });
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 
   const indexRef = useRef(index);
@@ -316,7 +345,16 @@ function Viewer({
   );
 
   const setActiveMedia = useCallback((node: HTMLImageElement | HTMLVideoElement | null) => {
-    if (node) activeMediaRef.current = node;
+    if (!node) return;
+    activeMediaRef.current = node;
+    setActiveVideo(node instanceof HTMLVideoElement ? node : null);
+  }, []);
+
+  const cancelTapToggle = useCallback(() => {
+    if (tapTimer.current) {
+      clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+    }
   }, []);
 
   const finalizeSwipe = useCallback(() => {
@@ -335,10 +373,11 @@ function Viewer({
         setZoomAnimating(false);
         updateView(FIT_VIEW);
         lastTap.current = null;
+        cancelTapToggle();
         onIndex(next);
       }
     }
-  }, [files.length, onIndex, updateView]);
+  }, [files.length, onIndex, updateView, cancelTapToggle]);
 
   const go = useCallback(
     (delta: number) => {
@@ -348,10 +387,11 @@ function Viewer({
         setZoomAnimating(false);
         updateView(FIT_VIEW);
         lastTap.current = null;
+        cancelTapToggle();
         onIndex(next);
       }
     },
-    [index, files.length, onIndex, updateView],
+    [index, files.length, onIndex, updateView, cancelTapToggle],
   );
 
   useEffect(() => {
@@ -360,11 +400,19 @@ function Viewer({
     return () => {
       document.body.style.overflow = previous;
       if (settleTimer.current) clearTimeout(settleTimer.current);
+      if (tapTimer.current) clearTimeout(tapTimer.current);
     };
   }, []);
 
+  // Leaving fullscreen, or closing the viewer inside it, gives the screen its rotation back.
+  useEffect(() => {
+    if (!fullscreen) releaseOrientation();
+  }, [fullscreen]);
+  useEffect(() => releaseOrientation, []);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (event.target instanceof HTMLInputElement) return;
       if (event.key === "ArrowLeft") go(-1);
       else if (event.key === "ArrowRight") go(1);
       else if (event.key === "Escape") onClose();
@@ -410,10 +458,51 @@ function Viewer({
     return () => element.removeEventListener("touchmove", onTouchMove);
   }, []);
 
-  function inVideoControlBar(target: EventTarget | null, clientY: number): boolean {
-    if (!(target instanceof HTMLVideoElement)) return false;
-    const rect = target.getBoundingClientRect();
-    return clientY > rect.bottom - 52;
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    try {
+      await dialogRef.current?.requestFullscreen();
+    } catch {
+      return;
+    }
+    // Native video fullscreen turns a wide video sideways by itself; the viewer's own fullscreen has to ask for that.
+    if (activeVideo && activeVideo.videoWidth > activeVideo.videoHeight) {
+      try {
+        await (screen.orientation as ScreenOrientation & { lock?: (orientation: "landscape") => Promise<void> }).lock?.("landscape");
+      } catch {
+        // Refused (desktop, or the phone's rotation is locked): stay as is.
+      }
+    }
+  }
+
+  function scheduleTapToggle() {
+    cancelTapToggle();
+    if (!(activeMediaRef.current instanceof HTMLVideoElement)) return;
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      const element = activeMediaRef.current;
+      if (!(element instanceof HTMLVideoElement)) return;
+      if (element.paused) void element.play().catch(() => {});
+      else element.pause();
+    }, TAP_TOGGLE_MS);
+  }
+
+  // The second tap of a double tap is spent on the double tap; a tap that stays alone plays or pauses a video.
+  function registerTap(x: number, y: number) {
+    const now = performance.now();
+    const previous = lastTap.current;
+    if (previous && now - previous.time < DOUBLE_TAP_MS && Math.hypot(x - previous.x, y - previous.y) < 28) {
+      lastTap.current = null;
+      suppressClick.current = true;
+      cancelTapToggle();
+      handleDoubleTap(x, y);
+    } else {
+      lastTap.current = { time: now, x, y };
+      scheduleTapToggle();
+    }
   }
 
   function handleDoubleTap(clientX: number, clientY: number) {
@@ -425,6 +514,13 @@ function Viewer({
     const mediaEl = activeMediaRef.current;
     if (!stageEl || !mediaEl) return;
     const rect = stageEl.getBoundingClientRect();
+    if (mediaEl instanceof HTMLVideoElement) {
+      const region = tapRegion(clientX, rect.left, rect.width);
+      if (region !== "middle") {
+        skip(mediaEl, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
+        return;
+      }
+    }
     const px = clientX - rect.left - rect.width / 2;
     const py = clientY - rect.top - rect.height / 2;
     const intrinsicWidth =
@@ -440,12 +536,7 @@ function Viewer({
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.target instanceof HTMLElement && event.target.closest("button")) return;
-    if (pointers.current.size === 0) {
-      suppressClick.current = false;
-      if (viewRef.current.scale <= 1.01 && inVideoControlBar(event.target, event.clientY)) {
-        return;
-      }
-    }
+    if (pointers.current.size === 0) suppressClick.current = false;
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     setZoomAnimating(false);
 
@@ -574,17 +665,7 @@ function Viewer({
     if (activePan && event.pointerId === activePan.pointerId) {
       const moved = activePan.moved;
       pan.current = null;
-      if (!isCancel && !moved) {
-        const now = performance.now();
-        const prevTap = lastTap.current;
-        if (prevTap && now - prevTap.time < 280 && Math.hypot(event.clientX - prevTap.x, event.clientY - prevTap.y) < 28) {
-          lastTap.current = null;
-          suppressClick.current = true;
-          handleDoubleTap(event.clientX, event.clientY);
-        } else {
-          lastTap.current = { time: now, x: event.clientX, y: event.clientY };
-        }
-      }
+      if (!isCancel && !moved) registerTap(event.clientX, event.clientY);
       return;
     }
 
@@ -596,18 +677,9 @@ function Viewer({
       if (
         !isCancel &&
         current.axis === null &&
-        Math.hypot(event.clientX - current.startX, event.clientY - current.startY) <= 8 &&
-        !inVideoControlBar(event.target, event.clientY)
+        Math.hypot(event.clientX - current.startX, event.clientY - current.startY) <= 8
       ) {
-        const now = performance.now();
-        const prevTap = lastTap.current;
-        if (prevTap && now - prevTap.time < 280 && Math.hypot(event.clientX - prevTap.x, event.clientY - prevTap.y) < 28) {
-          lastTap.current = null;
-          suppressClick.current = true;
-          handleDoubleTap(event.clientX, event.clientY);
-        } else {
-          lastTap.current = { time: now, x: event.clientX, y: event.clientY };
-        }
+        registerTap(event.clientX, event.clientY);
       }
       return;
     }
@@ -642,6 +714,7 @@ function Viewer({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={`${file.name}, ${index + 1} of ${files.length}`}
@@ -657,7 +730,7 @@ function Viewer({
               <ToolbarButton label="Loop" pressed={loop} onClick={() => setLoop((on) => !on)}>
                 <LoopIcon />
               </ToolbarButton>
-              <ToolbarButton label="Autoplay" pressed={autoplay} onClick={() => setAutoplay((on) => !on)}>
+              <ToolbarButton label="Autoplay" pressed={prefs.autoplay} onClick={() => updateVideoPrefs({ autoplay: !prefs.autoplay })}>
                 <AutoplayIcon />
               </ToolbarButton>
             </>
@@ -675,6 +748,7 @@ function Viewer({
       </div>
 
       <div className="relative flex min-h-0 flex-1">
+        <SkipFlash flash={flash} />
         <div
           ref={stageRef}
           className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
@@ -714,8 +788,9 @@ function Viewer({
                     <MobileVideoSlide
                       src={src}
                       active={active}
-                      autoplay={autoplay}
+                      autoplay={prefs.autoplay}
                       loop={loop}
+                      muted={prefs.muted}
                       style={active ? activeMediaStyle : undefined}
                       onMediaNode={active ? setActiveMedia : undefined}
                       onSize={setSize}
@@ -753,6 +828,18 @@ function Viewer({
           </button>
         ) : null}
       </div>
+
+      {file.kind === "video" ? (
+        <VideoControls
+          video={activeVideo}
+          prefs={prefs}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          onSkip={(delta) => skip(activeVideo, delta)}
+          onFullscreen={() => void toggleFullscreen()}
+          fullscreen={fullscreen}
+        />
+      ) : null}
 
       {info ? (
         <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 bg-black/80 px-4 py-3 text-small">
