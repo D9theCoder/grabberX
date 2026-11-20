@@ -21,6 +21,8 @@ export interface Advanced {
   filesizeMin?: string;
   filesizeMax?: string;
   abortAfterSkipped?: number;
+  /** Stop once X posts reach or pass this numeric post id (newest already stored). */
+  sincePostId?: string;
   range?: number;
   /** gallery-dl processes per step, 1 to 4; absent means one. Only honoured where `parallelBlock` allows it. */
   parallel?: number;
@@ -126,6 +128,8 @@ export interface Run {
   exitCode?: number;
   errorKind?: ErrorKind;
   progress?: RunProgress;
+  /** Highest stored post id in archive.sqlite3 when this run finished done (X only). */
+  newestPostId?: string;
 }
 
 /** What the parser and the runner emit while a run is live. */

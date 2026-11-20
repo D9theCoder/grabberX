@@ -6,12 +6,16 @@ const mocks = vi.hoisted(() => ({
   findActive: vi.fn<(folder: string) => Run | undefined>(),
   listAccounts: vi.fn<() => Promise<LibraryEntry[]>>(),
   moveAccountFolder: vi.fn<(from: string, to: string) => Promise<void>>(),
+  readArchiveTip: vi.fn<(mediaRoot: string, folder: string) => Promise<{ tweetId?: string; timelineId?: string } | undefined>>(),
   getSettings: vi.fn<() => Promise<Settings>>(),
   listRuns: vi.fn<(limit?: number) => Promise<Run[]>>(),
   revalidatePath: vi.fn<(path: string) => void>(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("@/server/archive", () => ({
+  readArchiveTip: mocks.readArchiveTip,
+}));
 vi.mock("@/server/library", () => ({
   listAccounts: mocks.listAccounts,
   moveAccountFolder: mocks.moveAccountFolder,
@@ -90,11 +94,13 @@ beforeEach(() => {
   mocks.listAccounts.mockReset();
   mocks.getSettings.mockReset();
   mocks.listRuns.mockReset();
+  mocks.readArchiveTip.mockReset();
   mocks.revalidatePath.mockReset();
 
   mocks.getSettings.mockResolvedValue(SETTINGS);
   mocks.listAccounts.mockResolvedValue([]);
   mocks.listRuns.mockResolvedValue([]);
+  mocks.readArchiveTip.mockResolvedValue(undefined);
   mocks.findActive.mockReturnValue(undefined);
   mocks.enqueue.mockImplementation(async (spec) => runFor(spec));
   mocks.moveAccountFolder.mockResolvedValue(undefined);
@@ -252,6 +258,10 @@ describe("moveAccount", () => {
 describe("updateAccount", () => {
   it("queues the reset spec and reports the assumed X site", async () => {
     mocks.listAccounts.mockResolvedValue([entry("alice", "byTypeYear")]);
+    mocks.readArchiveTip.mockResolvedValue({
+      tweetId: "2120165612320411776",
+      timelineId: "2120165612320411776",
+    });
 
     const result = await updateAccount("alice");
 
@@ -259,11 +269,13 @@ describe("updateAccount", () => {
       runId: "2026-11-11T09-00-00_alice",
       assumedSite: "x",
     });
+    expect(mocks.readArchiveTip).toHaveBeenCalledWith(SETTINGS.mediaRoot, "alice");
     const queued = mocks.enqueue.mock.calls[0][0];
     expect(queued.site).toBe("x");
     expect(queued.simulate).toBe(false);
     expect(queued.layout).toEqual({ kind: "byTypeYear" });
     expect(queued.advanced.abortAfterSkipped).toBe(20);
+    expect(queued.advanced.sincePostId).toBe("2120165612320411776");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/history");
   });
 

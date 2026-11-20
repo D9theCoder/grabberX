@@ -884,7 +884,9 @@ describe("RunQueue", () => {
     const finished = queue.get(enqueued.id);
     expect(finished?.progress?.done).toBe(true);
     expect(finished?.progress?.bytes).toBe(5000);
-    expect(finished?.progress?.total).toBe(100);
+    // Reconciled from the probed estimate (100) to the 2 actual files downloaded when the run completed.
+    expect(finished?.progress?.processed).toBe(2);
+    expect(finished?.progress?.total).toBe(2);
     expect(queue.snapshot(enqueued.id)?.events.some((event) => event.t === "progress")).toBe(true);
   });
 
@@ -957,5 +959,77 @@ describe("RunQueue", () => {
     release();
     await waitFor(() => queue.get(enqueued.id)?.status === "done");
     expect(asks).toHaveLength(2);
+  });
+
+  it("records newestPostId from archive.sqlite3 when an X run finishes done, not on previews or failures", async () => {
+    isolationHome();
+    const media = await tempDir();
+    let exitCode = 0;
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: () => ({
+        pid: 1,
+        done: Promise.resolve({ exitCode }),
+        stop: async () => {},
+      }),
+      probeTotal: async () => undefined,
+      readArchiveTip: async () => ({
+        tweetId: "2120165612320411776",
+        timelineId: "2120999999999999999",
+      }),
+    });
+
+    const normal = await queue.enqueue({ ...spec("alice"), media: "images" });
+    await waitFor(() => queue.get(normal.id)?.status === "done");
+    expect(queue.get(normal.id)?.newestPostId).toBe("2120165612320411776");
+    expect((await storeModule.getRun(normal.id))?.newestPostId).toBe("2120165612320411776");
+
+    const preview = await queue.enqueue({ ...spec("bob"), media: "images", simulate: true });
+    await waitFor(() => queue.get(preview.id)?.status === "done");
+    expect(queue.get(preview.id)?.newestPostId).toBeUndefined();
+
+    exitCode = 1;
+    const failed = await queue.enqueue({ ...spec("carol"), media: "images" });
+    await waitFor(() => queue.get(failed.id)?.status === "failed");
+    expect(queue.get(failed.id)?.newestPostId).toBeUndefined();
+  });
+
+  it("saves the observed downloadable post count to the total cache after a completed whole-account X run", async () => {
+    isolationHome();
+    const media = await tempDir();
+    const savedTotals: Array<[string, number]> = [];
+    let exitCode = 0;
+    const queue = new queueModule.RunQueue({
+      getSettings: async () => settings(media),
+      startProcess: (options) => {
+        if (options.argv[0] === "images") {
+          for (const id of ["1001", "1002", "1003"]) {
+            options.onEvent({ t: "file", kind: "saved", path: `alice/Image/${id}_1.jpg` });
+          }
+        }
+        return { pid: 1, done: Promise.resolve({ exitCode }), stop: async () => {} };
+      },
+      probeTotal: async () => 300,
+      readArchiveTip: async () => undefined,
+      saveCachedTotal: async (key, total) => {
+        savedTotals.push([key, total]);
+      },
+    });
+
+    const full = spec("alice");
+    full.advanced.replies = true;
+    const doneRun = await queue.enqueue(full);
+    await waitFor(() => queue.get(doneRun.id)?.status === "done");
+    expect(queue.get(doneRun.id)?.progress?.total).toBe(3);
+    expect(savedTotals).toEqual([["x:alice", 3]]);
+
+    // A failed run must not overwrite the cached total with a partial count.
+    exitCode = 1;
+    const failed = spec("bob");
+    failed.advanced.replies = true;
+    const failedRun = await queue.enqueue(failed);
+    await waitFor(() => queue.get(failedRun.id)?.status === "failed");
+    expect(queue.get(failedRun.id)?.progress?.total).toBe(300);
+    expect(savedTotals).toEqual([["x:alice", 3]]);
   });
 });

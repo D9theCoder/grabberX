@@ -115,7 +115,7 @@ export function RunPanel({ stream, galleryDlPath, onRunAgain, runAgainPending, c
         />
       </div>
 
-      <RunProgressView progress={progress} active={active} />
+      <RunProgressView progress={progress} active={active} completed={run.status === "done"} />
 
       {multiStep && stepLabel ? (
         <p className="text-small text-ink-2">

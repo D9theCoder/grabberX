@@ -150,8 +150,13 @@ export class ProgressTracker {
     return progress;
   }
 
-  /** The closing numbers: average speed over the whole run instead of the last window. */
-  finish(now: number): RunProgress {
+  /**
+   * The closing numbers: average speed over the whole run instead of the last window. When the run
+   * completed cleanly (`completed: true`), reconcile the probed estimate to the actual number of
+   * downloadable posts seen so the meter lands on 100% instead of staying stuck under an inflated
+   * profile `media_count` (which includes deleted, hidden or unreachable posts).
+   */
+  finish(now: number, options: { completed?: boolean } = {}): RunProgress {
     // Bytes of files that never finished (stopped, failed, swept) were downloaded but not kept.
     let unsaved = 0;
     for (const bytes of this.partCounted.values()) unsaved += bytes;
@@ -159,13 +164,24 @@ export class ProgressTracker {
     this.bytes = Math.max(0, this.bytes - unsaved);
     const seconds = Math.max(1, (now - this.startedAt) / 1000);
     const progress = this.snapshot(now);
-    return {
+    const closing: RunProgress = {
       ...progress,
       bytesPerSec: Math.round(this.bytes / seconds),
       itemsPerSec: 0,
       etaSeconds: undefined,
       done: true,
     };
+    if (options.completed && closing.total !== undefined) {
+      const processed = closing.processed ?? 0;
+      if (processed > 0) {
+        closing.total = processed;
+        closing.processed = processed;
+      } else {
+        delete closing.total;
+        delete closing.processed;
+      }
+    }
+    return closing;
   }
 
   /**
@@ -263,7 +279,8 @@ export function totalEligible(spec: JobSpec): boolean {
   if (spec.media !== "all") return false;
   const { dateFrom, dateTo, advanced } = spec;
   if (dateFrom || dateTo) return false;
-  if (advanced.range || advanced.abortAfterSkipped) return false;
+  if (advanced.range || advanced.abortAfterSkipped || advanced.sincePostId) return false;
+  if (!advanced.replies || advanced.filesizeMin || advanced.filesizeMax) return false;
   return true;
 }
 

@@ -49,6 +49,7 @@ function settingsRows(run: Run): Array<[string, string]> {
       advanced.abortAfterSkipped !== undefined ? `On · after ${advanced.abortAfterSkipped} skipped` : "Off",
     ],
   );
+  if (advanced.sincePostId) rows.push(["Only posts after", advanced.sincePostId]);
   if (advanced.range !== undefined) rows.push(["Only the newest files", String(advanced.range)]);
   const workers = workerCount(spec);
   if (workers > 1) rows.push(["Parallel downloads", `${workers} at once`]);

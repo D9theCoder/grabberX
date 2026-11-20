@@ -90,6 +90,7 @@ function harness(
     /** Accounts whose enqueue is in flight: the queue does not list them as running yet. */
     enqueuing?: string[];
     history?: Run[];
+    archiveTips?: Record<string, { tweetId?: string; timelineId?: string }>;
   } = {},
 ): Harness {
   const settings: Settings = {
@@ -119,6 +120,7 @@ function harness(
     },
     listAccounts: async () => accounts,
     listRuns: async () => options.history ?? [],
+    readArchiveTip: async (_mediaRoot, folder) => options.archiveTips?.[folder],
     activeRuns: () => active,
     findActive: (folder) =>
       active.find((run) => run.spec.account === folder) ??
@@ -370,5 +372,17 @@ describe("Scheduler", () => {
     h.scheduler.stop();
     await advance(48 * 60 * 60 * 1000);
     expect(h.enqueued).toEqual([]);
+  });
+
+  it("passes each account's archive tip into scheduled update specs", async () => {
+    const h = harness({
+      accounts: ["username"],
+      archiveTips: { username: { tweetId: "2120165612320411776", timelineId: "2120165612320411776" } },
+    });
+    h.scheduler.start();
+    await advance(2 * 60 * 60 * 1000);
+    expect(h.enqueued).toHaveLength(1);
+    expect(h.enqueued[0]?.advanced.sincePostId).toBe("2120165612320411776");
+    h.scheduler.stop();
   });
 });

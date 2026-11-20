@@ -10,6 +10,7 @@ import {
 } from "@/lib/schedule";
 import { isActiveStatus } from "@/lib/run-copy";
 import type { JobSpec, LibraryEntry, Run, Settings } from "@/lib/spec";
+import type { ArchiveTip } from "@/lib/twitter-id";
 import { buildUpdateSpec, folderKey } from "@/lib/update-spec";
 
 /** After a missed moment: one pass, a little later, so it does not race the first page load. */
@@ -29,6 +30,7 @@ export interface SchedulerDeps {
   saveState(state: ScheduleState): Promise<void>;
   listAccounts(): Promise<LibraryEntry[]>;
   listRuns(limit: number): Promise<Run[]>;
+  readArchiveTip?(mediaRoot: string, folder: string): Promise<ArchiveTip | undefined>;
   /** Runs that are queued, running or stopping right now. */
   activeRuns(): Run[];
   findActive(folder: string): Run | undefined;
@@ -186,7 +188,10 @@ export class Scheduler {
       // An account that is already queued or running is left alone: a second run would wait behind
       // the first, and the queue refuses two at once on one archive anyway.
       if (deps.findActive(entry.folder)) continue;
-      const built = buildUpdateSpec(entry.folder, entry, runs, settings);
+      const archiveTip = deps.readArchiveTip
+        ? await deps.readArchiveTip(settings.mediaRoot, entry.folder).catch(() => undefined)
+        : undefined;
+      const built = buildUpdateSpec(entry.folder, entry, runs, settings, { archiveTip });
       if (!built.ok) {
         console.warn(`grabberX: the scheduled update skipped ${entry.folder}: ${built.error}`);
         continue;
@@ -245,10 +250,11 @@ export class Scheduler {
 }
 
 async function defaultDeps(): Promise<SchedulerDeps> {
-  const [queueModule, store, library] = await Promise.all([
+  const [queueModule, store, library, archive] = await Promise.all([
     import("@/server/run-queue"),
     import("@/server/store"),
     import("@/server/library"),
+    import("@/server/archive"),
   ]);
   const queue = queueModule.runQueue;
   return {
@@ -257,6 +263,7 @@ async function defaultDeps(): Promise<SchedulerDeps> {
     saveState: store.saveScheduleState,
     listAccounts: library.listAccounts,
     listRuns: store.listRuns,
+    readArchiveTip: archive.readArchiveTip,
     activeRuns: () => queue.list(),
     findActive: (folder) => queue.findActive(folder),
     enqueue: (spec, options) => queue.enqueue(spec, options),

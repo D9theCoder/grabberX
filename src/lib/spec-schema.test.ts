@@ -279,4 +279,10 @@ describe("parseJobSpec: advanced numbers", () => {
       error(advanced({ cookies: { browser: "firefox", profile: "a/b" } })),
     ).toBe("Profile names use letters, numbers, spaces, dots, - or _.");
   });
+
+  it("allows numeric sincePostId and rejects non-digit values", () => {
+    expect(parse(advanced({ sincePostId: "2120165612320411776" })).ok).toBe(true);
+    expect(error(advanced({ sincePostId: "123 or __import__('os')" }))).toBe("Post id must be digits.");
+    expect(error(advanced({ sincePostId: "" }))).toBe("Post id must be digits.");
+  });
 });

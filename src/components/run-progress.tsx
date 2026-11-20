@@ -5,12 +5,16 @@ import type { RunProgress } from "@/lib/spec";
 interface RunProgressProps {
   progress?: RunProgress;
   active: boolean;
+  /** True when the run finished with status "done" (every viewable post was processed). */
+  completed?: boolean;
 }
 
 /** Speed, data total and ETA for every run; the bar and its estimate only when the site gave a total. */
-export function RunProgressView({ progress, active }: RunProgressProps) {
+export function RunProgressView({ progress, active, completed = false }: RunProgressProps) {
   if (!progress) return null;
-  const fraction = progressFraction(progress, !active);
+  const processed = progress.processed ?? 0;
+  const showCompleted = !active && completed && progress.total !== undefined && processed > 0;
+  const fraction = showCompleted ? 1 : progressFraction(progress, !active);
   const percent = fraction === null ? null : Math.floor(fraction * 100);
   const details: string[] = [];
   if (active) details.push(formatSpeed(progress.bytesPerSec));
@@ -25,7 +29,7 @@ export function RunProgressView({ progress, active }: RunProgressProps) {
         <>
           <div
             role="progressbar"
-            aria-label="Estimated progress"
+            aria-label={showCompleted ? "Progress" : "Estimated progress"}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
@@ -33,10 +37,19 @@ export function RunProgressView({ progress, active }: RunProgressProps) {
           >
             <div className="h-full bg-ink" style={{ width: `${percent}%` }} />
           </div>
-          <p className="m-0 text-small text-ink-2">
-            About {percent}% · {formatCount(progress.processed ?? 0)} of ~{formatCount(progress.total)} posts
-            <span className="sr-only"> (estimate from the account&apos;s media count)</span>
-          </p>
+          {showCompleted ? (
+            <p className="m-0 text-small text-ink-2 tabular-nums">
+              100% · {formatCount(processed)} {processed === 1 ? "post" : "posts"}
+            </p>
+          ) : (
+            <p
+              className="m-0 text-small text-ink-2 tabular-nums"
+              title="Estimated from the profile's reported media count; deleted or hidden posts may make the actual total lower."
+            >
+              About {percent}% · {formatCount(processed)} of ~{formatCount(progress.total)} posts
+              <span className="sr-only"> (estimate from the account&apos;s media count)</span>
+            </p>
+          )}
         </>
       ) : null}
       {details.length > 0 ? <p className="m-0 text-small text-ink-2 tabular-nums">{details.join(" · ")}</p> : null}

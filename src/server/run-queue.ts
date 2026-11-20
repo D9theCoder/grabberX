@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { buildCommand, stepTargetDir, WORKER_PARTS_DIR } from "@/lib/command";
 import { pickErrorKind } from "@/lib/error-kind";
 import { classifyError } from "@/lib/parse-line";
-import { postIdOf, ProgressTracker } from "@/lib/progress";
+import { postIdOf, ProgressTracker, totalEligible } from "@/lib/progress";
 import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
@@ -19,11 +19,12 @@ import type {
   StreamEvent,
 } from "@/lib/spec";
 import { PartWatcher, partKey } from "@/server/part-watch";
+import { readArchiveTip as defaultReadArchiveTip } from "@/server/archive";
 import { resolveAccountDir } from "@/server/paths";
 import { folderChanged } from "@/server/warm-signal";
 import { startProcess, sweepPartFiles } from "@/server/runner";
 import type { ProcessHandle, StartProcess } from "@/server/runner";
-import { probeTotal as defaultProbeTotal } from "@/server/total-probe";
+import { probeTotal as defaultProbeTotal, totalCacheKey } from "@/server/total-probe";
 import type { ProbeOptions, ProbeTotal } from "@/server/total-probe";
 import { startWorkers } from "@/server/workers";
 import {
@@ -34,6 +35,7 @@ import {
   isValidRunId,
   listRuns,
   pruneRuns,
+  saveCachedTotal as defaultSaveCachedTotal,
   saveRun,
 } from "@/server/store";
 
@@ -87,6 +89,8 @@ interface QueueDeps {
   getSettings?: () => Promise<Settings>;
   startProcess?: StartProcess;
   probeTotal?: ProbeTotal;
+  readArchiveTip?: typeof defaultReadArchiveTip;
+  saveCachedTotal?: typeof defaultSaveCachedTotal;
 }
 
 interface ActiveRun {
@@ -141,6 +145,8 @@ export class RunQueue {
       getSettings: deps.getSettings ?? loadSettings,
       startProcess: deps.startProcess ?? startProcess,
       probeTotal: deps.probeTotal ?? defaultProbeTotal,
+      readArchiveTip: deps.readArchiveTip ?? defaultReadArchiveTip,
+      saveCachedTotal: deps.saveCachedTotal ?? defaultSaveCachedTotal,
     };
     this.ready = this.markInterrupted().catch((error: unknown) => {
       console.error("grabberX: could not clean up interrupted runs.", error);
@@ -620,10 +626,10 @@ export class RunQueue {
       .catch(() => {});
   }
 
-  private publishProgress(active: ActiveRun, final = false): void {
+  private publishProgress(active: ActiveRun, final = false, completed = false): void {
     const { run } = active;
     const now = Date.now();
-    const progress = final ? active.tracker.finish(now) : active.tracker.snapshot(now);
+    const progress = final ? active.tracker.finish(now, { completed }) : active.tracker.snapshot(now);
     // More posts than the count means the count is old (cached before the account grew); the bar would sit at 99%.
     if (!final && progress.total !== undefined && (progress.processed ?? 0) > progress.total && !active.totalRefreshed) {
       active.totalRefreshed = true;
@@ -749,13 +755,27 @@ export class RunQueue {
     active.probeAbort?.abort();
     await this.stopWatchingParts(active);
     await Promise.all([...active.pendingStats]);
-    this.publishProgress(active, true);
+    const completed = status === "done";
+    this.publishProgress(active, true, completed);
+    if (completed && totalEligible(run.spec) && (run.progress?.processed ?? 0) > 0) {
+      // Replace any inflated profile media_count in the cache with the actual downloadable post count.
+      await this.deps
+        .saveCachedTotal(totalCacheKey(run.spec), run.progress!.processed!)
+        .catch(() => {});
+    }
     if (active.logTimer) {
       clearInterval(active.logTimer);
       active.logTimer = undefined;
     }
     run.endedAt = new Date().toISOString();
     if (extra.errorKind) run.errorKind = extra.errorKind;
+    if (status === "done" && !run.spec.simulate && run.spec.site === "x") {
+      const tip = await this.deps
+        .readArchiveTip(settings.mediaRoot, folderNameFor(run.spec))
+        .catch(() => undefined);
+      const newest = run.spec.advanced.retweets ? tip?.timelineId : tip?.tweetId;
+      if (newest) run.newestPostId = newest;
+    }
     await this.flushLog(active);
     this.emitCounts(run);
     await this.setStatus(run, status);

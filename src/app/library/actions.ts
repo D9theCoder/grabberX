@@ -5,6 +5,7 @@ import type { ActionResult, LibraryEntry, Run, RunStatus, Settings } from "@/lib
 import { activeSkipReason } from "@/lib/update-messages";
 import { buildUpdateSpec, folderKey, runsForFolder } from "@/lib/update-spec";
 import type { UpdateAccountData, UpdateAllResult, UpdatePlan, UpdateSkip } from "@/lib/update-spec";
+import { readArchiveTip } from "@/server/archive";
 import { listAccounts, moveAccountFolder } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
 import { getSettings, listRuns } from "@/server/store";
@@ -91,7 +92,8 @@ export async function updateAccount(folder: string): Promise<ActionResult<Update
     }
   }
 
-  const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
+  const archiveTip = await readArchiveTip(context.settings.mediaRoot, entry.folder);
+  const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings, { archiveTip });
   if (!built.ok) return built;
 
   const queued = await queueUpdate(entry.folder, built.data);
@@ -171,7 +173,8 @@ export async function updateAll(): Promise<ActionResult<UpdateAllResult>> {
       continue;
     }
 
-    const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings);
+    const archiveTip = await readArchiveTip(context.settings.mediaRoot, entry.folder);
+    const built = buildUpdateSpec(entry.folder, entry, context.runs, context.settings, { archiveTip });
     if (!built.ok) {
       skipped.push({ folder: entry.folder, reason: built.error });
       continue;

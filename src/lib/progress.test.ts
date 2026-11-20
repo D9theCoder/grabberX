@@ -171,6 +171,29 @@ describe("ProgressTracker", () => {
     expect(closing.bytesPerSec).toBe(MB);
     expect(closing.etaSeconds).toBeUndefined();
   });
+
+  it("reconciles an inflated probed total to the actual post count when completed, but keeps it on early stops", () => {
+    const completed = new ProgressTracker(0);
+    completed.setTotal(300);
+    for (let i = 1; i <= 200; i += 1) completed.record(i * 100, MB, { post: String(i) });
+    const done = completed.finish(25_000, { completed: true });
+    expect(done.processed).toBe(200);
+    expect(done.total).toBe(200);
+    expect(progressFraction(done, true)).toBe(1);
+
+    const stopped = new ProgressTracker(0);
+    stopped.setTotal(300);
+    for (let i = 1; i <= 120; i += 1) stopped.record(i * 100, MB, { post: String(i) });
+    const partial = stopped.finish(15_000, { completed: false });
+    expect(partial.processed).toBe(120);
+    expect(partial.total).toBe(300);
+
+    const empty = new ProgressTracker(0);
+    empty.setTotal(300);
+    const emptyDone = empty.finish(5_000, { completed: true });
+    expect(emptyDone.total).toBeUndefined();
+    expect(emptyDone.processed).toBeUndefined();
+  });
 });
 
 describe("progressFraction", () => {
@@ -205,6 +228,10 @@ describe("totals", () => {
     expect(totalEligible({ ...spec, media: "images" })).toBe(false);
     expect(totalEligible({ ...spec, dateFrom: "2025-01-01" })).toBe(false);
     expect(totalEligible({ ...spec, advanced: { ...spec.advanced, range: 50 } })).toBe(false);
+    expect(totalEligible({ ...spec, advanced: { ...spec.advanced, sincePostId: "2120165612320411776" } })).toBe(false);
+    expect(totalEligible({ ...spec, advanced: { ...spec.advanced, replies: false } })).toBe(false);
+    expect(totalEligible({ ...spec, advanced: { ...spec.advanced, filesizeMin: "1M" } })).toBe(false);
+    expect(totalEligible({ ...spec, advanced: { ...spec.advanced, filesizeMax: "50M" } })).toBe(false);
   });
 
   it("reads the media count from gallery-dl -j output", () => {

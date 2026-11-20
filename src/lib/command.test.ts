@@ -346,6 +346,52 @@ describe("buildCommand: options", () => {
     expect(step.argv).toContain("firefox:work");
     expect(step.argv).not.toContain("edge");
   });
+
+  it("emits a post-level abort cutoff for X when sincePostId is set", () => {
+    const steps = buildCommand(
+      makeSpec({
+        media: "all",
+        advanced: {
+          ...DEFAULT_ADVANCED,
+          cookies: { browser: "firefox" },
+          sincePostId: "2120165612320411776",
+          abortAfterSkipped: 20,
+        },
+      }),
+      settings,
+    );
+    expect(steps).toHaveLength(2);
+    for (const step of steps) {
+      const pinnedAt = step.argv.indexOf("twitter.pinned=false");
+      expect(pinnedAt).toBeGreaterThan(0);
+      expect(step.argv[pinnedAt - 1]).toBe("-o");
+      const filterAt = step.argv.indexOf("--post-filter");
+      expect(filterAt).toBeGreaterThan(pinnedAt);
+      expect(step.argv[filterAt + 1]).toBe(
+        "int(retweet_id or tweet_id) > 2120165612320411776 or abort()",
+      );
+      expect(step.argv).toContain("-A");
+    }
+    expect(formatCommand(steps[1]!.argv)).toContain(
+      "  --post-filter 'int(retweet_id or tweet_id) > 2120165612320411776 or abort()' `",
+    );
+  });
+
+  it("ignores sincePostId for non-X sites", () => {
+    const argv = imagesArgv(
+      makeSpec({
+        site: "instagram",
+        account: "someone",
+        advanced: {
+          ...DEFAULT_ADVANCED,
+          cookies: { browser: "firefox" },
+          sincePostId: "2120165612320411776",
+        },
+      }),
+    );
+    expect(argv).not.toContain("--post-filter");
+    expect(argv.join(" ")).not.toContain("twitter.");
+  });
 });
 
 describe("buildCommand: other sites", () => {

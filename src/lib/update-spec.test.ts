@@ -133,6 +133,132 @@ describe("buildUpdateSpec", () => {
       const preview = run("2026-11-10T09-00-00_username", spec({ simulate: true }), { status: "done" });
       expect(planFor(preview).abortAfterSkipped).toBeUndefined();
     });
+
+    it("attaches sincePostId from archiveTip for X updates and respects retweets", () => {
+      const tip = { tweetId: "2120165612320411776", timelineId: "2120999999999999999" };
+      const doneRun = run("2026-11-10T09-00-00_username", spec(), { status: "done" });
+      const ownOnly = expectOk(buildUpdateSpec("username", entry, [doneRun], SETTINGS, { archiveTip: tip }));
+      expect(ownOnly.spec.advanced.sincePostId).toBe("2120165612320411776");
+      expect(ownOnly.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+
+      const withRetweets = run("2026-11-10T09-00-00_username", spec({}, { retweets: true }), { status: "done" });
+      const rtPlan = expectOk(buildUpdateSpec("username", entry, [withRetweets], SETTINGS, { archiveTip: tip }));
+      expect(rtPlan.spec.advanced.sincePostId).toBe("2120999999999999999");
+    });
+
+    it("stays incremental after a failed or stopped update that saved nothing when an earlier run finished done", () => {
+      const tip = { tweetId: "2120165612320411776", timelineId: "2120165612320411776" };
+      const earlierDone = run("2026-11-09T09-00-00_username", spec(), {
+        status: "done",
+        counts: { saved: 500, skipped: 0, failed: 0 },
+      });
+      const stoppedUpdate = run("2026-11-10T09-00-00_username", spec({}, { abortAfterSkipped: 20 }), {
+        status: "stopped",
+        counts: { saved: 0, skipped: 21, failed: 0 },
+      });
+
+      const plan = expectOk(
+        buildUpdateSpec("username", entry, [stoppedUpdate, earlierDone], SETTINGS, { archiveTip: tip }),
+      );
+      expect(plan.spec.advanced.sincePostId).toBe("2120165612320411776");
+      expect(plan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    });
+
+    it("falls back to the last completed run checkpoint when a newer failed run partially saved files", () => {
+      const tip = { tweetId: "2122000000000000000", timelineId: "2122000000000000000" };
+      const earlierDone = run("2026-11-09T09-00-00_username", spec(), {
+        status: "done",
+        newestPostId: "2120000000000000000",
+        counts: { saved: 500, skipped: 0, failed: 0 },
+      });
+      const partialFail = run("2026-11-10T09-00-00_username", spec(), {
+        status: "failed",
+        counts: { saved: 12, skipped: 0, failed: 1 },
+      });
+
+      const plan = expectOk(
+        buildUpdateSpec("username", entry, [partialFail, earlierDone], SETTINGS, { archiveTip: tip }),
+      );
+      // Must not skip past the tweets whose images saved in Step 1 before Step 2 videos failed.
+      expect(plan.spec.advanced.sincePostId).toBe("2120000000000000000");
+      expect(plan.spec.advanced.abortAfterSkipped).toBeUndefined();
+    });
+
+    it("derives a snowflake floor from startedAt when the last completed run predates newestPostId", () => {
+      const tip = { tweetId: "2125000000000000000", timelineId: "2125000000000000000" };
+      const earlierDone = run("2026-11-09T09-00-00_username", spec(), {
+        status: "done",
+        startedAt: "2026-11-09T09:00:00.000Z",
+        counts: { saved: 500, skipped: 0, failed: 0 },
+      });
+      const partialStop = run("2026-11-10T09-00-00_username", spec(), {
+        status: "stopped",
+        counts: { saved: 5, skipped: 0, failed: 0 },
+      });
+
+      const plan = expectOk(
+        buildUpdateSpec("username", entry, [partialStop, earlierDone], SETTINGS, { archiveTip: tip }),
+      );
+      expect(plan.spec.advanced.sincePostId).toBeDefined();
+      expect(BigInt(plan.spec.advanced.sincePostId!) < BigInt(tip.tweetId)).toBe(true);
+      expect(plan.spec.advanced.abortAfterSkipped).toBeUndefined();
+    });
+
+    it("recovers an imported archive whose only grabberX runs were stopped while skipping existing files", () => {
+      const tip = { tweetId: "2118299780522877396", timelineId: "2118299780522877396" };
+      const stopped1 = run("2026-11-12T03-31-40_username", spec({}, { abortAfterSkipped: 20 }), {
+        status: "stopped",
+        counts: { saved: 0, skipped: 21, failed: 0 },
+      });
+      const stopped2 = run("2026-11-12T08-19-00_username", spec(), {
+        status: "stopped",
+        counts: { saved: 0, skipped: 414, failed: 0 },
+      });
+
+      const plan = expectOk(
+        buildUpdateSpec("username", entry, [stopped2, stopped1], SETTINGS, { archiveTip: tip }),
+      );
+      expect(plan.spec.advanced.sincePostId).toBe("2118299780522877396");
+      expect(plan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    });
+
+    it("does not trust a prior done run that had narrower media coverage or a date window", () => {
+      const tip = { tweetId: "2120165612320411776", timelineId: "2120165612320411776" };
+      const imagesOnlyDone = run("2026-11-09T09-00-00_username", spec({ media: "images" }), { status: "done" });
+      const stoppedAll = run("2026-11-10T09-00-00_username", spec({ media: "all" }), {
+        status: "stopped",
+        counts: { saved: 10, skipped: 0, failed: 0 },
+      });
+
+      const plan = expectOk(
+        buildUpdateSpec("username", entry, [stoppedAll, imagesOnlyDone], SETTINGS, { archiveTip: tip }),
+      );
+      expect(plan.spec.advanced.sincePostId).toBeUndefined();
+      expect(plan.spec.advanced.abortAfterSkipped).toBeUndefined();
+
+      const datedDone = run("2026-11-10T09-00-00_username", spec({ dateFrom: "2026-01-01" }), { status: "done" });
+      const datedPlan = expectOk(
+        buildUpdateSpec("username", entry, [datedDone], SETTINGS, { archiveTip: tip }),
+      );
+      expect(datedPlan.spec.advanced.sincePostId).toBeUndefined();
+      expect(datedPlan.spec.advanced.abortAfterSkipped).toBeUndefined();
+    });
+
+    it("drops a stale sincePostId when a full walk is required and never sets it for non-X sites", () => {
+      const tip = { tweetId: "2120165612320411776", timelineId: "2120165612320411776" };
+      const partialFirst = run(
+        "2026-11-10T09-00-00_username",
+        spec({}, { sincePostId: "1999999999999999999" }),
+        { status: "failed", counts: { saved: 10, skipped: 0, failed: 1 } },
+      );
+      const xPlan = expectOk(buildUpdateSpec("username", entry, [partialFirst], SETTINGS, { archiveTip: tip }));
+      expect(xPlan.spec.advanced.sincePostId).toBeUndefined();
+
+      const instaDone = run("2026-11-10T09-00-00_username", spec({ site: "instagram" }), { status: "done" });
+      const instaPlan = expectOk(buildUpdateSpec("username", entry, [instaDone], SETTINGS, { archiveTip: tip }));
+      expect(instaPlan.spec.advanced.sincePostId).toBeUndefined();
+      expect(instaPlan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    });
   });
 
   it("keeps the account preferences that are not one-offs", () => {

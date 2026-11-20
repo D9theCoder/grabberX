@@ -126,7 +126,7 @@ function argvFor(
     ...qualityFlags(spec),
     ...dateFlags(spec),
     ...paceFlags(spec.advanced),
-    ...selectionFlags(spec.advanced),
+    ...selectionFlags(spec),
     ...outputFlags(spec.advanced),
     "--no-colors",
     ...cookieFlags(spec, settings),
@@ -199,11 +199,23 @@ function paceFlags(advanced: Advanced): string[] {
   return flags;
 }
 
-function selectionFlags(advanced: Advanced): string[] {
+function selectionFlags(spec: JobSpec): string[] {
+  const { advanced } = spec;
   const flags: string[] = [];
   if (advanced.limitRate) flags.push("--limit-rate", advanced.limitRate);
   if (advanced.filesizeMin) flags.push("--filesize-min", advanced.filesizeMin);
   if (advanced.filesizeMax) flags.push("--filesize-max", advanced.filesizeMax);
+  if (spec.site === "x" && advanced.sincePostId) {
+    // Stop extraction at the post level as soon as we reach the newest stored post, before --filter
+    // discards images during the video pass (which would otherwise never trigger -A). Disable pinned
+    // tweets so an old pinned post at the top of a timeline cannot trigger a premature abort.
+    flags.push(
+      "-o",
+      "twitter.pinned=false",
+      "--post-filter",
+      `int(retweet_id or tweet_id) > ${advanced.sincePostId} or abort()`,
+    );
+  }
   if (advanced.abortAfterSkipped !== undefined) {
     flags.push("-A", String(advanced.abortAfterSkipped));
   }
