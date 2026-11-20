@@ -961,7 +961,7 @@ describe("RunQueue", () => {
     expect(asks).toHaveLength(2);
   });
 
-  it("records newestPostId from archive.sqlite3 when an X run finishes done, not on previews or failures", async () => {
+  it("records newestPostId from archive.sqlite3 when a cutoff-capable run finishes done, not on previews or failures", async () => {
     isolationHome();
     const media = await tempDir();
     let exitCode = 0;
@@ -976,6 +976,8 @@ describe("RunQueue", () => {
       readArchiveTip: async () => ({
         tweetId: "2120165612320411776",
         timelineId: "2120999999999999999",
+        instagramId: "4033139353696657192",
+        fapelloId: "2466",
       }),
     });
 
@@ -983,6 +985,18 @@ describe("RunQueue", () => {
     await waitFor(() => queue.get(normal.id)?.status === "done");
     expect(queue.get(normal.id)?.newestPostId).toBe("2120165612320411776");
     expect((await storeModule.getRun(normal.id))?.newestPostId).toBe("2120165612320411776");
+
+    const insta = await queue.enqueue({ ...spec("berryooon"), site: "instagram", media: "images" });
+    await waitFor(() => queue.get(insta.id)?.status === "done");
+    expect(queue.get(insta.id)?.newestPostId).toBe("4033139353696657192");
+
+    const fapello = await queue.enqueue({
+      ...spec("https://fapello.com/takomayuyi/", "fapello.com_takomayuyi"),
+      site: "url",
+      media: "images",
+    });
+    await waitFor(() => queue.get(fapello.id)?.status === "done");
+    expect(queue.get(fapello.id)?.newestPostId).toBe("2466");
 
     const preview = await queue.enqueue({ ...spec("bob"), media: "images", simulate: true });
     await waitFor(() => queue.get(preview.id)?.status === "done");

@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { formatBytes, formatCount, formatRelative } from "@/lib/format";
 import { LAYOUT_LABELS } from "@/lib/form-helpers";
 import type { AccountStats, DetectedLayout, LibraryEntry } from "@/lib/spec";
+import { notifyRunsChanged } from "@/lib/task-list";
 import {
   isUnchangedFolderName,
   moveAccountMessage,
@@ -231,6 +232,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
     startTransition(async () => {
       try {
         const result = await updateAccount(folder);
+        if (result.ok) notifyRunsChanged();
         setMessage(
           result.ok
             ? updateAccountMessage(folder, result.data)
@@ -250,6 +252,7 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
     startTransition(async () => {
       try {
         const result = await updateAll();
+        if (result.ok && result.data.started > 0) notifyRunsChanged();
         setMessage(
           result.ok
             ? updateAllMessage(result.data)
@@ -443,6 +446,11 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                   </dl>
                   {moveFor === entry.folder ? moveEditor(entry.folder) : null}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-small text-ink-2">
+                    {entry.upToDate ? (
+                      <span className="inline-flex items-center gap-1 text-ink">
+                        <span aria-hidden="true">✓</span> Up to date
+                      </span>
+                    ) : null}
                     <span>{entry.lastRunAt ? `Last run ${relative(entry.lastRunAt)}` : "No runs yet"}</span>
                     <span>{LAYOUT_NAMES[entry.layout]}</span>
                     {isPaused(entry.folder) ? <span>Updates paused</span> : null}
@@ -485,7 +493,18 @@ export function LibraryTable({ rows, now }: { rows: Row[]; now: number }) {
                           {loaded ? formatBytes(loaded.bytes) : "…"}
                         </td>
                         <td className="py-3 pr-4 text-small text-ink-2">
-                          {entry.lastRunAt ? relative(entry.lastRunAt) : "—"}
+                          {entry.upToDate ? (
+                            <>
+                              <span className="inline-flex items-center gap-1 text-ink">
+                                <span aria-hidden="true">✓</span> Up to date
+                              </span>
+                              {entry.lastRunAt ? <span> · {relative(entry.lastRunAt)}</span> : null}
+                            </>
+                          ) : entry.lastRunAt ? (
+                            relative(entry.lastRunAt)
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="py-3 pr-4 text-small text-ink-2">{LAYOUT_NAMES[entry.layout]}</td>
                         <td className="py-3">

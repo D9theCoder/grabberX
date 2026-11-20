@@ -243,7 +243,7 @@ describe("buildCommand: options", () => {
       "200k",
       "--filesize-max",
       "5M",
-      "-A",
+      "-T",
       "20",
       "--range",
       "1-50",
@@ -370,27 +370,63 @@ describe("buildCommand: options", () => {
       expect(step.argv[filterAt + 1]).toBe(
         "int(retweet_id or tweet_id) > 2120165612320411776 or abort()",
       );
-      expect(step.argv).toContain("-A");
+      expect(step.argv).toContain("-T");
     }
     expect(formatCommand(steps[1]!.argv)).toContain(
       "  --post-filter 'int(retweet_id or tweet_id) > 2120165612320411776 or abort()' `",
     );
   });
 
-  it("ignores sincePostId for non-X sites", () => {
-    const argv = imagesArgv(
+  it("emits site-specific post-level cutoffs for Instagram, Fapello, and Pixiv, and ignores unsupported sites", () => {
+    const igSteps = buildCommand(
       makeSpec({
         site: "instagram",
-        account: "someone",
-        advanced: {
-          ...DEFAULT_ADVANCED,
-          cookies: { browser: "firefox" },
-          sincePostId: "2120165612320411776",
-        },
+        account: "berryooon",
+        media: "all",
+        advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, sincePostId: "4033139353696657192" },
+      }),
+      settings,
+    );
+    for (const step of igSteps) {
+      const at = step.argv.indexOf("--post-filter");
+      expect(at).toBeGreaterThan(0);
+      expect(step.argv[at + 1]).toBe(
+        "locals().get('pinned') or int(locals().get('post_id') or media_id) > 4033139353696657192 or abort()",
+      );
+      expect(step.argv.join(" ")).not.toContain("twitter.");
+    }
+
+    const fpSteps = buildCommand(
+      makeSpec({
+        site: "url",
+        account: "https://fapello.com/takomayuyi/",
+        media: "all",
+        advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, sincePostId: "2466" },
+      }),
+      settings,
+    );
+    for (const step of fpSteps) {
+      const at = step.argv.indexOf("--post-filter");
+      expect(step.argv[at + 1]).toBe("int(id) > 2466 or terminate()");
+    }
+
+    const pxArgv = imagesArgv(
+      makeSpec({
+        site: "pixiv",
+        account: "12345",
+        advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, sincePostId: "987654" },
       }),
     );
-    expect(argv).not.toContain("--post-filter");
-    expect(argv.join(" ")).not.toContain("twitter.");
+    expect(pxArgv[pxArgv.indexOf("--post-filter") + 1]).toBe("int(id) > 987654 or abort()");
+
+    const redditArgv = imagesArgv(
+      makeSpec({
+        site: "reddit",
+        account: "someone",
+        advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" }, sincePostId: "12345" },
+      }),
+    );
+    expect(redditArgv).not.toContain("--post-filter");
   });
 });
 

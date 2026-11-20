@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActionResult, Advanced, JobSpec, LibraryEntry, Run, Settings } from "@/lib/spec";
-import { CAUGHT_UP_AFTER, buildUpdateSpec } from "@/lib/update-spec";
+import { CAUGHT_UP_AFTER, buildUpdateSpec, enrichLibraryEntry } from "@/lib/update-spec";
 
 const SETTINGS: Settings = {
   galleryDlPath: "C:\\tools\\gallery-dl.exe",
@@ -244,8 +244,13 @@ describe("buildUpdateSpec", () => {
       expect(datedPlan.spec.advanced.abortAfterSkipped).toBeUndefined();
     });
 
-    it("drops a stale sincePostId when a full walk is required and never sets it for non-X sites", () => {
-      const tip = { tweetId: "2120165612320411776", timelineId: "2120165612320411776" };
+    it("drops a stale sincePostId when a full walk is required and attaches per-site cutoffs for Instagram and Fapello", () => {
+      const tip = {
+        tweetId: "2120165612320411776",
+        timelineId: "2120165612320411776",
+        instagramId: "4033139353696657192",
+        fapelloId: "2466",
+      };
       const partialFirst = run(
         "2026-11-10T09-00-00_username",
         spec({}, { sincePostId: "1999999999999999999" }),
@@ -256,8 +261,76 @@ describe("buildUpdateSpec", () => {
 
       const instaDone = run("2026-11-10T09-00-00_username", spec({ site: "instagram" }), { status: "done" });
       const instaPlan = expectOk(buildUpdateSpec("username", entry, [instaDone], SETTINGS, { archiveTip: tip }));
-      expect(instaPlan.spec.advanced.sincePostId).toBeUndefined();
+      expect(instaPlan.spec.advanced.sincePostId).toBe("4033139353696657192");
       expect(instaPlan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+
+      const fpDone = run(
+        "2026-11-10T09-00-00_fapello.com_takomayuyi",
+        spec({ site: "url", account: "https://fapello.com/takomayuyi/" }),
+        { status: "done" },
+      );
+      const fpPlan = expectOk(
+        buildUpdateSpec(
+          "fapello.com_takomayuyi",
+          { folder: "fapello.com_takomayuyi", layout: "flat" },
+          [fpDone],
+          SETTINGS,
+          { archiveTip: tip },
+        ),
+      );
+      expect(fpPlan.spec.advanced.sincePostId).toBe("2466");
+      expect(fpPlan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+
+      // Unsupported sites (e.g. Reddit) still use -T 20 without setting sincePostId.
+      const redditDone = run("2026-11-10T09-00-00_username", spec({ site: "reddit" }), { status: "done" });
+      const redditPlan = expectOk(buildUpdateSpec("username", entry, [redditDone], SETTINGS, { archiveTip: tip }));
+      expect(redditPlan.spec.advanced.sincePostId).toBeUndefined();
+      expect(redditPlan.spec.advanced.abortAfterSkipped).toBe(CAUGHT_UP_AFTER);
+    });
+  });
+
+  describe("enrichLibraryEntry", () => {
+    it("marks an account up to date only when its latest unbounded real run finished done with 0 failures and nothing is active", () => {
+      const doneRun = run("2026-11-20T09-00-00_username", spec(), {
+        status: "done",
+        endedAt: "2026-11-20T09:05:00.000Z",
+        counts: { saved: 0, skipped: 0, failed: 0 },
+      });
+      const enriched = enrichLibraryEntry(
+        { folder: "username", layout: "byType", lastRunAt: "2026-11-10T00:00:00.000Z" },
+        [doneRun],
+      );
+      expect(enriched.upToDate).toBe(true);
+      // Uses the newer run end time even when 0 files were written (archive mtime unchanged).
+      expect(enriched.lastRunAt).toBe("2026-11-20T09:05:00.000Z");
+
+      // Active run in flight clears the up-to-date marker.
+      const activeRun = run("2026-11-20T10-00-00_username", spec(), { status: "running" });
+      expect(enrichLibraryEntry(ENTRY, [doneRun], [activeRun]).upToDate).toBe(false);
+
+      // Stopped, failed, failed-file, preview-only, ranged or date-windowed runs are not up to date.
+      expect(enrichLibraryEntry(ENTRY, []).upToDate).toBe(false);
+      expect(
+        enrichLibraryEntry(ENTRY, [run("2026-11-20T09-00-00_username", spec(), { status: "stopped" })]).upToDate,
+      ).toBe(false);
+      expect(
+        enrichLibraryEntry(ENTRY, [
+          run("2026-11-20T09-00-00_username", spec(), { status: "done", counts: { saved: 5, skipped: 0, failed: 1 } }),
+        ]).upToDate,
+      ).toBe(false);
+      expect(
+        enrichLibraryEntry(ENTRY, [run("2026-11-20T09-00-00_username", spec({}, { range: 10 }), { status: "done" })])
+          .upToDate,
+      ).toBe(false);
+      expect(
+        enrichLibraryEntry(ENTRY, [
+          run("2026-11-20T09-00-00_username", spec({ dateFrom: "2026-01-01" }), { status: "done" }),
+        ]).upToDate,
+      ).toBe(false);
+      expect(
+        enrichLibraryEntry(ENTRY, [run("2026-11-20T09-00-00_username", spec({ simulate: true }), { status: "done" })])
+          .upToDate,
+      ).toBe(false);
     });
   });
 

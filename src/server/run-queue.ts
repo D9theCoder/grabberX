@@ -8,6 +8,7 @@ import { postIdOf, ProgressTracker, totalEligible } from "@/lib/progress";
 import { compareRunIds } from "@/lib/run-order";
 import { isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
+import { cutoffSiteOf, tipForSpec } from "@/lib/twitter-id";
 import type {
   ErrorKind,
   JobSpec,
@@ -769,11 +770,11 @@ export class RunQueue {
     }
     run.endedAt = new Date().toISOString();
     if (extra.errorKind) run.errorKind = extra.errorKind;
-    if (status === "done" && !run.spec.simulate && run.spec.site === "x") {
+    if (status === "done" && !run.spec.simulate && cutoffSiteOf(run.spec) !== null) {
       const tip = await this.deps
         .readArchiveTip(settings.mediaRoot, folderNameFor(run.spec))
         .catch(() => undefined);
-      const newest = run.spec.advanced.retweets ? tip?.timelineId : tip?.tweetId;
+      const newest = tipForSpec(run.spec, tip);
       if (newest) run.newestPostId = newest;
     }
     await this.flushLog(active);

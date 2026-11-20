@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { LibraryTable } from "@/components/library-table";
+import { LiveRefresh } from "@/components/live-refresh";
+import { enrichLibraryEntry } from "@/lib/update-spec";
 import { getAccountStats, listAccounts } from "@/server/library";
+import { runQueue } from "@/server/run-queue";
 import { requireSetup } from "@/server/setup";
+import { listRuns } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
 export default async function LibraryPage() {
   await requireSetup();
-  const accounts = await listAccounts();
+  const [accounts, runs] = await Promise.all([listAccounts(), listRuns(Number.MAX_SAFE_INTEGER)]);
+  const activeRuns = runQueue.list();
   const now = Date.now();
 
   // An empty library only needs one way forward: the Run page. The table draws its own header.
@@ -26,10 +31,14 @@ export default async function LibraryPage() {
   }
 
   // Sizes are not awaited here: the table renders now and each row fills in when its folder scan finishes.
-  const rows = accounts.map((entry) => ({ entry, stats: getAccountStats(entry.folder) }));
+  const rows = accounts.map((account) => ({
+    entry: enrichLibraryEntry(account, runs, activeRuns),
+    stats: getAccountStats(account.folder),
+  }));
 
   return (
     <main className="pt-12 pb-16">
+      <LiveRefresh active={activeRuns.length > 0} />
       <LibraryTable rows={rows} now={now} />
     </main>
   );

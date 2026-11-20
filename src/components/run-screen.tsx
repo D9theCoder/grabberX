@@ -10,6 +10,7 @@ import { RunPanel } from "@/components/run-panel";
 import { Notice } from "@/components/ui/notice";
 import { Status } from "@/components/ui/status";
 import { useRunStream } from "@/components/use-run-stream";
+import { isTerminalStatus } from "@/components/run-stream-reducer";
 import { buildCommand, formatCommand, parallelBlock, workerCount } from "@/lib/command";
 import { browserLabel, cookieNotice, cookieSiteLabel } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
@@ -20,7 +21,8 @@ import { isActiveStatus } from "@/lib/run-copy";
 import { FOLDER_PATTERN, folderNameFor, siteDef, validateAccount } from "@/lib/sites";
 import { createDefaultSpec } from "@/lib/spec";
 import type { AccountHint, Advanced, JobSpec, Layout, Settings, SiteId } from "@/lib/spec";
-import { notifyRunsChanged } from "@/lib/task-list";
+import { notifyRunsChanged, RUNS_CHANGED_EVENT } from "@/lib/task-list";
+import type { TaskSummary } from "@/lib/task-list";
 
 const CAUGHT_UP_AFTER = 20;
 const HINT_DEBOUNCE_MS = 300;
@@ -133,6 +135,39 @@ export function RunScreen({
     (caughtUp !== defaultCaughtUp ? 1 : 0);
 
   const run = stream.run;
+  const runTerminal = run !== undefined && run.id === runId && isTerminalStatus(run.status);
+
+  // When the displayed run finishes or is stopped, advance the panel to the next running/queued job
+  // automatically so the user doesn't have to reload the page to see the rest of the queue.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pickNextActive() {
+      try {
+        const response = await fetch("/api/runs", { cache: "no-store" });
+        if (!response.ok || cancelled) return;
+        const body = (await response.json()) as { tasks: TaskSummary[] };
+        const next = body.tasks[0];
+        if (!next || next.id === runId || cancelled) return;
+        setRunId(next.id);
+        setQueuedAhead(next.position > 0 ? next.position : null);
+      } catch {
+        /* server restarting or busy */
+      }
+    }
+
+    if (runTerminal) void pickNextActive();
+
+    const onRunsChanged = () => {
+      if (!runId || runTerminal) void pickNextActive();
+    };
+    window.addEventListener(RUNS_CHANGED_EVENT, onRunsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(RUNS_CHANGED_EVENT, onRunsChanged);
+    };
+  }, [runId, runTerminal]);
+
   const accountHasActiveRun = hint?.kind === "active";
   const queuedNote =
     run?.status === "queued" && queuedAhead !== null

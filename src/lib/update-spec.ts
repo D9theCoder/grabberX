@@ -9,17 +9,18 @@ import type {
   Settings,
 } from "@/lib/spec";
 import { createDefaultSpec } from "@/lib/spec";
+import { isActiveStatus } from "@/lib/run-copy";
 import { compareRunIds } from "@/lib/run-order";
 import { parseJobSpec } from "@/lib/spec-schema";
 import { folderNameFor, validateAccount } from "@/lib/sites";
-import { minPostId, snowflakeIdFromIso } from "@/lib/twitter-id";
+import { checkpointFromIso, cutoffSiteOf, minPostId, tipForSpec } from "@/lib/twitter-id";
 import type { ArchiveTip } from "@/lib/twitter-id";
 
 /** "Stop when caught up": gallery-dl stops after this many files the account already has (DESIGN §6). */
 export const CAUGHT_UP_AFTER = 20;
 
 export interface BuildUpdateOptions {
-  /** Newest post IDs already stored in the folder's `archive.sqlite3` (X only). */
+  /** Newest post IDs already stored in the folder's `archive.sqlite3`. */
   archiveTip?: ArchiveTip;
 }
 
@@ -57,9 +58,47 @@ export function runsForFolder(folder: string, runs: readonly Run[]): Run[] {
     .sort((a, b) => compareRunIds(a.id, b.id));
 }
 
-function tipFor(spec: Pick<JobSpec, "site" | "advanced">, tip: ArchiveTip | undefined): string | undefined {
-  if (spec.site !== "x" || !tip) return undefined;
-  return spec.advanced.retweets ? tip.timelineId : tip.tweetId;
+/**
+ * Enriches a Library folder entry with its latest real run timestamp and whether all contents are
+ * currently up to date (latest non-preview run was unbounded, finished `done` with 0 failures, and
+ * no run is currently active for the folder).
+ */
+export function enrichLibraryEntry(
+  entry: LibraryEntry,
+  runs: readonly Run[],
+  activeRuns: readonly Run[] = [],
+): LibraryEntry {
+  const key = folderKey(entry.folder);
+  const hasActive = activeRuns.some(
+    (run) => isActiveStatus(run.status) && folderKey(folderNameFor(run.spec)) === key,
+  );
+  const latestReal = runsForFolder(entry.folder, runs).find((run) => !run.spec.simulate);
+  const runTime = latestReal?.endedAt ?? latestReal?.startedAt;
+  const lastRunAt = newerIso(entry.lastRunAt, runTime);
+  const upToDate =
+    !hasActive &&
+    latestReal !== undefined &&
+    latestReal.status === "done" &&
+    latestReal.counts.failed === 0 &&
+    latestReal.spec.advanced.range === undefined &&
+    latestReal.spec.dateFrom === undefined &&
+    latestReal.spec.dateTo === undefined;
+
+  return {
+    ...entry,
+    ...(lastRunAt ? { lastRunAt } : {}),
+    upToDate,
+  };
+}
+
+function newerIso(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return tb >= ta ? b : a;
 }
 
 /** True when `run` walked the whole feed for everything `target` wants, leaving no older backlog. */
@@ -105,14 +144,15 @@ export function buildUpdateSpec(
       account: guessed.account,
       layout: layoutFromDisk(entry.layout),
     };
-    return carriedOver(base, { caughtUp: true, sincePostId: tipFor(base, options.archiveTip) }, "x");
+    return carriedOver(base, { caughtUp: true, sincePostId: tipForSpec(base, options.archiveTip) }, "x");
   }
 
   if (previous.spec.simulate) {
     return carriedOver(previous.spec, { caughtUp: false });
   }
 
-  const archiveId = tipFor(previous.spec, options.archiveTip);
+  const cutoffSite = cutoffSiteOf(previous.spec);
+  const archiveId = tipForSpec(previous.spec, options.archiveTip);
   const completeIndex = realRuns.findIndex((run) => isCompleteRun(run, previous.spec));
 
   if (completeIndex === 0) {
@@ -129,13 +169,15 @@ export function buildUpdateSpec(
     }
     // A failed run saved some files (e.g. Step 1 images before Step 2 videos failed), so the archive tip
     // may be ahead of videos. Bound the retry by the last completed run's checkpoint instead of walking all
-    // history, and leave -A off so Step 1 doesn't stop before reaching that checkpoint.
+    // history, and leave -T off so Step 1 doesn't stop before reaching that checkpoint.
     const lastComplete = realRuns[completeIndex]!;
     const checkpoint =
       lastComplete.newestPostId ??
-      (lastComplete.startedAt ? snowflakeIdFromIso(lastComplete.startedAt) : undefined);
+      (cutoffSite && lastComplete.startedAt
+        ? checkpointFromIso(cutoffSite, lastComplete.startedAt)
+        : undefined);
     const safeSinceId =
-      previous.spec.site === "x" && checkpoint ? minPostId(archiveId, checkpoint) : undefined;
+      cutoffSite !== null && checkpoint ? minPostId(archiveId, checkpoint) : undefined;
     return carriedOver(previous.spec, { caughtUp: false, sincePostId: safeSinceId });
   }
 
@@ -162,7 +204,7 @@ function carriedOver(
   delete advanced.range;
   if (stop.caughtUp) advanced.abortAfterSkipped = CAUGHT_UP_AFTER;
   else delete advanced.abortAfterSkipped;
-  if (base.site === "x" && stop.sincePostId) advanced.sincePostId = stop.sincePostId;
+  if (cutoffSiteOf(base) !== null && stop.sincePostId) advanced.sincePostId = stop.sincePostId;
   else delete advanced.sincePostId;
 
   const spec: JobSpec = { ...base, simulate: false, advanced };

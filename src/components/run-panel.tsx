@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import { formatElapsed, truncateMiddle } from "@/lib/format";
 import { endMessage, isActiveStatus } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
+import { notifyRunsChanged } from "@/lib/task-list";
 
 const COLLAPSED_LINES = 6;
 const STICK_THRESHOLD_PX = 24;
@@ -166,7 +167,12 @@ export function RunPanel({ stream, galleryDlPath, onRunAgain, runAgainPending, c
             variant="danger"
             loading={stopping || run.status === "stopping"}
             disabled={run.status === "stopping"}
-            onClick={() => startStop(() => void stopRun(run.id))}
+            onClick={() =>
+              startStop(async () => {
+                await stopRun(run.id);
+                notifyRunsChanged();
+              })
+            }
           >
             Stop
           </Button>

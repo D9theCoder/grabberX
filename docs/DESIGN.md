@@ -305,15 +305,16 @@ One control height (`--spacing-control`) applies to every control, whatever its 
 A table, not cards. Columns: **Account** (mono) · Images · Videos · Size · Last run · Layout · actions.
 
 - Sort by last run (default), name, or size. A search box filters as you type.
-- Row actions: `Update` (starts a run with the account's saved settings, "Stop when caught up" on,
-  and on X a post-level cutoff at the newest stored tweet ID from `archive.sqlite3` so both image and
-  video passes stop as soon as they reach already-stored posts; after a failed or stopped update it
-  still bounds the retry by the last completed run's checkpoint rather than re-walking the whole
-  account, and only walks the full account when no complete run exists yet so a backlog is never
-  skipped), `Open folder`, and an
+- Row actions: `Update` (starts a run with the account's saved settings, "Stop when caught up" on
+  via `-T 20`, and a post-level cutoff at the newest stored post ID from `archive.sqlite3` for X,
+  Instagram, Fapello and Pixiv so both image and video passes stop as soon as they reach
+  already-stored posts; after a failed or stopped update it still bounds the retry by the last
+  completed run's checkpoint rather than re-walking the whole account, and only walks the full
+  account when no complete run exists yet so a backlog is never skipped), `Open folder`, and an
   overflow menu with `Move` (inline rename form; refuses while a run is queued or running for
   either name, and when the target exists — files and the archive never re-download after a move)
-  and "Use as new run" (fills the form).
+  and "Use as new run" (fills the form). Rows whose latest unbounded run finished `done` with 0
+  failures (and no run active) show a `✓ Up to date` marker beside the last run time.
 - Accounts are detected as top-level folders that contain `archive.sqlite3`, so app folders
   (`src`, `public`, `node_modules`…) never appear.
 - Empty state: "No accounts yet. Your first download will show up here." followed by a **Start a

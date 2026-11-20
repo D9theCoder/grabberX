@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import { RunScreen } from "@/components/run-screen";
-import { isActiveStatus } from "@/lib/run-copy";
+import { summarizeTasks } from "@/lib/task-list";
 import { runQueue } from "@/server/run-queue";
 import { requireSetup } from "@/server/setup";
 import { getSettings } from "@/server/store";
@@ -25,7 +25,7 @@ export default async function RunPage({ searchParams }: PageProps<"/">) {
     settingsPromise,
     settingsPromise.then((loaded) => fileExists(loaded.galleryDlPath)),
   ]);
-  const activeRun = runQueue.list().find((run) => isActiveStatus(run.status));
+  const activeRun = summarizeTasks(runQueue.list(), (id) => runQueue.queuePosition(id))[0];
 
   return (
     <RunScreen

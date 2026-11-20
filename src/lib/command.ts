@@ -1,5 +1,6 @@
 import type { Advanced, JobSpec, Layout, Settings, Step } from "@/lib/spec";
 import { folderNameFor, siteDef, siteForUrl } from "@/lib/sites";
+import { cutoffSiteOf, postFilterFlagsFor } from "@/lib/twitter-id";
 
 /** gallery-dl 1.32.19 twitter defaults: retweets off, replies on. */
 const TWITTER_RETWEETS_DEFAULT = false;
@@ -205,19 +206,17 @@ function selectionFlags(spec: JobSpec): string[] {
   if (advanced.limitRate) flags.push("--limit-rate", advanced.limitRate);
   if (advanced.filesizeMin) flags.push("--filesize-min", advanced.filesizeMin);
   if (advanced.filesizeMax) flags.push("--filesize-max", advanced.filesizeMax);
-  if (spec.site === "x" && advanced.sincePostId) {
+  const cutoffSite = cutoffSiteOf(spec);
+  if (cutoffSite && advanced.sincePostId) {
     // Stop extraction at the post level as soon as we reach the newest stored post, before --filter
-    // discards images during the video pass (which would otherwise never trigger -A). Disable pinned
-    // tweets so an old pinned post at the top of a timeline cannot trigger a premature abort.
-    flags.push(
-      "-o",
-      "twitter.pinned=false",
-      "--post-filter",
-      `int(retweet_id or tweet_id) > ${advanced.sincePostId} or abort()`,
-    );
+    // discards non-matching extensions (e.g. images during the video pass, which would otherwise
+    // never trigger the consecutive-skip counter).
+    flags.push(...postFilterFlagsFor(cutoffSite, advanced.sincePostId));
   }
   if (advanced.abortAfterSkipped !== undefined) {
-    flags.push("-A", String(advanced.abortAfterSkipped));
+    // -T (--terminate) stops both child and parent extractors (needed for sites like Fapello,
+    // Pixiv, Reddit and generic URLs that spawn one child extractor per post; -A only stops the child).
+    flags.push("-T", String(advanced.abortAfterSkipped));
   }
   if (advanced.range !== undefined) {
     flags.push("--range", `1-${advanced.range}`);
