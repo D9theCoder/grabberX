@@ -508,13 +508,13 @@ function Viewer({
   function handleDoubleTap(clientX: number, clientY: number) {
     const stageEl = stageRef.current;
     const mediaEl = activeMediaRef.current;
-    if (stageEl && mediaEl instanceof HTMLVideoElement) {
+    if (mediaEl instanceof HTMLVideoElement) {
+      // A video never zooms on double tap: the outer thirds skip, the middle does nothing.
+      if (!stageEl) return;
       const rect = stageEl.getBoundingClientRect();
       const region = tapRegion(clientX, rect.left, rect.width);
-      if (region !== "middle") {
-        skip(mediaEl, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
-        return;
-      }
+      if (region !== "middle") skip(mediaEl, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
+      return;
     }
     if (viewRef.current.scale > 1.01) {
       resetZoom(true);

@@ -220,17 +220,16 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
     }, SINGLE_CLICK_MS);
   }
 
-  // On a video, the outer thirds skip (even while zoomed, without touching the zoom) and the middle toggles or resets the zoom.
+  // A video never zooms on double click: the outer thirds skip and the middle does nothing. Images keep the zoom toggle.
   function onStageDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
     cancelPendingClick();
     const stageEl = stage.current;
-    if (file?.kind === "video" && stageEl) {
+    if (file?.kind === "video") {
+      if (!stageEl) return;
       const rect = stageEl.getBoundingClientRect();
       const region = tapRegion(event.clientX, rect.left, rect.width);
-      if (region !== "middle") {
-        skip(video.current, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
-        return;
-      }
+      if (region !== "middle") skip(video.current, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
+      return;
     }
     toggleActualSize(event);
   }
