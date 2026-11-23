@@ -430,6 +430,7 @@ function isRunRecord(value: unknown): value is Run {
   if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex)) return false;
   if (!isCounts(counts)) return false;
   if (value.scheduled !== undefined && typeof value.scheduled !== "boolean") return false;
+  if (value.remote !== undefined && typeof value.remote !== "boolean") return false;
   if (!isRecord(spec) || typeof spec.account !== "string") return false;
   if (!Array.isArray(steps)) return false;
   return steps.every(

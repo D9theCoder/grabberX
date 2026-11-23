@@ -54,7 +54,15 @@ export function MobilePwa() {
     }
 
     if ("serviceWorker" in window.navigator && window.isSecureContext) {
-      void window.navigator.serviceWorker.register("/m/sw.js", { scope: "/m" }).catch(() => {});
+      void window.navigator.serviceWorker
+        .register("/m/sw.js", { scope: "/m" })
+        .then(() => window.navigator.serviceWorker.ready)
+        .then((reg) => {
+          if (window.location.pathname !== "/m/pair") {
+            reg.active?.postMessage({ type: "PRECACHE_OFFLINE_SHELL" });
+          }
+        })
+        .catch(() => {});
     }
 
     function onBeforeInstallPrompt(event: Event) {
@@ -127,11 +135,12 @@ export function MobilePwa() {
 
   const showInstall = Boolean(deferredPrompt) && !dismissed && !standalone;
   const showHttpsSetup = insecureContext && !httpsHintDismissed && !standalone && pathname === "/m";
-  if (!showInstall && !offline && !showHttpsSetup) return null;
+  const showOfflineBanner = offline && pathname !== "/m/offline";
+  if (!showInstall && !showOfflineBanner && !showHttpsSetup) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
-      {offline ? (
+      {showOfflineBanner ? (
         <div
           role="status"
           aria-live="polite"
@@ -172,11 +181,20 @@ export function MobilePwa() {
             </button>
           </div>
           <p className="m-0 text-ink-2">
-            1. Download <a href="/m/ca.crt" className="font-medium text-ink underline decoration-line-strong underline-offset-4">grabberX-root-ca.crt</a> and install it in Android{" "}
+            1. Download{" "}
+            <a
+              href="/m/ca.crt"
+              download="grabberX-root-ca.crt"
+              className="font-medium text-ink underline decoration-line-strong underline-offset-4"
+            >
+              grabberX-root-ca.crt
+            </a>{" "}
+            and install it in Android{" "}
             <strong className="font-medium text-ink">Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate</strong>.
           </p>
           <p className="m-0 text-ink-2">
-            2. Then open <a href={httpsHref} className="font-mono font-medium text-ink underline decoration-line-strong underline-offset-4">{httpsHref}</a> (or re-pair in HTTPS mode from PC Settings).
+            2. Then open <a href={httpsHref} className="font-mono font-medium text-ink underline decoration-line-strong underline-offset-4">{httpsHref}</a>{" "}
+            (if HTTPS asks you to pair, refresh once or re-pair in HTTPS mode from PC Settings).
           </p>
         </section>
       ) : null}

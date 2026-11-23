@@ -107,6 +107,13 @@ function rootPrefixOf(mediaRoot: string): string {
   return root.endsWith("/") ? root : `${root}/`;
 }
 
+function targetUrl(spec: Pick<JobSpec, "site" | "account" | "postId">): string {
+  if (spec.site === "x" && spec.postId) {
+    return `https://x.com/${spec.account}/status/${spec.postId}`;
+  }
+  return siteDef(spec.site).urlFor(spec.account);
+}
+
 function argvFor(
   spec: JobSpec,
   settings: Pick<Settings, "mediaRoot" | "cookies">,
@@ -133,7 +140,7 @@ function argvFor(
     ...cookieFlags(spec, settings),
   ];
   if (spec.simulate) argv.push("--simulate");
-  argv.push(site.urlFor(spec.account));
+  argv.push(targetUrl(spec));
   return argv;
 }
 
@@ -206,17 +213,19 @@ function selectionFlags(spec: JobSpec): string[] {
   if (advanced.limitRate) flags.push("--limit-rate", advanced.limitRate);
   if (advanced.filesizeMin) flags.push("--filesize-min", advanced.filesizeMin);
   if (advanced.filesizeMax) flags.push("--filesize-max", advanced.filesizeMax);
-  const cutoffSite = cutoffSiteOf(spec);
-  if (cutoffSite && advanced.sincePostId) {
-    // Stop extraction at the post level as soon as we reach the newest stored post, before --filter
-    // discards non-matching extensions (e.g. images during the video pass, which would otherwise
-    // never trigger the consecutive-skip counter).
-    flags.push(...postFilterFlagsFor(cutoffSite, advanced.sincePostId));
-  }
-  if (advanced.abortAfterSkipped !== undefined) {
-    // -T (--terminate) stops both child and parent extractors (needed for sites like Fapello,
-    // Pixiv, Reddit and generic URLs that spawn one child extractor per post; -A only stops the child).
-    flags.push("-T", String(advanced.abortAfterSkipped));
+  if (!spec.postId) {
+    const cutoffSite = cutoffSiteOf(spec);
+    if (cutoffSite && advanced.sincePostId) {
+      // Stop extraction at the post level as soon as we reach the newest stored post, before --filter
+      // discards non-matching extensions (e.g. images during the video pass, which would otherwise
+      // never trigger the consecutive-skip counter).
+      flags.push(...postFilterFlagsFor(cutoffSite, advanced.sincePostId));
+    }
+    if (advanced.abortAfterSkipped !== undefined) {
+      // -T (--terminate) stops both child and parent extractors (needed for sites like Fapello,
+      // Pixiv, Reddit and generic URLs that spawn one child extractor per post; -A only stops the child).
+      flags.push("-T", String(advanced.abortAfterSkipped));
+    }
   }
   if (advanced.range !== undefined) {
     flags.push("--range", `1-${advanced.range}`);
@@ -236,7 +245,7 @@ function outputFlags(advanced: Advanced): string[] {
 export function probeArgv(spec: JobSpec, settings: Pick<Settings, "cookies">): string[] {
   const argv = ["-j", "--range", "1", "--no-colors", ...cookieFlags(spec, settings)];
   if (spec.advanced.proxy) argv.push("--proxy", spec.advanced.proxy);
-  argv.push(siteDef(spec.site).urlFor(spec.account));
+  argv.push(targetUrl(spec));
   return argv;
 }
 

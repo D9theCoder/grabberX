@@ -82,6 +82,7 @@ export function enrichLibraryEntry(
     latestReal !== undefined &&
     latestReal.status === "done" &&
     latestReal.counts.failed === 0 &&
+    latestReal.spec.postId === undefined &&
     latestReal.spec.advanced.range === undefined &&
     latestReal.spec.dateFrom === undefined &&
     latestReal.spec.dateTo === undefined;
@@ -110,7 +111,7 @@ function newerIso(a: string | undefined, b: string | undefined): string | undefi
 
 /** True when `run` walked the whole feed for everything `target` wants, leaving no older backlog. */
 function isCompleteRun(run: Run, target: JobSpec): boolean {
-  if (run.spec.simulate || run.status !== "done") return false;
+  if (run.spec.simulate || run.spec.postId || run.status !== "done") return false;
   if (run.spec.advanced.range !== undefined) return false;
   if (run.spec.dateFrom !== undefined || run.spec.dateTo !== undefined) return false;
   if (run.spec.media !== "all" && run.spec.media !== target.media) return false;
@@ -215,6 +216,7 @@ function carriedOver(
   else delete advanced.sincePostId;
 
   const spec: JobSpec = { ...base, simulate: false, advanced };
+  delete spec.postId;
   delete spec.dateFrom;
   delete spec.dateTo;
 

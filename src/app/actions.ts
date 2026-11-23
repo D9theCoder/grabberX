@@ -332,6 +332,7 @@ export async function runAgain(
   // from the current archive.sqlite3 so we don't replay a stale cutoff from weeks ago.
   const shouldRefreshCutoff =
     !spec.simulate &&
+    !spec.postId &&
     cutoffSiteOf(spec) !== null &&
     (options?.freshCutoff === true || (options?.freshCutoff !== false && Boolean(spec.advanced.sincePostId)));
   if (shouldRefreshCutoff) {

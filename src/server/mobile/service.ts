@@ -6,12 +6,12 @@ import { appPort, mobilePort } from "@/server/env";
 import { startGateway } from "@/server/mobile/gateway";
 import type { GatewayHandle } from "@/server/mobile/gateway";
 import { createMobileHooks } from "@/server/mobile/hooks";
-import { lanAddresses } from "@/server/mobile/network";
+import { isPrivatePeer, lanAddresses } from "@/server/mobile/network";
 import type { LanAddress } from "@/server/mobile/network";
 import { createPairingToken, resetPairingState } from "@/server/mobile/pairing";
 import { listDevices, revokeAllDevices } from "@/server/mobile/devices";
 import type { DeviceInfo } from "@/server/mobile/devices";
-import { ensureMobileTls } from "@/server/mobile/tls";
+import { ensureMobileTls, generateLeafCert } from "@/server/mobile/tls";
 import { gatherHome, writeAtomic } from "@/server/store";
 
 export const AUTO_OFF_CHOICES = [0, 1, 8] as const;
@@ -22,11 +22,16 @@ interface SavedMobile {
   autoOffAt: number | null;
 }
 
+interface TlsState {
+  ca: { keyPem: string; certPem: string } | null;
+  certHosts: Set<string>;
+}
+
 interface Running {
   handle: GatewayHandle;
   timer: NodeJS.Timeout | null;
   autoOffAt: number | null;
-  certHosts: Set<string>;
+  tlsState: TlsState;
 }
 
 // The Settings Server Action and instrumentation.ts can be bundled separately; one listener and one lock must exist.
@@ -92,11 +97,23 @@ async function startListener(autoOffAt: number | null): Promise<void> {
     console.error("grabberX: could not generate a local TLS certificate for the mobile gallery.", error);
     return null;
   });
+  const tlsState: TlsState = {
+    ca: tls ? { keyPem: tls.caKeyPem, certPem: tls.caCertPem } : null,
+    certHosts: new Set(["127.0.0.1", "localhost", ...hosts]),
+  };
+  const ensureHost = (localAddress: string): { key: string; cert: string } | null => {
+    if (!tlsState.ca || !localAddress || tlsState.certHosts.has(localAddress)) return null;
+    if (!isPrivatePeer(localAddress)) return null;
+    const nextHosts = new Set(["127.0.0.1", "localhost", ...lanAddresses().map((entry) => entry.address), localAddress]);
+    const leaf = generateLeafCert(tlsState.ca, [...nextHosts]);
+    tlsState.certHosts = nextHosts;
+    return { key: leaf.keyPem, cert: leaf.certPem };
+  };
   const handle = await startGateway({
     port: mobilePort(),
     upstreamPort: appPort(),
     ...createMobileHooks(),
-    ...(tls ? { tls: { key: tls.leafKeyPem, cert: tls.leafCertPem, caCertDer: tls.caCertDer } } : {}),
+    ...(tls ? { tls: { key: tls.leafKeyPem, cert: tls.leafCertPem, caCertDer: tls.caCertDer, ensureHost } } : {}),
   });
   let timer: NodeJS.Timeout | null = null;
   if (autoOffAt !== null) {
@@ -105,7 +122,7 @@ async function startListener(autoOffAt: number | null): Promise<void> {
     timer = setTimeout(() => void disableMobileAccess({ forget: false }), wait);
     timer.unref();
   }
-  setRunning({ handle, timer, autoOffAt, certHosts: new Set(hosts) });
+  setRunning({ handle, timer, autoOffAt, tlsState });
 }
 
 /** Called once from instrumentation.ts. Does nothing unless the user turned sharing on and it has not run out. */
@@ -183,15 +200,27 @@ export async function createPairingOffer(address?: string): Promise<PairingOffer
   if (!chosen) return null;
   // If the PC gained a new LAN or Tailscale IP after the gateway started, refresh the leaf cert SANs
   // so HTTPS pairing doesn't fail with ERR_CERT_COMMON_NAME_INVALID.
-  if (!current.certHosts.has(chosen.address)) {
-    const autoOffAt = current.autoOffAt;
-    await withTransitionLock(async () => {
-      if (!running()) return;
-      await stopListener();
-      await startListener(autoOffAt);
-    });
-    current = running();
-    if (!current) return null;
+  if (!current.tlsState.certHosts.has(chosen.address)) {
+    if (current.tlsState.ca && current.handle.setTlsContext) {
+      const nextHosts = new Set([
+        "127.0.0.1",
+        "localhost",
+        ...lanAddresses().map((entry) => entry.address),
+        chosen.address,
+      ]);
+      const leaf = generateLeafCert(current.tlsState.ca, [...nextHosts]);
+      current.handle.setTlsContext({ key: leaf.keyPem, cert: leaf.certPem });
+      current.tlsState.certHosts = nextHosts;
+    } else {
+      const autoOffAt = current.autoOffAt;
+      await withTransitionLock(async () => {
+        if (!running()) return;
+        await stopListener();
+        await startListener(autoOffAt);
+      });
+      current = running();
+      if (!current) return null;
+    }
   }
   const { token, expiresAt } = createPairingToken();
   const hostPort = `${chosen.address}:${current.handle.port}`;

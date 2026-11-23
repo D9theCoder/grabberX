@@ -6,6 +6,7 @@ import {
   renameDeviceAction,
   revokeAllDevicesAction,
   revokeDeviceAction,
+  setDeviceDownloadPermissionAction,
   setMobileAccessAction,
 } from "@/app/settings/mobile-actions";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,9 @@ function LocalTime({ iso }: { iso: string }) {
 export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
   const [status, setStatus] = useState(initial);
   const [autoOff, setAutoOff] = useState("0");
-  const [address, setAddress] = useState(initial.addresses[0]?.address ?? "");
+  const preferredAddress =
+    initial.addresses.find((entry) => entry.kind === "tailnet")?.address ?? initial.addresses[0]?.address ?? "";
+  const [address, setAddress] = useState(preferredAddress);
   const [offer, setOffer] = useState<PairingOffer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [protocol, setProtocol] = useState<"http" | "https">("http");
@@ -51,6 +54,7 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
 
   const on = status.enabled && status.running;
   const noNetwork = status.addresses.length === 0;
+  const hasTailnet = status.addresses.some((entry) => entry.kind === "tailnet");
   const selected = status.addresses.find((entry) => entry.address === address) ?? status.addresses[0];
 
   function toggle(next: boolean) {
@@ -66,6 +70,10 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
         return;
       }
       setStatus(result.data);
+      if (next && !result.data.addresses.some((entry) => entry.address === address)) {
+        const preferred = result.data.addresses.find((entry) => entry.kind === "tailnet") ?? result.data.addresses[0];
+        if (preferred) setAddress(preferred.address);
+      }
       if (!next) setOffer(null);
     });
   }
@@ -104,7 +112,7 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
         onChange={toggle}
         hint={
           on
-            ? "Phones on this network can browse and download files from your library, read only. They can't start scrapes, delete files or change anything on this PC."
+            ? "Phones on this network can browse and save files from your library. They stay read-only unless you turn on Can start downloads for a phone below."
             : "Off. Nothing listens on the network. Turn on to pair an Android phone with a QR code."
         }
       />
@@ -142,6 +150,11 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
                       label: `${entry.address}${entry.kind === "tailnet" ? " (Tailscale)" : ""}`,
                     }))}
                   />
+                  {hasTailnet ? (
+                    <span className="text-small text-ink-2">
+                      Recommended: pair with the Tailscale address so the phone keeps one origin and one offline cache at home and away.
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -208,8 +221,8 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
                 </div>
               ) : null}
 
-              {selected?.kind === "private" ? (
-                <Notice tone="info" title="Home network HTTP & HTTPS">
+              {selected ? (
+                <Notice tone="info" title="Network HTTP & HTTPS">
                   The gateway answers both HTTP and HTTPS on port {status.port}. Switch to <strong className="font-medium">HTTPS (installable PWA)</strong>{" "}
                   above (or open <code className="font-mono">/m/ca.crt</code> on an already-paired phone) to install the app on your home screen.
                 </Notice>
@@ -218,7 +231,7 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
               <details className="text-small text-ink-2">
                 <summary className="cursor-pointer">Phone can&apos;t connect?</summary>
                 <p className="mt-2 mb-1">
-                  Windows Firewall may block the port. Run this once in an administrator PowerShell:
+                  Windows Firewall may block the port (especially if your Wi-Fi is marked Public in Windows Settings). Run this once in an administrator PowerShell, or switch Wi-Fi to Private:
                 </p>
                 <code className="block overflow-x-auto bg-sunken p-2 text-ink">{FIREWALL_COMMAND(status.port)}</code>
               </details>
@@ -241,19 +254,29 @@ export function MobileAccessForm({ initial }: { initial: MobileStatus }) {
         ) : (
           <ul className="m-0 flex list-none flex-col divide-y divide-line border-y border-line p-0">
             {status.devices.map((device) => (
-              <li key={device.id} className="flex items-center justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <DeviceName
-                    label={device.label}
-                    onSave={(label) => updateDevices(() => renameDeviceAction(device.id, label))}
-                  />
-                  <div className="text-small text-ink-2">
-                    Paired <LocalTime iso={device.createdAt} /> · last seen <LocalTime iso={device.lastSeenAt} />
+              <li key={device.id} className="flex flex-col gap-2 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <DeviceName
+                      label={device.label}
+                      onSave={(label) => updateDevices(() => renameDeviceAction(device.id, label))}
+                    />
+                    <div className="text-small text-ink-2">
+                      Paired <LocalTime iso={device.createdAt} /> · last seen <LocalTime iso={device.lastSeenAt} />
+                    </div>
                   </div>
+                  <Button variant="danger" size="sm" disabled={busy} onClick={() => updateDevices(() => revokeDeviceAction(device.id))}>
+                    Remove
+                  </Button>
                 </div>
-                <Button variant="danger" size="sm" disabled={busy} onClick={() => updateDevices(() => revokeDeviceAction(device.id))}>
-                  Remove
-                </Button>
+                <Switch
+                  label="Can start downloads"
+                  hint="Lets this phone queue X downloads into your library on this PC."
+                  checked={device.canDownload}
+                  disabled={busy}
+                  onChange={(next) => updateDevices(() => setDeviceDownloadPermissionAction(device.id, next))}
+                  className="py-1"
+                />
               </li>
             ))}
           </ul>

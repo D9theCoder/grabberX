@@ -38,6 +38,8 @@ export interface JobSpec {
   site: SiteId;
   /** Normalized handle, or the full URL when site is "url". */
   account: string;
+  /** X status id when downloading a single post instead of the whole account. */
+  postId?: string;
   /** Overrides the <acct> folder name (reserved names, renames). */
   folder?: string;
   media: Media;
@@ -123,6 +125,8 @@ export interface Run {
   counts: Counts;
   /** True when the scheduler started it, so History can tell it from a manual run. */
   scheduled?: boolean;
+  /** True when a paired phone started it, so mobile Stop only affects remote runs. */
+  remote?: boolean;
   startedAt?: string;
   endedAt?: string;
   exitCode?: number;

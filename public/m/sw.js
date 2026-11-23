@@ -1,7 +1,9 @@
 // Service worker for the grabberX mobile gallery (/m).
-// Caches only static shell assets (_next/static, icons, manifest) and serves an offline fallback page when
-// the PC cannot be reached. Media files and account listings are never stored in CacheStorage.
-const CACHE_NAME = "gather-m-shell-v1";
+// Precaches the static shell, /m/offline HTML, and its /_next/static chunks so /m loads the offline
+// client gallery when the PC is unreachable. API responses are never auto-cached here; explicit offline
+// thumbnail/file caches are managed by the client sync engine under gather-m-offline-*.
+const CACHE_NAME = "gather-m-shell-v2";
+const OFFLINE_SHELL_URL = "/m/offline";
 const PRECACHE_URLS = ["/manifest.webmanifest", "/m-icons/icon-192.png", "/m-icons/icon-512.png"];
 
 const OFFLINE_HTML = `<!doctype html>
@@ -95,11 +97,53 @@ function isStaticShellPath(pathname) {
   );
 }
 
+function extractStaticAssets(html) {
+  const matches = html.match(/\/_next\/static\/[^"'\\<>\s)]+/g) || [];
+  return [...new Set(matches)];
+}
+
+async function precacheOfflineShell(cache) {
+  try {
+    const response = await fetch(new Request(OFFLINE_SHELL_URL, { credentials: "same-origin", cache: "no-cache" }));
+    if (!response || response.status !== 200) return false;
+    const html = await response.clone().text();
+    await cache.put(new Request(OFFLINE_SHELL_URL), response);
+    const assets = extractStaticAssets(html);
+    await Promise.allSettled(
+      assets.map(async (assetPath) => {
+        const req = new Request(assetPath, { credentials: "same-origin" });
+        const existing = await cache.match(req);
+        if (existing) return;
+        const assetRes = await fetch(req);
+        if (assetRes && assetRes.status === 200) {
+          await cache.put(req, assetRes);
+        }
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function offlineFallbackResponse() {
+  return new Response(OFFLINE_HTML, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url))))
+      .then(async (cache) => {
+        await Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)));
+        await precacheOfflineShell(cache);
+      })
       .then(() => self.skipWaiting()),
   );
 });
@@ -111,7 +155,8 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("gather-m-") && key !== CACHE_NAME)
+            // Remove older shell versions only; preserve explicit offline thumbnail/file caches.
+            .filter((key) => key.startsWith("gather-m-shell-") && key !== CACHE_NAME)
             .map((key) => caches.delete(key)),
         ),
       )
@@ -120,10 +165,17 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "CLEAR_CACHE") {
+  if (!event.data) return;
+  if (event.data.type === "CLEAR_CACHE") {
     event.waitUntil(
-      caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("gather-m-")).map((k) => caches.delete(k)))),
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.filter((k) => k.startsWith("gather-m-")).map((k) => caches.delete(k)))),
     );
+    return;
+  }
+  if (event.data.type === "PRECACHE_OFFLINE_SHELL") {
+    event.waitUntil(caches.open(CACHE_NAME).then((cache) => precacheOfflineShell(cache)));
   }
 });
 
@@ -139,7 +191,7 @@ self.addEventListener("fetch", (event) => {
   }
   if (url.origin !== self.location.origin) return;
 
-  // Never intercept or cache media streams, zip downloads, or API routes.
+  // Never intercept or auto-cache media streams, zip downloads, or API routes in the SW.
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/m/api/")) return;
 
   if (isStaticShellPath(url.pathname)) {
@@ -147,15 +199,11 @@ self.addEventListener("fetch", (event) => {
       caches.open(CACHE_NAME).then(async (cache) => {
         const cached = await cache.match(request);
         if (cached) return cached;
-        try {
-          const response = await fetch(request);
-          if (response && response.status === 200) {
-            void cache.put(request, response.clone());
-          }
-          return response;
-        } catch (error) {
-          throw error;
+        const response = await fetch(request);
+        if (response && response.status === 200) {
+          void cache.put(request, response.clone());
         }
+        return response;
       }),
     );
     return;
@@ -163,17 +211,44 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate" && (url.pathname === "/m" || url.pathname.startsWith("/m/"))) {
     event.respondWith(
-      fetch(request).catch(
-        () =>
-          new Response(OFFLINE_HTML, {
-            status: 200,
-            headers: {
-              "content-type": "text/html; charset=utf-8",
-              "cache-control": "no-store",
-            },
-          }),
-      ),
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        if (url.pathname === OFFLINE_SHELL_URL) {
+          try {
+            const fresh = await fetch(request);
+            if (fresh && fresh.status === 200) {
+              const html = await fresh.clone().text();
+              void cache.put(new Request(OFFLINE_SHELL_URL), fresh.clone());
+              for (const assetPath of extractStaticAssets(html)) {
+                void cache.match(assetPath).then((hit) => {
+                  if (hit) return;
+                  return fetch(new Request(assetPath, { credentials: "same-origin" })).then((r) => {
+                    if (r && r.status === 200) return cache.put(assetPath, r);
+                  });
+                });
+              }
+            }
+            return fresh;
+          } catch {
+            const cachedShell = await cache.match(OFFLINE_SHELL_URL, { ignoreSearch: true });
+            return cachedShell || offlineFallbackResponse();
+          }
+        }
+
+        try {
+          return await fetch(request);
+        } catch {
+          const cachedShell = await cache.match(OFFLINE_SHELL_URL, { ignoreSearch: true });
+          if (cachedShell) {
+            const target = new URL(
+              `${OFFLINE_SHELL_URL}?offline=1&from=${encodeURIComponent(url.pathname + url.search)}`,
+              self.location.origin,
+            ).href;
+            return Response.redirect(target, 302);
+          }
+          return offlineFallbackResponse();
+        }
+      })(),
     );
   }
 });
-

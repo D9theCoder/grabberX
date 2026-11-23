@@ -14,6 +14,8 @@ import {
   revokeAllDevices,
   revokeDevice,
   revokeSession,
+  canDeviceDownload,
+  setDeviceCanDownload,
 } from "@/server/mobile/devices";
 
 let sandbox = "";
@@ -114,5 +116,30 @@ describe("devices", () => {
     const holder = globalThis as Record<symbol, unknown>;
     delete holder[Symbol.for("gather.mobile.devices")];
     expect(listDevices()).toEqual([]);
+  });
+
+  it("defaults canDownload to false, toggles per device, persists, and removes on revoke", async () => {
+    const a = await createDevice({ userAgent: ANDROID, ip: "192.168.1.20" });
+    const b = await createDevice({ userAgent: ANDROID, ip: "192.168.1.21" });
+    expect(a.device.canDownload).toBe(false);
+    expect(canDeviceDownload(a.token)).toBe(false);
+    expect(canDeviceDownload(b.token)).toBe(false);
+
+    expect(await setDeviceCanDownload(a.device.id, true)).toBe(true);
+    expect(canDeviceDownload(a.token)).toBe(true);
+    expect(canDeviceDownload(b.token)).toBe(false);
+
+    const holder = globalThis as Record<symbol, unknown>;
+    delete holder[Symbol.for("gather.mobile.devices")];
+    expect(canDeviceDownload(a.token)).toBe(true);
+    expect(canDeviceDownload(b.token)).toBe(false);
+
+    expect(await setDeviceCanDownload(a.device.id, false)).toBe(true);
+    expect(canDeviceDownload(a.token)).toBe(false);
+    expect(await setDeviceCanDownload("missing-id", true)).toBe(false);
+
+    await setDeviceCanDownload(a.device.id, true);
+    await revokeDevice(a.device.id);
+    expect(canDeviceDownload(a.token)).toBe(false);
   });
 });

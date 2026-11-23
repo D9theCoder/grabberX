@@ -9,7 +9,19 @@ import { isPrivatePeer, normalizeAddress } from "@/server/mobile/network";
 
 export const SESSION_COOKIE = "gather_m";
 
-export type RouteClass = "pair" | "logout" | "ca" | "public" | "session" | "blocked";
+export type RouteClass =
+  | "pair"
+  | "logout"
+  | "downloads-status"
+  | "downloads-start"
+  | "downloads-stop"
+  | "offline-index"
+  | "offline-thumb"
+  | "offline-file"
+  | "ca"
+  | "public"
+  | "session"
+  | "blocked";
 
 const PUBLIC_EXACT = new Set(["/m/pair", "/manifest.webmanifest", "/m/sw.js"]);
 const PUBLIC_PREFIXES = ["/_next/static/", "/m-icons/"];
@@ -42,12 +54,19 @@ export function classifyRoute(method: string | undefined, rawUrl: string | undef
   if (verb === "POST") {
     if (path === "/m/api/pair") return "pair";
     if (path === "/m/api/logout") return "logout";
+    if (path === "/m/api/downloads") return "downloads-start";
+    if (path === "/m/api/downloads/stop") return "downloads-stop";
     // The one read-only POST: the file names to put in a zip. It writes nothing on the PC.
     if (path === "/api/media/zip") return "session";
     return "blocked";
   }
   if (verb !== "GET" && verb !== "HEAD") return "blocked";
   if (path === "/m/ca.crt") return "ca";
+  if (path === "/m/api/downloads") return "downloads-status";
+  if (path === "/m/api/offline/index") return "offline-index";
+  if (path === "/m/api/offline/thumb") return "offline-thumb";
+  if (path === "/m/api/offline/file") return "offline-file";
+  if (path.startsWith("/m/api/")) return "blocked";
   if (PUBLIC_EXACT.has(path) || PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return "public";
   if (SESSION_EXACT.has(path) || SESSION_PREFIXES.some((prefix) => path.startsWith(prefix))) return "session";
   return "blocked";
@@ -135,18 +154,40 @@ function reply(res: ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
+function replyJson(res: ServerResponse, status: number, body: unknown): void {
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  res.writeHead(status, {
+    ...securityHeaders(),
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(JSON.stringify(body));
+}
+
 export interface GatewayTlsOptions {
   key: string;
   cert: string;
   caCertDer?: Buffer;
+  ensureHost?: (localAddress: string) => { key: string; cert: string } | null;
 }
 
 export interface GatewayHooks {
   /** True when the cookie value names a live paired phone. */
   authorize(sessionToken: string | null, peerIp: string): boolean;
+  /** True when the paired phone is opted into starting and stopping remote downloads on the PC. */
+  canDownload?(sessionToken: string | null): boolean;
   /** Handles `POST /m/api/pair`. Absent means pairing is not available and the route answers 404. */
   onPair?(req: IncomingMessage, res: ServerResponse): void;
   onLogout?(req: IncomingMessage, res: ServerResponse): void;
+  onDownloadsStatus?(req: IncomingMessage, res: ServerResponse): void;
+  onDownloadStart?(req: IncomingMessage, res: ServerResponse): void;
+  onDownloadStop?(req: IncomingMessage, res: ServerResponse): void;
+  onOfflineIndex?(req: IncomingMessage, res: ServerResponse): void;
+  onOfflineThumb?(req: IncomingMessage, res: ServerResponse): void;
+  onOfflineFile?(req: IncomingMessage, res: ServerResponse): void;
   /** Optional DER-encoded local Root CA certificate served at `GET /m/ca.crt` so Android can trust LAN HTTPS. */
   caCertDer?: Buffer;
 }
@@ -236,6 +277,57 @@ export function createGatewayHandler(options: GatewayOptions) {
         return options.onPair ? options.onPair(req, res) : reply(res, 404, "Not found.\n");
       case "logout":
         return options.onLogout ? options.onLogout(req, res) : reply(res, 404, "Not found.\n");
+      case "downloads-status": {
+        if (!options.onDownloadsStatus) return reply(res, 404, "Not found.\n");
+        const token = readSessionCookie(req.headers.cookie);
+        if (!options.authorize(token, peerOf(req))) {
+          return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
+        }
+        return options.onDownloadsStatus(req, res);
+      }
+      case "offline-index": {
+        if (!options.onOfflineIndex) return reply(res, 404, "Not found.\n");
+        const token = readSessionCookie(req.headers.cookie);
+        if (!options.authorize(token, peerOf(req))) {
+          return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
+        }
+        return options.onOfflineIndex(req, res);
+      }
+      case "offline-thumb": {
+        if (!options.onOfflineThumb) return reply(res, 404, "Not found.\n");
+        const token = readSessionCookie(req.headers.cookie);
+        if (!options.authorize(token, peerOf(req))) {
+          return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
+        }
+        return options.onOfflineThumb(req, res);
+      }
+      case "offline-file": {
+        if (!options.onOfflineFile) return reply(res, 404, "Not found.\n");
+        const token = readSessionCookie(req.headers.cookie);
+        if (!options.authorize(token, peerOf(req))) {
+          return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
+        }
+        return options.onOfflineFile(req, res);
+      }
+      case "downloads-start":
+      case "downloads-stop": {
+        const handler = route === "downloads-start" ? options.onDownloadStart : options.onDownloadStop;
+        if (!handler) return reply(res, 404, "Not found.\n");
+        if (!isSameOriginPost(req.headers)) {
+          return replyJson(res, 403, { ok: false, error: "That request didn't come from this page." });
+        }
+        const token = readSessionCookie(req.headers.cookie);
+        if (!options.authorize(token, peerOf(req))) {
+          return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
+        }
+        if (!options.canDownload?.(token)) {
+          return replyJson(res, 403, {
+            ok: false,
+            error: "Downloads are turned off for this phone. Turn on \"Can start downloads\" for this phone in grabberX on the PC.",
+          });
+        }
+        return handler(req, res);
+      }
       case "session":
         if (req.method === "POST" && !isSameOriginPost(req.headers)) return reply(res, 403, "That request didn't come from this page.\n");
         if (!options.authorize(readSessionCookie(req.headers.cookie), peerOf(req))) {
@@ -253,6 +345,7 @@ const MAX_CONNECTIONS_PER_PEER = 64;
 export interface GatewayHandle {
   server: Server;
   port: number;
+  setTlsContext?(tls: { key: string; cert: string }): void;
   close(): Promise<void>;
 }
 
@@ -285,29 +378,39 @@ export function startGateway(options: GatewayOptions & { port: number; host?: st
   const server: Server = httpsServer
     ? createNetServer({ pauseOnConnect: true }, (socket: Socket) => {
         if (!acceptSocket(socket)) return;
+        const cleanup = () => {
+          clearTimeout(sniffTimer);
+          socket.removeListener("readable", onReadable);
+          socket.removeListener("error", onError);
+          socket.removeListener("close", cleanup);
+        };
         const onReadable = () => {
           const chunk = socket.read(1) as Buffer | null;
           if (!chunk) return;
-          socket.removeListener("readable", onReadable);
-          clearTimeout(sniffTimer);
+          cleanup();
           const firstByte = chunk[0];
           socket.unshift(chunk);
           if (firstByte === 0x16) {
+            const localIp = socket.localAddress ? normalizeAddress(socket.localAddress) : "";
+            const updated = localIp ? options.tls?.ensureHost?.(localIp) : null;
+            if (updated) httpsServer.setSecureContext({ key: updated.key, cert: updated.cert });
             httpsServer.emit("connection", socket);
           } else {
             httpServer.emit("connection", socket);
           }
         };
+        const onError = () => {
+          cleanup();
+          socket.destroy();
+        };
         const sniffTimer = setTimeout(() => {
-          socket.removeListener("readable", onReadable);
+          cleanup();
           socket.destroy();
         }, 10_000);
         sniffTimer.unref();
         socket.on("readable", onReadable);
-        socket.on("error", () => {
-          clearTimeout(sniffTimer);
-          socket.destroy();
-        });
+        socket.on("error", onError);
+        socket.once("close", cleanup);
       })
     : httpServer;
 
@@ -348,6 +451,11 @@ export function startGateway(options: GatewayOptions & { port: number; host?: st
       resolve({
         server,
         port,
+        setTlsContext: httpsServer
+          ? (tls) => {
+              httpsServer.setSecureContext({ key: tls.key, cert: tls.cert });
+            }
+          : undefined,
         close: () =>
           new Promise<void>((done) => {
             server.close(() => done());

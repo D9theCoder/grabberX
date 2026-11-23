@@ -24,7 +24,7 @@ function duration(run: Run): string {
 }
 
 function mediaLabel(run: Run): string {
-  return `${MEDIA_LABELS[run.spec.media]}${run.spec.simulate ? " · preview" : ""}`;
+  return `${MEDIA_LABELS[run.spec.media]}${run.spec.postId ? " · post" : ""}${run.spec.simulate ? " · preview" : ""}`;
 }
 
 export function HistoryList({ runs, now }: { runs: Run[]; now: number }) {

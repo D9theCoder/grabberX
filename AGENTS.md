@@ -58,10 +58,10 @@ npm run typecheck  # next typegen && tsc --noEmit
 - Account folders and app folders share the root: `src`, `public`, `docs`, `node_modules`, and every
   dot-folder are reserved names (`src/server/paths.ts`).
 
-## Mobile gallery (read-only, opt-in)
+## Mobile gallery (opt-in)
 
 Settings → Mobile gallery shares the library with an Android phone on the same network (or Tailscale). Read
-ADR-11 in `docs/ARCHITECTURE.md` before changing it.
+ADR-11, ADR-12 and ADR-13 in `docs/ARCHITECTURE.md` before changing it.
 
 - A gateway (`src/server/mobile/gateway.ts`) is the only thing that listens on the network (`GATHER_MOBILE_PORT`,
   default 3211). The app on `127.0.0.1:3210` is unchanged. Do not add a route a phone should reach without adding
@@ -69,11 +69,30 @@ ADR-11 in `docs/ARCHITECTURE.md` before changing it.
   or `src/components/mobile/`.
 - Pairing is a single-use 5-minute token carried in the URL fragment; each phone then holds a hashed, revocable
   session cookie (`.gather/devices.json`, hashes only). Sharing state is `.gather/mobile.json`, off by default.
-- Gateway and pairing state live on `globalThis` (`Symbol.for("gather.mobile.*")`) because `instrumentation.ts` and
-  Server Actions can load separate module copies.
-- Phones can read and download only: browse, sort and filter, multi-select, single-file download (`download=1`) and
-  zip download (`POST /api/media/zip`, the one allowed POST besides pair/logout; it needs the session cookie and a
-  matching `Origin`, and the request body is capped at 1 MB). Nothing that writes or deletes is in the allowlist.
+  When a Tailscale address (`kind: "tailnet"`) exists, pairing prefers it by default so the phone keeps one browser
+  origin (and one offline cache) at home and away.
+- Gateway and pairing state live on `globalThis` (`Symbol.for("gather.mobile.*")`, plus `Symbol.for("gather.offline.*")`
+  for offline index/thumbnail caches) because `instrumentation.ts` and Server Actions can load separate module copies.
+- Phones are read-only by default: browse, sort and filter, multi-select, single-file download (`download=1`),
+  zip download (`POST /api/media/zip`, same-origin + session cookie, 1 MB cap), and run status (`GET /m/api/downloads`).
+- Offline phone gallery (opt-in via Settings → **Offline on phone**, stored in `.gather/offline.json`, `enabled: false`
+  by default): exposes session-protected read-only `GET /m/api/offline/index` (ETag/`If-None-Match` 304, `?since=`
+  incremental sync, per-account `selection`/`newestCount` filtering, `phoneBudgetBytes`, and per-file `offline: { bytes,
+  ready, preset }`), `GET /m/api/offline/thumb` (320 px WebP thumbnails cached under `.gather/offline-thumbs/`), and
+  `GET`/`HEAD /m/api/offline/file` (Layer 3 reduced-quality image copies via `sharp` and H.264/AAC faststart MP4 copies
+  via `ffmpeg` with NVENC/QSV/AMF → `libx264` auto-detection, cached under `.gather/offline-files/` with `pcCacheMB` LRU
+  eviction, Range support, `202`/`503` + `Retry-After` while preparing or paused). Both schedulers run 1 job at a time at
+  below-normal priority and pause while a `gallery-dl` run is active; Layer 3 also pauses on battery when
+  `onlyWhenPluggedIn` is on and optionally pre-generates newest-first when `prepareInBackground` is on. The phone stores
+  the index in IndexedDB (`gather-m-offline`), thumbnails in `gather-m-offline-thumbs-v1`, and Layer 3 copies newest-first
+  within `phoneBudgetMB` in `gather-m-offline-files-v1` (used first by the `/m/offline` lightbox, including Blob URL video
+  playback). `public/m/sw.js` (`gather-m-shell-v2`) precaches `/m/offline` and its `/_next/static/*` chunks; on `401`
+  (device revoked), the phone wipes all offline storage.
+- Remote downloads are opt-in per device (`canDownload` in `.gather/devices.json`, off by default, toggled via
+  "Can start downloads" in Settings → Mobile gallery). Only when enabled for that session cookie may a phone call
+  `POST /m/api/downloads` (X handle or single X post URL, rebuilt server-side into `buildCommand` + `RunQueue`) or
+  `POST /m/api/downloads/stop` (stops phone-started runs only via `RunQueue.stop`). Desktop Server Actions and all
+  other write routes stay blocked, and proxying still strips cookies/origin.
 - The gateway sends `Referrer-Policy: same-origin`, not `no-referrer`: Chrome sends `Origin: null` on a same-origin
   form POST under `no-referrer`, which the Origin check rightly rejects.
 - The gateway does not proxy the dev server's hot-reload socket, so the phone pages only hydrate against a

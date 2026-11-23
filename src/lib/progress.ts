@@ -276,6 +276,7 @@ const TOTAL_SITES: ReadonlySet<JobSpec["site"]> = new Set(["x"]);
 /** The post counts only exist on some sites, and only mean something for a whole-account run. */
 export function totalEligible(spec: JobSpec): boolean {
   if (!TOTAL_SITES.has(spec.site)) return false;
+  if (spec.postId) return false;
   if (spec.media !== "all") return false;
   const { dateFrom, dateTo, advanced } = spec;
   if (dateFrom || dateTo) return false;

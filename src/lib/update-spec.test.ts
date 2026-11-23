@@ -134,6 +134,14 @@ describe("buildUpdateSpec", () => {
       expect(planFor(preview).abortAfterSkipped).toBeUndefined();
     });
 
+    it("does not treat a single-post download as a completed account walk", () => {
+      const postOnly = run("2026-11-10T09-00-00_username", spec({ postId: "1834220145" }), { status: "done" });
+      const plan = expectOk(buildUpdateSpec("username", entry, [postOnly], SETTINGS));
+      expect(plan.spec.postId).toBeUndefined();
+      expect(plan.spec.advanced.abortAfterSkipped).toBeUndefined();
+      expect(enrichLibraryEntry(ENTRY, [postOnly]).upToDate).toBe(false);
+    });
+
     it("attaches sincePostId from archiveTip for X updates and respects retweets", () => {
       const tip = { tweetId: "2120165612320411776", timelineId: "2120999999999999999" };
       const doneRun = run("2026-11-10T09-00-00_username", spec(), { status: "done" });

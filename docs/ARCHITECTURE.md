@@ -534,6 +534,83 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
   The `Host` header is never an authorization check. The gateway is not a firewall: the token and cookie decide access.
 - **Revisit if:** the library becomes more sensitive (per-device account lists), or a native app is needed (offline, bulk save).
 
+### ADR-12: Opt-in remote downloads from paired phones
+
+- **Decision:** A paired phone can be granted a per-device `canDownload` flag (off by default, stored in `.gather/devices.json`,
+  toggled per phone in desktop Settings → Mobile gallery). When enabled for that phone's session cookie, the gateway allows
+  `POST /m/api/downloads` (whole X account or single X post) and `POST /m/api/downloads/stop` (for phone-started runs only,
+  reusing `RunQueue.stop` with `taskkill /T /F` and `.part` cleanup), alongside session-only `GET /m/api/downloads`, `/m/download`,
+  `/m/share`, and the PWA `share_target` in `src/app/manifest.ts`.
+- **Why:** Lets the owner share a post from Android X or queue an account from a paired phone directly into the PC's library
+  (`<acct>/Image`, `<acct>/Video`, `<acct>/archive.sqlite3`) without exposing desktop Server Actions, settings, or arbitrary URLs
+  to the network.
+- **Supersedes in part:** Supersedes ADR-11's strictly read-only rule for `/m/api/downloads` and `/m/api/downloads/stop` only.
+  Every write checks same-origin, `application/json`, a live session cookie, and `canDownload === true`; handles (`^[A-Za-z0-9_]{1,15}$`)
+  and status IDs (`^\d{1,30}$`) are validated server-side against `paths.ts` reserved names and rebuilt into canonical URLs before
+  calling `buildCommand` and `RunQueue.enqueue`. All desktop routes remain blocked and proxied requests still strip cookies/origin.
+- **Revisit if:** remote downloads ever need custom layouts, non-X sites, or per-phone run isolation.
+
+### ADR-13: Offline phone gallery
+
+- **Decision:** Paired phones can opt into caching a browsable offline copy of the PC library when enabled in PC Settings
+  → **Offline on phone** (`.gather/offline.json`, `enabled: false` by default, with `accounts: "all" | string[]`,
+  `includeImages`, `includeVideos`). Three layers build on one another:
+  1. **Library index** (`GET /m/api/offline/index`, session-protected, allowlisted in `classifyRoute`): returns included
+     accounts and per-file metadata (reusing `listAccounts` and `.gather/index/` dimensions/durations, cached by directory
+     mtime signature and invalidated on `folderChanges` or settings changes) with a strong `ETag` (`If-None-Match` → `304`)
+     and `?since=<version>` incremental deltas. The phone stores the index in IndexedDB (`gather-m-offline`, native API).
+  2. **Thumbnails** (`GET /m/api/offline/thumb`, session-protected, allowlisted in `classifyRoute`): PC-side 320 px WebP
+     thumbnails for images and video posters, cached once per file under `.gather/offline-thumbs/` (512 MB cap). Generation
+     is throttled to 1 job at a time (`OfflineThumbScheduler` on `globalThis`), pauses while any `gallery-dl` run is active
+     in `RunQueue` (HTTP returns `503` + `Retry-After: 5` on uncached requests during a run), and runs `ffmpeg` (optional:
+     PATH from source, `GATHER_FFMPEG` only when packaged) with `-threads 1` and `os.setPriority(..., PRIORITY_BELOW_NORMAL)`.
+     When `ffmpeg` is unavailable (and no desktop poster exists), video thumb requests answer `404` and the phone renders a
+     monochrome placeholder; when neither `sharp` nor `ffmpeg` can encode an image, the route answers `501` and the phone
+     falls back to a browser `<canvas>` 320 px resize of `/api/media`. The phone caches thumbnails in Cache Storage
+     (`gather-m-offline-thumbs-v1`) keyed by `/m/api/offline/thumb?account=...&path=...&v=...`.
+  3. **Offline app shell** (`/m/offline`): pure client-rendered gallery reading only IndexedDB + Cache Storage. Its lightbox
+     checks `gather-m-offline-files-v1` (keyed by `/m/api/offline/file?account=...&path=...&v=...`) for a Layer 3 copy
+     before falling back to `gather-m-offline-thumbs-v1`, playing cached MP4s via Blob URLs. `public/m/sw.js`
+     (`gather-m-shell-v2`) precaches `/m/offline` and its `/_next/static/*` chunks and redirects failed `/m` navigations to
+     `/m/offline?from=...` (falling back to the static `OFFLINE_HTML` only when no shell is cached). API routes are never
+     auto-cached by the service worker.
+  4. **Layer 3 reduced-quality offline copies** (`GET`/`HEAD /m/api/offline/file`, session-protected, allowlisted in
+     `classifyRoute`): PC-prepared, phone-sized copies configured in `.gather/offline.json` (`selection: "all" | "newest"`,
+     `newestCount`, `image: { enabled, maxEdge, maxKB, format, quality }`, `video: { enabled, maxHeight, bitrateKbps, audio,
+     audioKbps, encoder, cpuThreads }`, `phoneBudgetMB`, `pcCacheMB`, `onlyWhenPluggedIn`, `prepareInBackground`).
+     - **PC derivative cache** (`.gather/offline-files/`, `src/server/offline/derivatives.ts`): keyed by
+       `sha1(account/path | v | presetId)` with `pcCacheMB` LRU eviction, atomic temp-file writes, and clean `taskkill /T /F`
+       cleanup on shutdown or settings changes. Images already within `maxEdge` and `maxKB` in JPEG/WebP/PNG (non-animated,
+       normal orientation) are served as-is; larger images resize via `sharp` (never upscaled), step quality down by 5 to a
+       floor of 40, then reduce dimensions in 15% steps until within `maxKB`. Videos transcode via `ffmpeg` (PATH from source,
+       `GATHER_FFMPEG` only when packaged) to H.264 + optional AAC MP4 with `-movflags +faststart` and even non-upscaled
+       dimensions (`scale=-2:'trunc(min(maxHeight,ih)/2)*2'`). Encoder detection (`src/server/offline/encoder.ts`) runs
+       `ffmpeg -hide_banner -encoders` once per process (cached on `globalThis`) and verifies hardware encoders in order
+       `h264_nvenc` → `h264_qsv` → `h264_amf` via a tiny test encode, falling back to `libx264 -preset veryfast`.
+     - **Throttling & scheduling**: `OfflineDerivativeScheduler` (on `globalThis`) runs strictly 1 job at a time at
+       `PRIORITY_BELOW_NORMAL`, prioritizes on-demand phone requests ahead of optional background pre-generation
+       (`src/server/offline/preloader.ts`, newest-first), and pauses while any `gallery-dl` run is active or while on battery
+       when `onlyWhenPluggedIn` is enabled (`Win32_Battery.BatteryStatus`, cached 60 s; desktops without a battery count as
+       plugged in). Uncached requests enqueue with priority and return `202` + `Retry-After` (or `503` + `Retry-After` when
+       paused); cached responses return `200`/`206` with `Accept-Ranges: bytes`, `ETag`, and `immutable` caching.
+     - **Phone sync & budget**: `GET /m/api/offline/index` includes `phoneBudgetBytes`, active preset IDs, and per-file
+       `offline: { bytes, ready, preset }`. `src/lib/offline-sync.ts` downloads eligible copies newest-first into
+       `gather-m-offline-files-v1` up to `phoneBudgetBytes`, retries `202` items on short retries and subsequent syncs,
+       and prunes files removed from the index, invalidated by a preset change, or over budget.
+- **Why:** Lets the user browse their library on Android when the PC is off or away from LAN/Tailscale without hosting the
+  app or media on any external server.
+- **Supersedes in part:** Reverses the earlier `public/m/sw.js` rule that account listings and media are never stored on the
+  phone.
+- **Privacy & revocation:** Anything synced to the phone (account names, filenames, thumbnails, and Layer 3 offline copies)
+  is stored unencrypted in the browser profile and is visible to whoever can unlock the phone; the PWA relies on the
+  phone's OS lock screen rather than adding a separate PIN. If the phone is revoked on the PC (`401` on index, thumb, or file
+  sync), the sync client wipes IndexedDB, `gather-m-offline-thumbs-v1`, `gather-m-offline-files-v1`, and posts `CLEAR_CACHE`
+  to the service worker. **Forget this phone** and **Clear offline data** also wipe local offline storage immediately.
+- **One origin:** Browser storage (IndexedDB, Cache Storage, Service Worker) is partitioned per origin, so a LAN IP and a
+  Tailscale IP act as separate apps. Pairing in PC Settings therefore defaults to and recommends the Tailscale address
+  (`kind: "tailnet"`) whenever one is present, while letting the user pick another address.
+- **Revisit if:** per-device offline account or quality policies are needed.
+
 ## 9. Build order (each step ends with something that works)
 
 1. **Scaffold at the root:** `npx create-next-app@latest . --ts --tailwind --app --src-dir

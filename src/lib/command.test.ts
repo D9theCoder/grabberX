@@ -623,3 +623,59 @@ describe("probeArgv", () => {
     expect(probeArgv(makeSpec(), settings).slice(0, 3)).toEqual(["-j", "--range", "1"]);
   });
 });
+
+describe("buildCommand: single X post", () => {
+  it("builds images then videos steps targeting the post URL and sharing the account folders and archive", () => {
+    const steps = buildCommand(
+      referenceSpec({
+        account: "username",
+        postId: "1834220145123456789",
+        media: "all",
+        advanced: {
+          ...DEFAULT_ADVANCED,
+          cookies: { browser: "firefox" },
+          sincePostId: "1800000000000000000",
+          abortAfterSkipped: 20,
+        },
+      }),
+      settings,
+    );
+    expect(steps.map((step) => step.label)).toEqual(["images", "videos"]);
+    expect(steps[0]!.argv).toEqual([
+      "-d",
+      ROOT,
+      "-o",
+      'directory=["username","Image"]',
+      "-o",
+      "twitter.videos=false",
+      "-o",
+      "twitter.gifs=false",
+      "--filter",
+      "extension in ('jpg','jpeg','png','webp')",
+      "--download-archive",
+      `${ROOT}/username/archive.sqlite3`,
+      "--no-colors",
+      "--cookies-from-browser",
+      "firefox",
+      "https://x.com/username/status/1834220145123456789",
+    ]);
+    expect(steps[1]!.argv).toEqual([
+      "-d",
+      ROOT,
+      "-o",
+      'directory=["username","Video"]',
+      "-o",
+      "twitter.videos=true",
+      "-o",
+      "twitter.gifs=true",
+      "--filter",
+      "extension in ('mp4','webm','mov','m4v')",
+      "--download-archive",
+      `${ROOT}/username/archive.sqlite3`,
+      "--no-colors",
+      "--cookies-from-browser",
+      "firefox",
+      "https://x.com/username/status/1834220145123456789",
+    ]);
+  });
+});

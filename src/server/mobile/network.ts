@@ -1,4 +1,5 @@
 import "server-only";
+import { isIPv6 } from "node:net";
 import { networkInterfaces } from "node:os";
 
 function ipv4Octets(address: string): number[] | null {
@@ -28,9 +29,11 @@ export function classifyPeer(raw: string | undefined | null): PeerKind {
     if (a === 100 && b >= 64 && b <= 127) return "tailnet";
     return "public";
   }
-  if (address === "::1") return "loopback";
-  if (/^f[cd][0-9a-f]{2}:/.test(address)) return "private";
-  if (/^fe[89ab][0-9a-f]:/.test(address)) return "private";
+  const v6 = address.split("%", 1)[0] ?? "";
+  if (!isIPv6(v6)) return "public";
+  if (v6 === "::1") return "loopback";
+  if (/^f[cd][0-9a-f]{2}:/.test(v6)) return "private";
+  if (/^fe[89ab][0-9a-f]:/.test(v6)) return "private";
   return "public";
 }
 
@@ -65,6 +68,8 @@ export function lanAddresses(): LanAddress[] {
       if (kind === "private" || kind === "tailnet") found.push({ address: entry.address, kind });
     }
   }
+  // Prefer Tailscale addresses first so pairing defaults to a single origin that works both at home and away.
+  found.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "tailnet" ? -1 : 1));
   return found;
 }
 

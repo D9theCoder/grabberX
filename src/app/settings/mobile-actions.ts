@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { offlineSettingsPatchSchema } from "@/lib/offline";
+import type { OfflineEncoderStatus, OfflineEstimate, OfflineSettings } from "@/lib/offline";
 import type { ActionResult } from "@/lib/spec";
-import { renameDevice, revokeAllDevices, revokeDevice } from "@/server/mobile/devices";
+import { renameDevice, revokeAllDevices, revokeDevice, setDeviceCanDownload } from "@/server/mobile/devices";
 import {
   createPairingOffer,
   disableMobileAccess,
@@ -11,6 +13,10 @@ import {
   getMobileStatus,
 } from "@/server/mobile/service";
 import type { MobileStatus, PairingOffer } from "@/server/mobile/service";
+import { getOfflineEncoderStatus } from "@/server/offline/encoder";
+import { getOfflineEstimate, invalidateOfflineSettingsView } from "@/server/offline/index";
+import { handleOfflineSettingsChanged } from "@/server/offline/preloader";
+import { saveOfflineSettings } from "@/server/offline/settings";
 
 const hoursInput = z.union([z.literal(0), z.literal(1), z.literal(8)]);
 
@@ -75,5 +81,51 @@ export async function renameDeviceAction(id: unknown, label: unknown): Promise<A
     return { ok: true, data: await getMobileStatus() };
   } catch (error) {
     return failure(error, "That name couldn't be saved.");
+  }
+}
+
+export async function setDeviceDownloadPermissionAction(
+  id: unknown,
+  canDownload: unknown,
+): Promise<ActionResult<MobileStatus>> {
+  if (typeof id !== "string" || typeof canDownload !== "boolean") {
+    return { ok: false, error: "That permission isn't valid." };
+  }
+  try {
+    if (!(await setDeviceCanDownload(id, canDownload))) {
+      return { ok: false, error: "That phone isn't paired anymore." };
+    }
+    revalidatePath("/settings");
+    return { ok: true, data: await getMobileStatus() };
+  } catch (error) {
+    return failure(error, "That permission couldn't be saved.");
+  }
+}
+
+export interface OfflineSettingsSaveResult {
+  settings: OfflineSettings;
+  estimate: OfflineEstimate;
+  encoderStatus: OfflineEncoderStatus;
+}
+
+export async function saveOfflineSettingsAction(
+  input: unknown,
+): Promise<ActionResult<OfflineSettingsSaveResult>> {
+  const parsed = offlineSettingsPatchSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That offline setting isn't valid." };
+  }
+  try {
+    const settings = await saveOfflineSettings(parsed.data);
+    invalidateOfflineSettingsView();
+    await handleOfflineSettingsChanged();
+    const [estimate, encoderStatus] = await Promise.all([
+      getOfflineEstimate(settings),
+      getOfflineEncoderStatus(settings.video.encoder),
+    ]);
+    revalidatePath("/settings");
+    return { ok: true, data: { settings, estimate, encoderStatus } };
+  } catch (error) {
+    return failure(error, "Offline settings couldn't be saved.");
   }
 }

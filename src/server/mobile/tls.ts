@@ -1,5 +1,13 @@
 import "server-only";
-import { createHash, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  createSign,
+  generateKeyPairSync,
+  randomBytes,
+  X509Certificate,
+} from "node:crypto";
 import type { KeyObject } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -39,7 +47,22 @@ function derImplicit(tagNum: number, content: Buffer): Buffer {
 }
 
 function derInt(value: number | Buffer): Buffer {
-  let buf = typeof value === "number" ? Buffer.from([value]) : Buffer.from(value);
+  let buf: Buffer;
+  if (typeof value === "number") {
+    if (value === 0) {
+      buf = Buffer.from([0]);
+    } else {
+      const bytes: number[] = [];
+      let n = value;
+      while (n > 0) {
+        bytes.unshift(n & 0xff);
+        n = Math.floor(n / 256);
+      }
+      buf = Buffer.from(bytes);
+    }
+  } else {
+    buf = Buffer.from(value);
+  }
   while (buf.length > 1 && buf[0] === 0 && (buf[1]! & 0x80) === 0) {
     buf = buf.subarray(1);
   }
@@ -113,36 +136,50 @@ function derExtension(oid: string, critical: boolean, valueDer: Buffer): Buffer 
 // ecdsa-with-SHA256 (1.2.840.10045.4.3.2) — RFC 5758 specifies parameters MUST be omitted
 const ALG_ECDSA_SHA256 = derSeq(derOid("1.2.840.10045.4.3.2"));
 
+function readTlv(der: Buffer, offset: number): { tag: number; contentStart: number; contentEnd: number; nextOffset: number } {
+  if (offset + 2 > der.length) throw new Error("Truncated DER element.");
+  const tag = der[offset]!;
+  const lenByte = der[offset + 1]!;
+  let len = lenByte;
+  let contentStart = offset + 2;
+  if (lenByte & 0x80) {
+    const octets = lenByte & 0x7f;
+    if (octets === 0 || contentStart + octets > der.length) throw new Error("Invalid DER length.");
+    len = 0;
+    for (let i = 0; i < octets; i++) len = len * 256 + der[contentStart + i]!;
+    contentStart += octets;
+  }
+  const contentEnd = contentStart + len;
+  if (contentEnd > der.length) throw new Error("DER element exceeds buffer.");
+  return { tag, contentStart, contentEnd, nextOffset: contentEnd };
+}
+
 function spkiBitStringValue(spkiDer: Buffer): Buffer {
-  // SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT STRING }
-  // Extract the raw public key bytes inside the BIT STRING (excluding the unused-bits byte) for SubjectKeyIdentifier.
-  let offset = 1;
-  if (spkiDer[offset]! & 0x80) {
-    offset += 1 + (spkiDer[offset]! & 0x7f);
-  } else {
-    offset += 1;
-  }
-  // Skip algorithm SEQUENCE
-  offset += 1;
-  const algLenByte = spkiDer[offset]!;
-  if (algLenByte & 0x80) {
-    const n = algLenByte & 0x7f;
-    let algLen = 0;
-    for (let i = 0; i < n; i++) algLen = (algLen << 8) | spkiDer[offset + 1 + i]!;
-    offset += 1 + n + algLen;
-  } else {
-    offset += 1 + algLenByte;
-  }
-  // Now at BIT STRING (0x03)
-  offset += 1;
-  const bitLenByte = spkiDer[offset]!;
-  if (bitLenByte & 0x80) {
-    offset += 1 + (bitLenByte & 0x7f);
-  } else {
-    offset += 1;
-  }
-  // Skip unused-bits octet
-  return spkiDer.subarray(offset + 1);
+  const outer = readTlv(spkiDer, 0);
+  if (outer.tag !== 0x30) throw new Error("Expected SPKI SEQUENCE.");
+  const alg = readTlv(spkiDer, outer.contentStart);
+  if (alg.tag !== 0x30) throw new Error("Expected AlgorithmIdentifier SEQUENCE.");
+  const bit = readTlv(spkiDer, alg.nextOffset);
+  if (bit.tag !== 0x03 || bit.contentStart >= bit.contentEnd) throw new Error("Expected subjectPublicKey BIT STRING.");
+  if (spkiDer[bit.contentStart] !== 0) throw new Error("Unexpected unused bits in subjectPublicKey.");
+  return spkiDer.subarray(bit.contentStart + 1, bit.contentEnd);
+}
+
+function extractCertSubjectDer(certDer: Buffer): Buffer {
+  const cert = readTlv(certDer, 0);
+  if (cert.tag !== 0x30) throw new Error("Expected Certificate SEQUENCE.");
+  const tbs = readTlv(certDer, cert.contentStart);
+  if (tbs.tag !== 0x30) throw new Error("Expected TBSCertificate SEQUENCE.");
+  let pos = tbs.contentStart;
+  const first = readTlv(certDer, pos);
+  if (first.tag === 0xa0) pos = first.nextOffset;
+  pos = readTlv(certDer, pos).nextOffset; // serialNumber
+  pos = readTlv(certDer, pos).nextOffset; // signature
+  pos = readTlv(certDer, pos).nextOffset; // issuer
+  pos = readTlv(certDer, pos).nextOffset; // validity
+  const subject = readTlv(certDer, pos);
+  if (subject.tag !== 0x30) throw new Error("Expected Subject Name SEQUENCE.");
+  return certDer.subarray(pos, subject.nextOffset);
 }
 
 function keyIdentifierOf(spkiDer: Buffer): Buffer {
@@ -175,6 +212,49 @@ function ipv4Bytes(ip: string): Buffer | null {
   const nums = parts.map((p) => (/^\d{1,3}$/.test(p) ? Number(p) : NaN));
   if (!nums.every((n) => n >= 0 && n <= 255)) return null;
   return Buffer.from(nums);
+}
+
+function ipv6Bytes(raw: string): Buffer | null {
+  const ip = raw.split("%", 1)[0] ?? "";
+  if (!ip.includes(":")) return null;
+  const halves = ip.split("::");
+  if (halves.length > 2) return null;
+
+  const parseGroups = (part: string): number[] | null => {
+    if (part === "") return [];
+    const tokens = part.split(":");
+    const words: number[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i]!;
+      if (token.includes(".")) {
+        if (i !== tokens.length - 1) return null;
+        const v4 = ipv4Bytes(token);
+        if (!v4) return null;
+        words.push((v4[0]! << 8) | v4[1]!, (v4[2]! << 8) | v4[3]!);
+      } else if (/^[0-9a-f]{1,4}$/i.test(token)) {
+        words.push(Number.parseInt(token, 16));
+      } else {
+        return null;
+      }
+    }
+    return words;
+  };
+
+  const head = parseGroups(halves[0]!);
+  const tail = halves.length === 2 ? parseGroups(halves[1]!) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 1 && head.length !== 8) return null;
+  if (halves.length === 2 && head.length + tail.length >= 8) return null;
+
+  const zeros = 8 - head.length - tail.length;
+  const groups = halves.length === 2 ? [...head, ...new Array<number>(zeros).fill(0), ...tail] : head;
+  const out = Buffer.alloc(16);
+  for (let i = 0; i < 8; i++) out.writeUInt16BE(groups[i]!, i * 2);
+  return out;
+}
+
+function ipBytes(host: string): Buffer | null {
+  return ipv4Bytes(host) ?? ipv6Bytes(host);
 }
 
 export interface CaBundle {
@@ -228,18 +308,22 @@ export function generateLeafCert(
   hosts: string[],
   now = new Date(),
 ): { keyPem: string; certPem: string } {
-  const caPrivateKey = generateKeyPairSync; // keep import used
-  void caPrivateKey;
-  const { createPrivateKey, createPublicKey } = require("node:crypto") as typeof import("node:crypto");
   const issuerKey = createPrivateKey(ca.keyPem);
   const issuerPubSpki = createPublicKey(issuerKey).export({ type: "spki", format: "der" });
   const issuerSki = keyIdentifierOf(issuerPubSpki);
+  let issuerName = derName("grabberX Local Root CA");
+  if (ca.certPem) {
+    const caCert = new X509Certificate(ca.certPem);
+    if (!caCert.checkPrivateKey(issuerKey)) {
+      throw new Error("CA private key does not match CA certificate.");
+    }
+    issuerName = extractCertSubjectDer(caCert.raw);
+  }
 
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const spkiDer = publicKey.export({ type: "spki", format: "der" });
   const leafSki = keyIdentifierOf(spkiDer);
 
-  const issuerName = derName("grabberX Local Root CA");
   const subjectName = derName("grabberX Mobile Gallery");
   const notBefore = new Date(now.getTime() - 24 * 3600_000);
   // Apple/Chromium enforce max 398 days for leaf certificates
@@ -249,9 +333,10 @@ export function generateLeafCert(
   const seen = new Set<string>(["localhost", "127.0.0.1"]);
   for (const host of hosts) {
     const clean = host.trim();
-    if (!clean || seen.has(clean)) continue;
-    seen.add(clean);
-    const ip = ipv4Bytes(clean);
+    const key = clean.toLowerCase();
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    const ip = ipBytes(clean);
     if (ip) sanItems.push(derImplicit(7, ip));
     else sanItems.push(derImplicit(2, Buffer.from(clean, "ascii")));
   }
@@ -302,6 +387,7 @@ function caFile(): string {
 }
 
 export async function ensureMobileTls(hosts: string[]): Promise<{
+  caKeyPem: string;
   caCertPem: string;
   caCertDer: Buffer;
   leafKeyPem: string;
@@ -311,9 +397,12 @@ export async function ensureMobileTls(hosts: string[]): Promise<{
   try {
     const raw = JSON.parse(await readFile(caFile(), "utf8")) as Partial<StoredCa>;
     if (typeof raw.keyPem === "string" && typeof raw.certPem === "string") {
-      const { X509Certificate } = await import("node:crypto");
       const parsed = new X509Certificate(raw.certPem);
-      if (new Date(parsed.validTo).getTime() > Date.now() + 30 * 24 * 3600_000) {
+      if (
+        parsed.ca &&
+        parsed.checkPrivateKey(createPrivateKey(raw.keyPem)) &&
+        parsed.validToDate.getTime() > Date.now() + 30 * 24 * 3600_000
+      ) {
         ca = { keyPem: raw.keyPem, certPem: raw.certPem, createdAt: raw.createdAt ?? new Date().toISOString() };
       }
     }
@@ -328,10 +417,10 @@ export async function ensureMobileTls(hosts: string[]): Promise<{
     await writeAtomic(caFile(), JSON.stringify(ca, null, 2));
   }
 
-  const { X509Certificate } = await import("node:crypto");
   const caCertDer = new X509Certificate(ca.certPem).raw;
   const leaf = generateLeafCert(ca, hosts);
   return {
+    caKeyPem: ca.keyPem,
     caCertPem: ca.certPem,
     caCertDer,
     leafKeyPem: leaf.keyPem,

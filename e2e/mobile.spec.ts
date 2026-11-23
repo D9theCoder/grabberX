@@ -28,6 +28,9 @@ async function cleanUp(page: Page) {
   const toggle = await sharingSwitch(page);
   if ((await toggle.getAttribute("aria-checked")) === "true") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
+  const offlineToggle = page.getByRole("switch", { name: "Allow offline sync on paired phones" });
+  if ((await offlineToggle.getAttribute("aria-checked")) === "true") await offlineToggle.click();
+  await expect(offlineToggle).toHaveAttribute("aria-checked", "false");
   const remove = page.getByRole("button", { name: "Remove", exact: true });
   while ((await remove.count()) > 0) {
     await remove.first().click();
@@ -409,6 +412,258 @@ test.describe("mobile gallery", () => {
       await expect.poll(async () => (await phone.request.get(`${GATEWAY}/m`)).status()).toBe(401);
       await phone.close();
     } finally {
+      await cleanUp(page);
+    }
+  });
+
+  test("opt-in remote downloads and PWA share target", async ({ page, browser }) => {
+    await cleanUp(page);
+    await page.goto("/settings");
+    await page.waitForLoadState("networkidle");
+    const toggle = await sharingSwitch(page);
+    let phone: Awaited<ReturnType<typeof browser.newContext>> | undefined;
+    try {
+      if ((await toggle.getAttribute("aria-checked")) !== "true") await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+      const noNetwork = page.getByText("No network found");
+      const pairButton = page.getByRole("button", { name: /Pair a phone|Make a new code/ });
+      await expect(pairButton.or(noNetwork)).toBeVisible();
+      test.skip(await noNetwork.isVisible(), "this machine has no private network address");
+
+      await pairButton.click();
+      await page.getByText("Can't scan? Use the link instead").click();
+      const link = (await page.getByTestId("pairing-link").textContent()) ?? "";
+      const hash = new URL(link).hash;
+
+      // Unpaired request to /m/share must be rejected with 401.
+      const unpaired = await browser.newContext({ ignoreHTTPSErrors: true });
+      expect((await unpaired.request.get(`${GATEWAY}/m/share?text=https%3A%2F%2Fx.com%2Falice%2Fstatus%2F123`)).status()).toBe(401);
+      await unpaired.close();
+
+      phone = await browser.newContext({ viewport: { width: 412, height: 915 }, hasTouch: true, isMobile: true, ignoreHTTPSErrors: true });
+      const mobile = await phone.newPage();
+      const errors: Error[] = [];
+      mobile.on("pageerror", (error) => errors.push(error));
+
+      await mobile.goto(`${GATEWAY}/m/pair${hash}`);
+      await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+
+      // Manifest advertises share_target for /m/share.
+      const manifestRes = await phone.request.get(`${GATEWAY}/manifest.webmanifest`);
+      expect(manifestRes.status()).toBe(200);
+      expect(await manifestRes.json()).toMatchObject({
+        share_target: {
+          action: "/m/share",
+          method: "GET",
+          params: { title: "title", text: "text", url: "url" },
+        },
+      });
+
+      // Default device has Can start downloads OFF.
+      await mobile.getByRole("link", { name: "Download" }).click();
+      await expect(mobile.getByRole("heading", { level: 1, name: "Download" })).toBeVisible();
+      await expect(mobile.getByText("Downloads are off for this phone")).toBeVisible();
+      const submitBtn = mobile.getByRole("button", { name: "Download", exact: true });
+      await expect(submitBtn).toBeDisabled();
+      expect((await submitBtn.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await mobile.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      expect(
+        (
+          await phone.request.post(`${GATEWAY}/m/api/downloads`, {
+            data: { mode: "account", account: "alice_e2e", kind: "both" },
+          })
+        ).status(),
+      ).toBe(403);
+
+      // Enable Can start downloads in desktop Settings.
+      await page.reload();
+      const canDownloadSwitch = page.getByRole("switch", { name: "Can start downloads" });
+      await expect(canDownloadSwitch).toHaveAttribute("aria-checked", "false");
+      await canDownloadSwitch.click();
+      await expect(canDownloadSwitch).toHaveAttribute("aria-checked", "true");
+
+      // Phone can now queue a whole-account download and see status.
+      await mobile.reload();
+      await expect(mobile.getByText("Downloads are off for this phone")).toHaveCount(0);
+      await mobile.getByLabel("Account or post link").fill("alice_e2e");
+      await expect(submitBtn).toBeEnabled();
+      await submitBtn.click();
+      await expect(mobile.getByText("@alice_e2e").first()).toBeVisible();
+
+      // Share target extracts X post URL from text parameter (Android X app style).
+      await mobile.goto(
+        `${GATEWAY}/m/share?title=Artist%20on%20X&text=Check%20this%20https%3A%2F%2Fx.com%2Falice_e2e%2Fstatus%2F1834220145123456789%3Fs%3D20`,
+      );
+      await expect(mobile.getByRole("heading", { level: 1, name: "Shared link" })).toBeVisible();
+      await expect(mobile.getByText("https://x.com/alice_e2e/status/1834220145123456789")).toBeVisible();
+      const postBtn = mobile.getByRole("button", { name: "Download this post" });
+      const acctBtn = mobile.getByRole("button", { name: "Download all media from @alice_e2e" });
+      await expect(postBtn).toBeEnabled();
+      await expect(acctBtn).toBeEnabled();
+      expect((await postBtn.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await acctBtn.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await postBtn.click();
+      await expect(mobile.getByText(/post 1834220145123456789/).first()).toBeVisible();
+      expect(await mobile.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      expect(errors).toEqual([]);
+
+      // Turning the flag off revokes write access immediately.
+      await canDownloadSwitch.click();
+      await expect(canDownloadSwitch).toHaveAttribute("aria-checked", "false");
+      expect(
+        (
+          await phone.request.post(`${GATEWAY}/m/api/downloads`, {
+            data: { mode: "account", account: "alice_e2e", kind: "both" },
+          })
+        ).status(),
+      ).toBe(403);
+      expect(
+        (
+          await phone.request.post(`${GATEWAY}/m/api/downloads`, {
+            data: { mode: "account", account: "alice_e2e", kind: "both" },
+            headers: { origin: "http://evil.example" },
+          })
+        ).status(),
+      ).toBe(403);
+    } finally {
+      await phone?.close();
+      await cleanUp(page);
+    }
+  });
+
+  test("offline phone gallery: syncs index and thumbnails, then browses cached thumbnails while offline", async ({
+    page,
+    browser,
+  }) => {
+    await cleanUp(page);
+    await page.goto("/settings");
+    await page.waitForLoadState("networkidle");
+    const toggle = await sharingSwitch(page);
+    let phone: Awaited<ReturnType<typeof browser.newContext>> | undefined;
+    try {
+      if ((await toggle.getAttribute("aria-checked")) !== "true") await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+      const noNetwork = page.getByText("No network found");
+      const pairButton = page.getByRole("button", { name: /Pair a phone|Make a new code/ });
+      await expect(pairButton.or(noNetwork)).toBeVisible();
+      test.skip(await noNetwork.isVisible(), "this machine has no private network address");
+
+      // Enable offline sync in desktop Settings.
+      const offlineToggle = page.getByRole("switch", { name: "Allow offline sync on paired phones" });
+      await expect(offlineToggle).toHaveAttribute("aria-checked", "false");
+      await offlineToggle.click();
+      await expect(offlineToggle).toHaveAttribute("aria-checked", "true");
+
+      await pairButton.click();
+      await page.getByText("Can't scan? Use the link instead").click();
+      const link = (await page.getByTestId("pairing-link").textContent()) ?? "";
+      const hash = new URL(link).hash;
+
+      phone = await browser.newContext({
+        viewport: { width: 412, height: 915 },
+        hasTouch: true,
+        isMobile: true,
+        ignoreHTTPSErrors: true,
+      });
+      const mobile = await phone.newPage();
+      const errors: Error[] = [];
+      mobile.on("pageerror", (error) => errors.push(error));
+
+      await mobile.goto(`${GATEWAY}/m/pair${hash}`);
+      await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+
+      // Wait for service worker to control /m and precache /m/offline.
+      await expect
+        .poll(() =>
+          mobile.evaluate(async () => {
+            if (!("serviceWorker" in navigator)) return false;
+            await navigator.serviceWorker.ready;
+            if (!navigator.serviceWorker.controller) return false;
+            const cache = await caches.open("gather-m-shell-v2");
+            return Boolean(await cache.match("/m/offline"));
+          }),
+        )
+        .toBe(true);
+
+      // Trigger manual sync and wait for thumbnails AND Layer 3 offline copies to be cached.
+      await mobile.getByRole("button", { name: "Sync for offline" }).click();
+      await expect(mobile.getByRole("link", { name: "Offline view" })).toBeVisible();
+      await expect
+        .poll(() =>
+          mobile.evaluate(async () => {
+            const cache = await caches.open("gather-m-offline-thumbs-v1");
+            return (await cache.keys()).length;
+          }),
+        )
+        .toBeGreaterThanOrEqual(5);
+      await expect
+        .poll(() =>
+          mobile.evaluate(async () => {
+            const cache = await caches.open("gather-m-offline-files-v1");
+            return (await cache.keys()).length;
+          }),
+        )
+        .toBeGreaterThanOrEqual(5);
+      await expect(mobile.getByText(/Offline copies:/)).toBeVisible();
+
+      // Go offline and reload /m -> service worker redirects to cached /m/offline shell.
+      await phone.setOffline(true);
+      await mobile.reload();
+      await expect(mobile.getByText(/Offline · last synced/)).toBeVisible();
+      await expect(mobile.getByRole("button", { name: "Download", exact: true })).toBeDisabled();
+
+      // Open synced account and verify cached thumbnails render offline.
+      await mobile.getByRole("button", { name: new RegExp(ACCOUNT) }).click();
+      await mobile.getByRole("radio", { name: "Images" }).click();
+      const tiles = mobile.locator("button[data-index]");
+      await expect(tiles).toHaveCount(5);
+      await expect
+        .poll(() =>
+          tiles
+            .first()
+            .locator("img")
+            .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0),
+        )
+        .toBe(true);
+
+      // Open lightbox offline: shows Layer 3 full offline copy and disabled PC-only actions.
+      await tiles.first().click();
+      const dialog = mobile.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("img")).toBeVisible();
+      await expect(dialog.getByText("Saved offline copy")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "View original (needs PC)" })).toBeDisabled();
+      await expect(dialog.getByRole("button", { name: "Download (needs PC)" })).toBeDisabled();
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await expect(dialog).toHaveCount(0);
+
+      // Come back online and return to the live library.
+      await phone.setOffline(false);
+      await mobile.getByRole("button", { name: "Try again" }).click();
+      await expect(mobile.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+
+      // Revoking the phone on the PC causes the next sync (401) to wipe both thumbnail and file caches.
+      await page.reload();
+      await page.getByRole("button", { name: "Remove", exact: true }).first().click();
+      await expect(page.getByText("No phone is paired.")).toBeVisible();
+      await mobile.getByRole("button", { name: "Sync for offline" }).click();
+      await expect(mobile.getByText(/Offline data was cleared/)).toBeVisible();
+      await expect
+        .poll(() =>
+          mobile.evaluate(async () => {
+            const [thumbs, files] = await Promise.all([
+              caches.open("gather-m-offline-thumbs-v1").then((c) => c.keys()),
+              caches.open("gather-m-offline-files-v1").then((c) => c.keys()),
+            ]);
+            return thumbs.length + files.length;
+          }),
+        )
+        .toBe(0);
+      expect(errors).toEqual([]);
+    } finally {
+      await phone?.close();
       await cleanUp(page);
     }
   });

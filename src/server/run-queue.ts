@@ -158,7 +158,7 @@ export class RunQueue {
     return this.ready;
   }
 
-  async enqueue(spec: JobSpec, options: { scheduled?: boolean } = {}): Promise<Run> {
+  async enqueue(spec: JobSpec, options: { scheduled?: boolean; remote?: boolean } = {}): Promise<Run> {
     await this.ready;
     const settings = await this.deps.getSettings();
     const steps = buildCommand(spec, {
@@ -175,6 +175,7 @@ export class RunQueue {
       stepIndex: 0,
       counts: { saved: 0, skipped: 0, failed: 0 },
       ...(options.scheduled ? { scheduled: true } : {}),
+      ...(options.remote ? { remote: true } : {}),
     };
     // Persist before registering. A record that fails to save must leave nothing in memory, or a
     // later pump starts a download the user was told could not start.
@@ -791,7 +792,7 @@ export class RunQueue {
     }
     run.endedAt = new Date().toISOString();
     if (extra.errorKind) run.errorKind = extra.errorKind;
-    if (status === "done" && !run.spec.simulate && cutoffSiteOf(run.spec) !== null) {
+    if (status === "done" && !run.spec.simulate && !run.spec.postId && cutoffSiteOf(run.spec) !== null) {
       const tip = await this.deps
         .readArchiveTip(settings.mediaRoot, folderNameFor(run.spec))
         .catch(() => undefined);

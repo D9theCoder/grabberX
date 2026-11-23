@@ -188,6 +188,10 @@ const jobSpecInput = z.strictObject({
     (value) => value.length <= 2048,
     "That account is too long.",
   ),
+  postId: z
+    .string()
+    .regex(/^\d{1,30}$/, "Post id must be digits.")
+    .optional(),
   folder: folderName.optional(),
   media: z.enum(["images", "videos", "all"], "Pick images, videos or both."),
   dateFrom: isoDate.optional(),
@@ -204,7 +208,10 @@ export function parseJobSpec(input: unknown): ActionResult<JobSpec> {
     return { ok: false, error: firstMessage(parsed.error.issues) };
   }
 
-  const { site, account, dateFrom, dateTo } = parsed.data;
+  const { site, account, postId, dateFrom, dateTo } = parsed.data;
+  if (postId !== undefined && site !== "x") {
+    return { ok: false, error: "Single-post downloads only support X." };
+  }
   const normalized = validateAccount(site, account);
   if (!normalized.ok) return { ok: false, error: normalized.message };
 

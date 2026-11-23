@@ -58,10 +58,12 @@ export function SettingsForm({
   initial,
   appVersion,
   mobileSlot,
+  offlineSlot,
 }: {
   initial: Settings;
   appVersion: string;
   mobileSlot?: ReactNode;
+  offlineSlot?: ReactNode;
 }) {
   const shell = useShell();
   const { preference, choose } = useTheme();
@@ -340,6 +342,8 @@ export function SettingsForm({
       <AutomaticUpdatesForm initial={settings} />
 
       {mobileSlot}
+
+      {offlineSlot}
 
       <Group title="Appearance">
         <div className="flex flex-col gap-1.5">

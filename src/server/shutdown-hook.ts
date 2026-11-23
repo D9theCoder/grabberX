@@ -23,6 +23,8 @@ export function listenForShutdown(): void {
       await runQueue.shutdown();
       const { stopMobileGateway } = await import("@/server/mobile/service");
       await stopMobileGateway();
+      const { stopOfflineDerivatives } = await import("@/server/offline/derivatives");
+      stopOfflineDerivatives();
       const { flushMediaIndex } = await import("@/server/media-index");
       await flushMediaIndex();
     } catch (error) {

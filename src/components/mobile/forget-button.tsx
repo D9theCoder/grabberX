@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { wipeOfflineStorage } from "@/lib/offline-db";
 
 export function ForgetButton() {
   const [busy, setBusy] = useState(false);
@@ -11,6 +12,7 @@ export function ForgetButton() {
       onClick={async () => {
         if (!window.confirm("Forget this phone? You'll need a new QR code to view the gallery again.")) return;
         setBusy(true);
+        await wipeOfflineStorage();
         if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage({ type: "CLEAR_CACHE" });
         }

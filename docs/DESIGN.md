@@ -423,6 +423,49 @@ narrow (max 672 px): it is read one field at a time, while Run, Library and Hist
 `Check cookies` probes x.com with the selected browser, since Settings has no account to check. It
 shows the same two warnings as the Run screen, and reads nothing when the browser is **None**.
 
+**Mobile gallery.** Lists paired phones with inline rename, `Remove`, and a per-device **Can start downloads**
+switch (off by default). Turning it on lets that phone queue X downloads onto the PC from `/m/download` and `/m/share`.
+When a Tailscale address is present, pairing defaults to it and explains that using one address keeps a single browser origin
+and offline cache at home and away.
+
+**Offline on phone.** Controls whether paired phones can sync an offline copy of the library (`Allow offline sync on paired
+phones`, off by default), with a live server-computed storage estimate (`About 1.2 GB for 840 images and 32 videos`) and
+video encoder status (`Using NVIDIA GPU (h264_nvenc)` or `ffmpeg not found — videos can't be saved offline`). Grouped into:
+- **What to save:** `All accounts` or `Selected` account checkboxes, `Files per account` (`All`, `50 newest`, `200 newest`,
+  `500 newest`, or custom count), `Include images`, and `Include videos`.
+- **Image copies:** `Save full-size offline image copies`, `Max image size` (`1280 px`, `2048 px`, `2560 px`, `Original`),
+  `Image format` (`WebP`, `JPEG`), `Target max size (KB)`, and `Starting quality`.
+- **Video copies:** `Save playable offline video copies`, `Max video height` (`360p`–`1080p`), `Video audio` (`Keep audio` /
+  `No audio`), `Audio bitrate` (`64`/`96`/`128 kbps`), `Video encoder` (`Auto` / `GPU` / `CPU`), `Video bitrate (kbps)`, and
+  `CPU threads`.
+- **Limits and behaviour:** `Phone storage limit (MB)`, `PC cache limit (MB)`, `Only prepare while plugged in`, and
+  `Prepare copies in the background`.
+
+The hint notes that anything cached on the phone is visible to anyone who can unlock it.
+
+### 8.1 Mobile screens (`/m`, `/m/download`, `/m/share`, `/m/offline`)
+
+- **Library (`/m`).** Account list with a 44 px **Download** button in the header linking to `/m/download`, and an
+  **Offline gallery** card below showing last sync time, cached thumbnail count, Layer 3 offline copies count and size
+  (`Offline copies: 412 of 840 · 1.1 GB`), browser storage usage (`navigator.storage.estimate`), a 44 px **Sync for offline**
+  button (resumable, with progress bar and automatic throttled sync on open), **Offline view** link, and **Clear offline
+  data**.
+- **Offline gallery (`/m/offline`).** Pure client-rendered shell precached by `public/m/sw.js` so navigating to `/m` while
+  the PC is off loads cached accounts, a virtualized thumbnail grid, and a swipeable lightbox directly from IndexedDB and
+  Cache Storage. Shows `"Offline · last synced <relative time>"` with a `Try again` / `Live library` action, serves cached
+  Layer 3 reduced-quality images and playable MP4s (`Saved offline copy`) before falling back to 320 px thumbnails in the
+  lightbox, and shows PC-only actions (`Download`, `Download zip`, `View original`) as disabled. When offline with no synced
+  data, falls back to `"Can’t reach your PC"` and `Try again`.
+- **Download (`/m/download`).** Mobile-first form with 44 px touch targets: one mono field for an X handle or
+  pasted post link, a `Whole account` / `This post` switch, `Images` / `Videos` / `Both` for whole-account runs,
+  and a live `Runs` list below showing status, counters, estimated progress, and `Stop`/`Cancel` for phone-started runs.
+  When **Can start downloads** is off for this phone, a notice explains how to turn it on in PC Settings and the
+  submit button stays disabled with that reason below it.
+- **Share target (`/m/share`).** Installed PWA share target (`share_target` in `manifest.ts`, GET `title`/`text`/`url`).
+  Extracts the first X/Twitter status link (including links embedded in `text` by the Android X app) and offers
+  **Download this post** and **Download all media from @handle** (with `Images` / `Videos` / `Both`), then shows
+  the same live `Runs` list below.
+
 ---
 
 ## 9. Copy voice

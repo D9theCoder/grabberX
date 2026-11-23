@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
@@ -12,14 +12,19 @@ import { defineConfig, devices } from "@playwright/test";
 const root = join(tmpdir(), "gather-mobile-e2e");
 const home = join(root, "home");
 const media = join(root, "media");
+const fakeGalleryDl = join(home, "fake-gallery-dl.exe");
 mkdirSync(home, { recursive: true });
 mkdirSync(media, { recursive: true });
+// Keep each mobile E2E run isolated from any saved desktop settings so real gallery-dl / X is never called.
+rmSync(join(home, "settings.json"), { force: true });
+rmSync(join(home, "offline.json"), { force: true });
 
 const APP_PORT = "3410";
 const MOBILE_PORT = "3411";
 Object.assign(process.env, {
   GATHER_HOME: home,
   GATHER_MEDIA_ROOT: media,
+  GATHER_GALLERY_DL: fakeGalleryDl,
   GATHER_PORT: APP_PORT,
   GATHER_MOBILE_PORT: MOBILE_PORT,
 });
@@ -38,6 +43,12 @@ export default defineConfig({
     url: `http://127.0.0.1:${APP_PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { GATHER_HOME: home, GATHER_MEDIA_ROOT: media, GATHER_PORT: APP_PORT, GATHER_MOBILE_PORT: MOBILE_PORT },
+    env: {
+      GATHER_HOME: home,
+      GATHER_MEDIA_ROOT: media,
+      GATHER_GALLERY_DL: fakeGalleryDl,
+      GATHER_PORT: APP_PORT,
+      GATHER_MOBILE_PORT: MOBILE_PORT,
+    },
   },
 });

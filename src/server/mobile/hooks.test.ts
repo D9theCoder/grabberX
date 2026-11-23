@@ -1,24 +1,74 @@
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { startGateway } from "@/server/mobile/gateway";
 import type { GatewayHandle } from "@/server/mobile/gateway";
-import { createMobileHooks, isSameSiteJsonPost } from "@/server/mobile/hooks";
 import { createPairingToken, resetPairingState } from "@/server/mobile/pairing";
-import { listDevices, revokeAllDevices } from "@/server/mobile/devices";
+import { listDevices, revokeAllDevices, setDeviceCanDownload } from "@/server/mobile/devices";
+import { DEFAULT_ADVANCED } from "@/lib/spec";
+
+const runnerMock = vi.hoisted(() => ({
+  mode: "lines" as "lines" | "tree",
+  calls: [] as string[][],
+}));
+
+const fixture = fileURLToPath(new URL("../__fixtures__/fake-gallery-dl.mjs", import.meta.url));
+
+vi.mock("@/server/runner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/runner")>();
+  return {
+    ...actual,
+    startProcess: (options: Parameters<typeof actual.startProcess>[0]) => {
+      if (options.exe === "fake-gallery-dl.exe") {
+        runnerMock.calls.push(options.argv);
+        return actual.startProcess({
+          ...options,
+          exe: process.execPath,
+          argv: [fixture, `--mode=${runnerMock.mode}`],
+        });
+      }
+      return actual.startProcess(options);
+    },
+  };
+});
 
 let sandbox = "";
+let mediaRoot = "";
 let upstream: Server;
 let gateway: GatewayHandle;
 let upstreamHits = 0;
 
+let hooksModule: typeof import("@/server/mobile/hooks");
+let queueModule: typeof import("@/server/run-queue");
+let storeModule: typeof import("@/server/store");
+
+beforeAll(async () => {
+  sandbox = await mkdtemp(join(tmpdir(), "gather-hooks-"));
+  const bootHome = await mkdtemp(join(sandbox, "boot-home-"));
+  mediaRoot = await mkdtemp(join(sandbox, "media-"));
+  process.env.GATHER_HOME = bootHome;
+  process.env.GATHER_MEDIA_ROOT = mediaRoot;
+  process.env.GATHER_GALLERY_DL = "fake-gallery-dl.exe";
+  // RunQueue executes markInterrupted on import, so GATHER_HOME must point into the sandbox first.
+  [hooksModule, queueModule, storeModule] = await Promise.all([
+    import("@/server/mobile/hooks"),
+    import("@/server/run-queue"),
+    import("@/server/store"),
+  ]);
+  await queueModule.runQueue.whenReady();
+});
+
 beforeEach(async () => {
-  if (sandbox === "") sandbox = await mkdtemp(join(tmpdir(), "gather-hooks-"));
+  runnerMock.mode = "lines";
+  runnerMock.calls = [];
   process.env.GATHER_HOME = await mkdtemp(join(sandbox, "home-"));
+  process.env.GATHER_MEDIA_ROOT = mediaRoot;
+  process.env.GATHER_GALLERY_DL = "fake-gallery-dl.exe";
   upstreamHits = 0;
   upstream = createServer((_req, res) => {
     upstreamHits += 1;
@@ -30,11 +80,12 @@ beforeEach(async () => {
     port: 0,
     host: "127.0.0.1",
     upstreamPort: (upstream.address() as AddressInfo).port,
-    ...createMobileHooks(),
+    ...hooksModule.createMobileHooks(),
   });
 });
 
 afterEach(async () => {
+  await queueModule.runQueue.stopAll();
   resetPairingState();
   await revokeAllDevices();
   await gateway.close();
@@ -43,35 +94,70 @@ afterEach(async () => {
 
 afterAll(async () => {
   delete process.env.GATHER_HOME;
+  delete process.env.GATHER_MEDIA_ROOT;
+  delete process.env.GATHER_GALLERY_DL;
   if (sandbox) await rm(sandbox, { recursive: true, force: true });
 });
 
 const url = (path: string) => `http://127.0.0.1:${gateway.port}${path}`;
-const JSON_HEADERS = { "content-type": "application/json", "user-agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130.0.0.0 Mobile" };
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  "user-agent": "Mozilla/5.0 (Linux; Android 15) Chrome/130.0.0.0 Mobile",
+};
 const pair = (token: unknown, headers: Record<string, string> = JSON_HEADERS) =>
   fetch(url("/m/api/pair"), { method: "POST", headers, body: JSON.stringify({ token }) });
 
+async function pairPhone(canDownload = false): Promise<string> {
+  const { token } = createPairingToken();
+  const res = await pair(token);
+  expect(res.status).toBe(200);
+  const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0]!;
+  if (canDownload) {
+    const device = listDevices()[0]!;
+    expect(await setDeviceCanDownload(device.id, true)).toBe(true);
+  }
+  return cookie;
+}
+
 describe("isSameSiteJsonPost", () => {
   it("requires a JSON content type", () => {
-    expect(isSameSiteJsonPost({ "content-type": "text/plain" })).toBe(false);
-    expect(isSameSiteJsonPost({ "content-type": "application/x-www-form-urlencoded" })).toBe(false);
-    expect(isSameSiteJsonPost({})).toBe(false);
-    expect(isSameSiteJsonPost({ "content-type": "application/json" })).toBe(true);
+    expect(hooksModule.isSameSiteJsonPost({ "content-type": "text/plain" })).toBe(false);
+    expect(hooksModule.isSameSiteJsonPost({ "content-type": "application/x-www-form-urlencoded" })).toBe(false);
+    expect(hooksModule.isSameSiteJsonPost({})).toBe(false);
+    expect(hooksModule.isSameSiteJsonPost({ "content-type": "application/json" })).toBe(true);
   });
   it("requires an Origin that matches the Host when one is sent", () => {
-    expect(isSameSiteJsonPost({ "content-type": "application/json", origin: "http://192.168.1.5:3211", host: "192.168.1.5:3211" })).toBe(true);
-    expect(isSameSiteJsonPost({ "content-type": "application/json", origin: "http://evil.example", host: "192.168.1.5:3211" })).toBe(false);
-    expect(isSameSiteJsonPost({ "content-type": "application/json", origin: "null", host: "192.168.1.5:3211" })).toBe(false);
+    expect(
+      hooksModule.isSameSiteJsonPost({
+        "content-type": "application/json",
+        origin: "http://192.168.1.5:3211",
+        host: "192.168.1.5:3211",
+      }),
+    ).toBe(true);
+    expect(
+      hooksModule.isSameSiteJsonPost({
+        "content-type": "application/json",
+        origin: "http://evil.example",
+        host: "192.168.1.5:3211",
+      }),
+    ).toBe(false);
+    expect(
+      hooksModule.isSameSiteJsonPost({
+        "content-type": "application/json",
+        origin: "null",
+        host: "192.168.1.5:3211",
+      }),
+    ).toBe(false);
   });
 });
 
 describe("pairing over HTTP", () => {
-  it("trades a fresh code for an HttpOnly, SameSite=Strict session that opens the gallery", async () => {
+  it("trades a fresh code for an HttpOnly, SameSite=Lax session that opens the gallery", async () => {
     const { token } = createPairingToken();
     const res = await pair(token);
     expect(res.status).toBe(200);
     const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toMatch(/^gather_m=[A-Za-z0-9_-]{40,}; HttpOnly; SameSite=Strict; Path=\/; Max-Age=\d+$/);
+    expect(cookie).toMatch(/^gather_m=[A-Za-z0-9_-]{40,}; HttpOnly; SameSite=Lax; Path=\/; Max-Age=\d+$/);
     expect(cookie).not.toContain("Secure");
     expect(listDevices()).toHaveLength(1);
 
@@ -113,9 +199,11 @@ describe("pairing over HTTP", () => {
   it("refuses bad JSON and an oversized body", async () => {
     const bad = await fetch(url("/m/api/pair"), { method: "POST", headers: JSON_HEADERS, body: "{nope" });
     expect(bad.status).toBe(400);
-    const big = await fetch(url("/m/api/pair"), { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token: "a".repeat(5000) }) }).catch(
-      () => null,
-    );
+    const big = await fetch(url("/m/api/pair"), {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ token: "a".repeat(5000) }),
+    }).catch(() => null);
     expect(big === null || big.status === 413).toBe(true);
   });
 
@@ -138,5 +226,191 @@ describe("pairing over HTTP", () => {
     const page = await fetch(url("/m"), { headers: { cookie } });
     expect(page.status).toBe(401);
     expect(upstreamHits).toBe(0);
+  });
+});
+
+describe("remote downloads via mobile hooks", () => {
+  it("enforces session, Origin, and per-device canDownload permission", async () => {
+    const cookie = await pairPhone(false);
+
+    // No session -> 401
+    expect((await fetch(url("/m/api/downloads"))).status).toBe(401);
+    expect(
+      (
+        await fetch(url("/m/api/downloads"), {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ mode: "account", account: "alice", kind: "both" }),
+        })
+      ).status,
+    ).toBe(401);
+
+    // Status GET works with session even when canDownload is false
+    const statusRes = await fetch(url("/m/api/downloads"), { headers: { cookie } });
+    expect(statusRes.status).toBe(200);
+    const statusJson = await statusRes.json();
+    expect(statusJson.canDownload).toBe(false);
+
+    // Device without flag -> 403
+    const forbidden = await fetch(url("/m/api/downloads"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({ mode: "account", account: "alice", kind: "both" }),
+    });
+    expect(forbidden.status).toBe(403);
+
+    // Enable permission, then check bad Origin -> 403
+    await setDeviceCanDownload(listDevices()[0]!.id, true);
+    const badOrigin = await fetch(url("/m/api/downloads"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie, origin: "http://evil.example" },
+      body: JSON.stringify({ mode: "account", account: "alice", kind: "both" }),
+    });
+    expect(badOrigin.status).toBe(403);
+    expect(runnerMock.calls).toHaveLength(0);
+  });
+
+  it("rejects invalid handles, reserved folder names, and invalid post URLs with 400", async () => {
+    const cookie = await pairPhone(true);
+    const post = (body: unknown, contentType = "application/json") =>
+      fetch(url("/m/api/downloads"), {
+        method: "POST",
+        headers: { ...JSON_HEADERS, "content-type": contentType, cookie },
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      });
+
+    expect((await post({ mode: "account", account: "alice", kind: "both" }, "text/plain")).status).toBe(400);
+    expect((await post("{bad json")).status).toBe(400);
+
+    for (const badBody of [
+      { mode: "account", account: "bad-handle", kind: "both" },
+      { mode: "account", account: "a".repeat(16), kind: "both" },
+      { mode: "account", account: "src", kind: "both" },
+      { mode: "account", account: "docs", kind: "image" },
+      { mode: "account", account: "con", kind: "video" },
+      { mode: "account", account: "alice", kind: "all" },
+      { mode: "account", account: "alice", kind: "both", extra: 1 },
+      { mode: "post", url: "https://evil.com/alice/status/123" },
+      { mode: "post", url: "https://x.com/i/status/123" },
+      { mode: "post", url: "https://x.com/src/status/123" },
+      { mode: "post", url: "https://x.com/alice/status/abc" },
+      { mode: "post", url: "https://x.com/alice/media" },
+    ]) {
+      const res = await post(badBody);
+      expect(res.status, JSON.stringify(badBody)).toBe(400);
+    }
+    expect(runnerMock.calls).toHaveLength(0);
+  });
+
+  it("enqueues whole-account image & video passes sequentially and exposes live status", async () => {
+    const cookie = await pairPhone(true);
+    const res = await fetch(url("/m/api/downloads"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({ mode: "account", account: "@alice_art", kind: "both" }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.runId).toMatch(/_alice_art$/);
+
+    const finished = await queueModule.runQueue.waitFor(data.runId);
+    expect(finished?.status).toBe("done");
+    expect(finished?.remote).toBe(true);
+    const stepCalls = runnerMock.calls.filter((argv) => !argv.includes("-j"));
+    expect(stepCalls).toHaveLength(2);
+    expect(stepCalls[0]).toContain("twitter.videos=false");
+    expect(stepCalls[0]!.at(-1)).toBe("https://x.com/alice_art/media");
+    expect(stepCalls[1]).toContain("twitter.videos=true");
+    expect(stepCalls[1]!.at(-1)).toBe("https://x.com/alice_art/media");
+
+    const statusRes = await fetch(url("/m/api/downloads"), { headers: { cookie } });
+    expect(statusRes.status).toBe(200);
+    const statusJson = await statusRes.json();
+    expect(statusJson.canDownload).toBe(true);
+    const listed = statusJson.runs.find((entry: { id: string }) => entry.id === data.runId);
+    expect(listed).toMatchObject({
+      id: data.runId,
+      account: "alice_art",
+      status: "done",
+      remote: true,
+      counts: { saved: 4, skipped: 2, failed: 0 },
+    });
+    // Must not expose desktop paths or argv in mobile status.
+    expect(JSON.stringify(listed)).not.toContain("galleryDlPath");
+    expect(JSON.stringify(listed)).not.toContain("--cookies-from-browser");
+  });
+
+  it("enqueues single-post downloads with rebuilt canonical URL into <handle>/Image and <handle>/Video", async () => {
+    const cookie = await pairPhone(true);
+    const res = await fetch(url("/m/api/downloads"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({
+        mode: "post",
+        url: "https://mobile.twitter.com/alice_art/status/1834220145123456789?s=20&t=xyz",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const finished = await queueModule.runQueue.waitFor(data.runId);
+    expect(finished?.status).toBe("done");
+    expect(finished?.spec.postId).toBe("1834220145123456789");
+    expect(runnerMock.calls).toHaveLength(2);
+    expect(runnerMock.calls[0]).toContain('directory=["alice_art","Image"]');
+    expect(runnerMock.calls[0]).toContain(`${mediaRoot}/alice_art/archive.sqlite3`);
+    expect(runnerMock.calls[0]!.at(-1)).toBe("https://x.com/alice_art/status/1834220145123456789");
+    expect(runnerMock.calls[1]).toContain('directory=["alice_art","Video"]');
+    expect(runnerMock.calls[1]).toContain(`${mediaRoot}/alice_art/archive.sqlite3`);
+    expect(runnerMock.calls[1]!.at(-1)).toBe("https://x.com/alice_art/status/1834220145123456789");
+  });
+
+  it("stops only phone-started runs via taskkill + .part cleanup, and refuses desktop runs", async () => {
+    const cookie = await pairPhone(true);
+    runnerMock.mode = "tree";
+
+    // Enqueue a desktop run (remote not set) and verify the phone gets 403 trying to stop it.
+    const desktopRun = await queueModule.runQueue.enqueue({
+      site: "x",
+      account: "desktop_acct",
+      media: "images",
+      layout: { kind: "byType" },
+      simulate: false,
+      advanced: { ...DEFAULT_ADVANCED },
+    });
+    const denyStop = await fetch(url("/m/api/downloads/stop"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({ runId: desktopRun.id }),
+    });
+    expect(denyStop.status).toBe(403);
+    await queueModule.runQueue.stop(desktopRun.id);
+
+    // Now start a remote run with a .part file in its folder and stop it from the phone.
+    const accountDir = join(mediaRoot, "remote_stop", "Image");
+    await mkdir(accountDir, { recursive: true });
+    await writeFile(join(accountDir, "1834220145_1.jpg.part"), "partial");
+
+    const startRes = await fetch(url("/m/api/downloads"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({ mode: "account", account: "remote_stop", kind: "image" }),
+    });
+    expect(startRes.status).toBe(200);
+    const { runId } = (await startRes.json()) as { runId: string };
+
+    // Wait briefly so the fake tree spawns before stopping.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const stopRes = await fetch(url("/m/api/downloads/stop"), {
+      method: "POST",
+      headers: { ...JSON_HEADERS, cookie },
+      body: JSON.stringify({ runId }),
+    });
+    expect(stopRes.status).toBe(200);
+
+    const stoppedRun = await storeModule.getRun(runId);
+    expect(stoppedRun?.status).toBe("stopped");
+    expect(await readdir(accountDir)).toEqual([]);
   });
 });

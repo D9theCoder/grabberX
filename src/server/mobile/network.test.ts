@@ -18,9 +18,12 @@ describe("classifyPeer", () => {
     ["172.31.255.255", "private"],
     ["192.168.0.10", "private"],
     ["fe80::1", "private"],
+    ["fe80::1%12", "private"],
     ["fd7a:115c:a1e0::1", "private"],
+    ["fc00::1", "private"],
     ["100.64.0.1", "tailnet"],
     ["100.127.255.254", "tailnet"],
+    ["::ffff:100.64.1.2", "tailnet"],
   ])("serves %s as %s", (address, kind) => {
     expect(classifyPeer(address)).toBe(kind);
     expect(isPrivatePeer(address)).toBe(true);
@@ -35,6 +38,7 @@ describe("classifyPeer", () => {
     "192.169.0.1",
     "11.0.0.1",
     "2001:db8::1",
+    "fe80:not-hex",
     "999.1.1.1",
     "10.0.0",
     "",

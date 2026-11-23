@@ -285,4 +285,10 @@ describe("parseJobSpec: advanced numbers", () => {
     expect(error(advanced({ sincePostId: "123 or __import__('os')" }))).toBe("Post id must be digits.");
     expect(error(advanced({ sincePostId: "" }))).toBe("Post id must be digits.");
   });
+
+  it("allows numeric postId only on X", () => {
+    expect(parse({ postId: "1834220145" }).ok).toBe(true);
+    expect(error({ postId: "not-digits" })).toBe("Post id must be digits.");
+    expect(error({ site: "instagram", postId: "1834220145" })).toBe("Single-post downloads only support X.");
+  });
 });

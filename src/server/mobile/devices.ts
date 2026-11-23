@@ -11,6 +11,7 @@ export interface DeviceInfo {
   createdAt: string;
   lastSeenAt: string;
   lastIp: string;
+  canDownload: boolean;
 }
 
 interface StoredDevice extends DeviceInfo {
@@ -61,6 +62,7 @@ function loadFromDisk(file: string): Map<string, StoredDevice> {
         createdAt: typeof d.createdAt === "string" ? d.createdAt : new Date(0).toISOString(),
         lastSeenAt: typeof d.lastSeenAt === "string" ? d.lastSeenAt : new Date(0).toISOString(),
         lastIp: typeof d.lastIp === "string" ? d.lastIp : "",
+        canDownload: d.canDownload === true,
       });
     }
   } catch {
@@ -126,6 +128,7 @@ export async function createDevice(input: { userAgent: string; ip: string; now?:
     createdAt: stamp,
     lastSeenAt: stamp,
     lastIp: input.ip.slice(0, 64),
+    canDownload: false,
   };
   current.byHash.set(stored.tokenHash, stored);
   await persist(current);
@@ -145,6 +148,24 @@ export function authorizeSession(token: string | null, ip?: string, now: number 
   if (ip) device.lastIp = ip.slice(0, 64);
   if (now - current.lastSaved > SEEN_WRITE_INTERVAL_MS) void persist(current).catch(() => {});
   return true;
+}
+
+export function canDeviceDownload(token: string | null): boolean {
+  if (!token || token.length > 100) return false;
+  const device = state().byHash.get(hashToken(token));
+  return device?.canDownload === true;
+}
+
+export async function setDeviceCanDownload(id: string, canDownload: boolean): Promise<boolean> {
+  const current = state();
+  for (const device of current.byHash.values()) {
+    if (device.id === id) {
+      device.canDownload = canDownload;
+      await persist(current);
+      return true;
+    }
+  }
+  return false;
 }
 
 export function listDevices(): DeviceInfo[] {

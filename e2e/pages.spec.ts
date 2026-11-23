@@ -72,6 +72,47 @@ test("the automatic updates group saves its switch without a client error", asyn
   expect(errors).toEqual([]);
 });
 
+test("the Offline on phone section in Settings saves without a client error", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { level: 2, name: "Offline on phone" })).toBeVisible();
+
+  const toggle = page.getByRole("switch", { name: "Allow offline sync on paired phones" });
+  const initial = (await toggle.getAttribute("aria-checked")) === "true";
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", String(!initial));
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", String(initial));
+
+  const accountsGroup = page.getByRole("radiogroup", { name: "Accounts to include" });
+  await accountsGroup.getByRole("radio", { name: "Selected" }).click();
+  await accountsGroup.getByRole("radio", { name: "All accounts" }).click();
+
+  // Exercise Layer 3 controls (selection, image size, video toggle) and restore defaults.
+  const filesGroup = page.getByRole("radiogroup", { name: "Files per account" });
+  await filesGroup.getByRole("radio", { name: "200 newest" }).click();
+  await expect(page.getByLabel("Newest files per account")).toBeVisible();
+  await filesGroup.getByRole("radio", { name: "All" }).click();
+
+  const imageEdgeGroup = page.getByRole("radiogroup", { name: "Max image size" });
+  await imageEdgeGroup.getByRole("radio", { name: "1280 px" }).click();
+  await imageEdgeGroup.getByRole("radio", { name: "2048 px" }).click();
+
+  const videoCopiesSwitch = page.getByRole("switch", { name: "Save playable offline video copies" });
+  const initialVideoCopies = (await videoCopiesSwitch.getAttribute("aria-checked")) === "true";
+  await videoCopiesSwitch.click();
+  await expect(videoCopiesSwitch).toHaveAttribute("aria-checked", String(!initialVideoCopies));
+  if (!initialVideoCopies) {
+    await expect(page.getByRole("radiogroup", { name: "Max video height" })).toBeVisible();
+  }
+  await videoCopiesSwitch.click();
+  await expect(videoCopiesSwitch).toHaveAttribute("aria-checked", String(initialVideoCopies));
+
+  expect(errors).toEqual([]);
+});
+
 test("library rows fill in their stats instead of staying on the spinner", async ({ page }) => {
   const errors: Error[] = [];
   page.on("pageerror", (error) => errors.push(error));

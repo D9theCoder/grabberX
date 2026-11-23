@@ -33,6 +33,7 @@ function settingsRows(run: Run): Array<[string, string]> {
   const rows: Array<[string, string]> = [
     ["Site", siteDef(spec.site).label],
     ["Account", spec.account],
+    ...(spec.postId ? [["Post", `https://x.com/${spec.account}/status/${spec.postId}`] satisfies [string, string]] : []),
     ["Folder", folderNameFor(spec)],
     ["Media", MEDIA_LABELS[spec.media]],
     ["Dates", spec.dateFrom || spec.dateTo ? `${spec.dateFrom ?? "…"} → ${spec.dateTo ?? "…"}` : "All time"],
@@ -157,6 +158,7 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
           runId={run.id}
           offerFreshCutoff={
             !run.spec.simulate &&
+            !run.spec.postId &&
             cutoffSiteOf(run.spec) !== null &&
             run.spec.advanced.sincePostId === undefined
           }

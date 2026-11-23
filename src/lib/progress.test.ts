@@ -222,6 +222,7 @@ describe("totals", () => {
   it("is offered only for a whole-account X run", () => {
     const spec = createDefaultSpec(settings);
     expect(totalEligible({ ...spec, account: "nasa" })).toBe(true);
+    expect(totalEligible({ ...spec, account: "nasa", postId: "1834220145" })).toBe(false);
     expect(totalEligible({ ...spec, site: "instagram", account: "nasa" })).toBe(false);
     expect(totalEligible({ ...spec, site: "bluesky" })).toBe(false);
     expect(totalEligible({ ...spec, site: "reddit" })).toBe(false);
