@@ -30,9 +30,8 @@ import { compareRunIds } from "@/lib/run-order";
 import { endMessage } from "@/lib/run-copy";
 import { folderNameFor } from "@/lib/sites";
 import { createDefaultSpec, DEFAULT_ADVANCED } from "@/lib/spec";
-import type { JobSpec, Run } from "@/lib/spec";
-import { parseJobSpec } from "@/lib/spec-schema";
-import { parseXHandle, parseXPostUrl } from "@/lib/x-url";
+import type { Run } from "@/lib/spec";
+import { parseXPostUrl } from "@/lib/x-url";
 import { etagOf, MediaPathError, parseRange, statMediaFile } from "@/server/media";
 import {
   enqueueOfflineDerivative,
@@ -43,12 +42,13 @@ import { getOfflineEncoderStatus } from "@/server/offline/encoder";
 import { buildOfflineIndex, isFileInOfflineSelection } from "@/server/offline/index";
 import { getOfflineSettings } from "@/server/offline/settings";
 import { getOfflineThumbnail } from "@/server/offline/thumbs";
-import { isReserved, isValidFolderName } from "@/server/paths";
+import { getAccountHint } from "@/server/library";
 import { runQueue } from "@/server/run-queue";
+import { accountHintInput, prepareRunSpec } from "@/server/run-request";
 import { getRun, getSettings, isValidRunId, listRuns } from "@/server/store";
 
 const MAX_BODY_BYTES = 1024;
-const MAX_DOWNLOAD_BODY_BYTES = 4096;
+const MAX_DOWNLOAD_BODY_BYTES = 16 * 1024;
 const COOKIE_MAX_AGE_SECONDS = 365 * 24 * 3600;
 const STATUS_RUN_LIMIT = 20;
 
@@ -260,21 +260,24 @@ async function onDownloadStart(req: IncomingMessage, res: ServerResponse): Promi
     return json(res, 400, { ok: false, error: parsed.error.issues[0]?.message ?? "That request wasn't valid." });
   }
 
-  let specInput: JobSpec;
+  let specInput: unknown;
   try {
     const settings = await getSettings();
-    if (parsed.data.mode === "account") {
-      const handle = parseXHandle(parsed.data.account);
-      if (!handle) {
-        return json(res, 400, { ok: false, error: "X handles are 1–15 letters, numbers or _" });
-      }
-      if (!isValidFolderName(handle) || isReserved(handle)) {
-        return json(res, 400, { ok: false, error: `"${handle}" can't be used as an account folder name.` });
-      }
+    if (parsed.data.mode === "run") {
+      specInput = parsed.data.spec;
+    } else if (parsed.data.mode === "account") {
       specInput = {
         ...createDefaultSpec(settings),
-        site: "x",
-        account: handle,
+        site: parsed.data.site ?? "x",
+        account: parsed.data.account,
+        media: KIND_TO_MEDIA[parsed.data.kind],
+        simulate: false,
+      };
+    } else if (parsed.data.mode === "link") {
+      specInput = {
+        ...createDefaultSpec(settings),
+        site: "url",
+        account: parsed.data.url,
         media: KIND_TO_MEDIA[parsed.data.kind],
         simulate: false,
       };
@@ -282,9 +285,6 @@ async function onDownloadStart(req: IncomingMessage, res: ServerResponse): Promi
       const post = parseXPostUrl(parsed.data.url);
       if (!post) {
         return json(res, 400, { ok: false, error: "Paste a valid X post link like https://x.com/username/status/123456." });
-      }
-      if (!isValidFolderName(post.handle) || isReserved(post.handle)) {
-        return json(res, 400, { ok: false, error: `"${post.handle}" can't be used as an account folder name.` });
       }
       specInput = {
         site: "x",
@@ -301,16 +301,33 @@ async function onDownloadStart(req: IncomingMessage, res: ServerResponse): Promi
     return json(res, 500, { ok: false, error: "The download couldn't be started." });
   }
 
-  const validated = parseJobSpec(specInput);
+  const validated = prepareRunSpec(specInput);
   if (!validated.ok) return json(res, 400, { ok: false, error: validated.error });
 
   try {
-    const run = await runQueue.enqueue(validated.data, { remote: true });
+    const run = await runQueue.enqueue(validated.spec, { remote: true });
     const position = runQueue.queuePosition(run.id);
     return json(res, 200, { ok: true, runId: run.id, position, run: summarizeMobileRun(run, position) });
   } catch (error) {
     console.error("grabberX: could not queue a remote download.", error);
     return json(res, 500, { ok: false, error: "The download couldn't be started." });
+  }
+}
+
+async function onDownloadHint(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const query = new URL(req.url ?? "/", "http://gateway.invalid").searchParams;
+  const headOnly = (req.method ?? "GET").toUpperCase() === "HEAD";
+  const parsed = accountHintInput.safeParse({
+    site: query.get("site") ?? undefined,
+    account: query.get("account") ?? "",
+    folder: query.get("folder") || undefined,
+  });
+  if (!parsed.success) return json(res, 200, { ok: true, hint: { kind: "empty" } }, {}, headOnly);
+  try {
+    json(res, 200, { ok: true, hint: await getAccountHint(parsed.data) }, {}, headOnly);
+  } catch (error) {
+    console.error("grabberX: could not inspect the account for a phone.", error);
+    json(res, 200, { ok: true, hint: { kind: "empty" } }, {}, headOnly);
   }
 }
 
@@ -646,6 +663,7 @@ export function createMobileHooks(): GatewayHooks {
     onPair: (req, res) => void onPair(req, res),
     onLogout: (req, res) => void onLogout(req, res),
     onDownloadsStatus: (req, res) => void onDownloadsStatus(req, res),
+    onDownloadHint: (req, res) => void onDownloadHint(req, res),
     onDownloadStart: (req, res) => void onDownloadStart(req, res),
     onDownloadStop: (req, res) => void onDownloadStop(req, res),
     onOfflineIndex: (req, res) => void onOfflineIndex(req, res),

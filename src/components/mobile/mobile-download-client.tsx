@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { BackIcon } from "@/components/icons";
 import {
@@ -9,90 +9,195 @@ import {
   MobileRunsList,
   useMobileDownloads,
 } from "@/components/mobile/mobile-runs-list";
+import { RunForm } from "@/components/run-form";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
-import { Segmented } from "@/components/ui/segmented";
-import { TextField } from "@/components/ui/text-field";
-import type { DownloadKind } from "@/lib/mobile-downloads";
-import { interpretDownloadInput } from "@/lib/x-url";
+import { Switch } from "@/components/ui/switch";
+import { parallelBlock } from "@/lib/command";
+import { changedAdvancedKeys, datePresetRange, templateToSegments } from "@/lib/form-helpers";
+import type { DatePreset, LayoutKind } from "@/lib/form-helpers";
+import { FOLDER_PATTERN, folderNameFor, siteDef, validateAccount } from "@/lib/sites";
+import { createDefaultSpec } from "@/lib/spec";
+import type { AccountHint, Advanced, JobSpec, Layout, Settings, SiteId } from "@/lib/spec";
+import { parseXPostUrl } from "@/lib/x-url";
 
-type Mode = "account" | "post";
+// Same values as the desktop Run screen, so a run started from the phone behaves like one started at the PC.
+const CAUGHT_UP_AFTER = 20;
+const HINT_DEBOUNCE_MS = 300;
+const DEFAULT_TEMPLATE = "{date:%Y}";
 
-export function MobileDownloadClient() {
+export type MobileRunDefaults = Pick<Settings, "defaultMedia" | "defaultLayout" | "cookies">;
+
+interface MobileDownloadClientProps {
+  defaults: MobileRunDefaults;
+  initialSite?: SiteId;
+  initialAccount?: string;
+}
+
+function layoutFor(kind: LayoutKind, templateText: string): Layout {
+  return kind === "custom" ? { kind, template: templateToSegments(templateText) } : { kind };
+}
+
+function xPostOf(raw: string) {
+  const trimmed = raw.trim();
+  return parseXPostUrl(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+}
+
+export function MobileDownloadClient({ defaults, initialSite, initialAccount = "" }: MobileDownloadClientProps) {
   const { loaded, canDownload, runs, loadError, startDownload, stopDownload } = useMobileDownloads();
-  const [input, setInput] = useState("");
-  const [mode, setMode] = useState<Mode>("account");
-  const [kind, setKind] = useState<DownloadKind>("both");
-  const [submitting, setSubmitting] = useState(false);
+  const [spec, setSpec] = useState<JobSpec>(() => ({
+    ...createDefaultSpec(defaults),
+    site: initialSite ?? "x",
+  }));
+  const [accountInput, setAccountInput] = useState(() => {
+    const site = initialSite ?? "x";
+    const parsed = initialAccount && site !== "url" ? validateAccount(site, initialAccount) : null;
+    return parsed?.ok ? parsed.account : initialAccount;
+  });
+  const [postId, setPostId] = useState<string | null>(() =>
+    (initialSite ?? "x") === "x" && initialAccount ? (xPostOf(initialAccount)?.postId ?? null) : null,
+  );
+  const [onlyPost, setOnlyPost] = useState(true);
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [templateText, setTemplateText] = useState(
+    defaults.defaultLayout.kind === "custom" ? defaults.defaultLayout.template.join("/") : DEFAULT_TEMPLATE,
+  );
+  const [folderOverride, setFolderOverride] = useState("");
+  const [caughtUpChoice, setCaughtUpChoice] = useState<boolean | null>(null);
+  const [remoteHint, setRemoteHint] = useState<{ key: string; hint: AccountHint } | null>(null);
+  const [pending, setPending] = useState<"preview" | "download" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedNote, setStartedNote] = useState<string | null>(null);
 
-  const interpreted = interpretDownloadInput(input);
+  const site = siteDef(spec.site);
+  const validation = accountInput.trim() ? validateAccount(spec.site, accountInput) : null;
+  const account = validation?.ok ? validation.account : "";
+  const accountError = validation && !validation.ok ? validation.message : undefined;
 
-  function handleInputChange(next: string) {
-    setInput(next);
+  const folderTrimmed = folderOverride.trim();
+  const folderError =
+    folderTrimmed && (!FOLDER_PATTERN.test(folderTrimmed) || folderTrimmed.endsWith("."))
+      ? "Use 1–64 letters, numbers, dots, dashes or _."
+      : undefined;
+
+  const hintKey = `${spec.site}|${account}|${folderTrimmed}`;
+  const hint: AccountHint | null = account && remoteHint?.key === hintKey ? remoteHint.hint : null;
+
+  useEffect(() => {
+    if (!account) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const query = new URLSearchParams({ site: spec.site, account });
+      if (folderTrimmed) query.set("folder", folderTrimmed);
+      try {
+        const response = await fetch(`/m/api/downloads/hint?${query}`, { cache: "no-store" });
+        const body = (await response.json().catch(() => null)) as { hint?: AccountHint } | null;
+        if (!cancelled && body?.hint) setRemoteHint({ key: hintKey, hint: body.hint });
+      } catch {
+        // The hint is a convenience; the run still validates on the PC.
+      }
+    }, HINT_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [spec.site, account, folderTrimmed, hintKey]);
+
+  const singlePost = spec.site === "x" && postId !== null && onlyPost;
+  const defaultCaughtUp = hint?.kind === "exists";
+  const caughtUp = caughtUpChoice ?? defaultCaughtUp;
+
+  const parallelReason = parallelBlock({ ...spec, account });
+  const parallel = parallelReason === null ? spec.advanced.parallel : undefined;
+
+  const effectiveSpec: JobSpec = {
+    ...spec,
+    account,
+    ...(singlePost && postId ? { postId } : {}),
+    folder: folderError ? undefined : folderTrimmed || undefined,
+    advanced: {
+      ...spec.advanced,
+      parallel,
+      abortAfterSkipped: caughtUp && !singlePost ? CAUGHT_UP_AFTER : undefined,
+    },
+  };
+
+  const previewAccount = account || (spec.site === "url" ? "https://example.com/" : site.placeholder);
+  const folderName = folderNameFor({ ...effectiveSpec, account: previewAccount });
+
+  const dateError =
+    datePreset === "custom" && spec.dateFrom && spec.dateTo && spec.dateFrom > spec.dateTo
+      ? "Start date is after end date."
+      : undefined;
+  const emptyTemplate = spec.layout.kind === "custom" && spec.layout.template.length === 0;
+
+  let reason: string | null = null;
+  if (loaded && !canDownload) reason = 'Turn on "Can start downloads" for this phone in Settings on the PC.';
+  else if (!accountInput.trim()) reason = "Enter an account first";
+  else if (accountError) reason = "Fix the account first";
+  else if (hint?.kind === "reserved") reason = "Choose a different folder name in Advanced → Folder name";
+  else if (folderError) reason = "Fix the folder name first";
+  else if (dateError) reason = dateError;
+  else if (emptyTemplate) reason = "Enter a folder template first";
+
+  const advancedChanged =
+    changedAdvancedKeys({ ...spec.advanced, parallel }, defaults.cookies).length +
+    (folderTrimmed ? 1 : 0) +
+    (caughtUp !== defaultCaughtUp ? 1 : 0);
+
+  function patchSpec(patch: Partial<JobSpec>) {
+    setSpec((current) => ({ ...current, ...patch }));
+  }
+
+  function resetNotes() {
     setError(null);
     setStartedNote(null);
-    const detected = interpretDownloadInput(next);
-    if (detected.kind === "post") setMode("post");
-    else if (detected.kind === "account") setMode("account");
   }
 
-  let targetHandle: string | null = null;
-  let postUrl: string | null = null;
-  let postId: string | null = null;
-  let validationHint: string | null = null;
-
-  if (mode === "post") {
-    if (interpreted.kind === "post") {
-      targetHandle = interpreted.post.handle;
-      postUrl = interpreted.post.canonicalUrl;
-      postId = interpreted.post.postId;
-    } else if (interpreted.kind !== "empty") {
-      validationHint = "Paste an X post link like https://x.com/username/status/123456.";
-    }
-  } else if (interpreted.kind === "post") {
-    targetHandle = interpreted.post.handle;
-  } else if (interpreted.kind === "account") {
-    targetHandle = interpreted.handle;
-  } else if (interpreted.kind === "invalid") {
-    validationHint = "X handles are 1–15 letters, numbers or _, or paste an X post link.";
+  function onSite(next: SiteId) {
+    resetNotes();
+    setPostId(null);
+    patchSpec({ site: next });
   }
 
-  const ready = mode === "post" ? Boolean(postUrl) : Boolean(targetHandle);
-  const canSubmit = loaded && canDownload && ready && !submitting;
-
-  let disabledReason: string | null = null;
-  if (loaded && !canDownload) {
-    disabledReason = 'Enable "Can start downloads" for this phone in Settings on the PC.';
-  } else if (interpreted.kind === "empty") {
-    disabledReason = "Enter an X handle or paste a post link first.";
-  } else if (validationHint) {
-    disabledReason = validationHint;
+  function onAccountInput(raw: string) {
+    resetNotes();
+    setPostId(spec.site === "x" ? (xPostOf(raw)?.postId ?? null) : null);
+    const parsed = spec.site !== "url" && /[/.]/.test(raw) ? validateAccount(spec.site, raw) : null;
+    setAccountInput(parsed?.ok ? parsed.account : raw);
   }
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!canSubmit) return;
-    setError(null);
-    setStartedNote(null);
-    setSubmitting(true);
-    const result =
-      mode === "post" && postUrl
-        ? await startDownload({ mode: "post", url: postUrl })
-        : targetHandle
-          ? await startDownload({ mode: "account", account: targetHandle, kind })
-          : ({ ok: false, error: "Enter a handle or post link first." } as const);
-    setSubmitting(false);
+  function onDatePreset(preset: DatePreset) {
+    setDatePreset(preset);
+    if (preset !== "custom") patchSpec({ dateFrom: undefined, dateTo: undefined, ...datePresetRange(preset, new Date()) });
+  }
+
+  function onLayoutKind(kind: LayoutKind) {
+    patchSpec({ layout: layoutFor(kind, templateText) });
+  }
+
+  function onTemplateText(text: string) {
+    setTemplateText(text);
+    if (spec.layout.kind === "custom") patchSpec({ layout: layoutFor("custom", text) });
+  }
+
+  async function submit(simulate: boolean) {
+    if (reason !== null || pending !== null || !loaded) return;
+    resetNotes();
+    setPending(simulate ? "preview" : "download");
+    const result = await startDownload({ mode: "run", spec: { ...effectiveSpec, simulate } });
+    setPending(null);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setStartedNote(
-      mode === "post" && postId && targetHandle
-        ? `Queued post ${postId} from @${targetHandle}.`
-        : `Queued @${targetHandle}.`,
-    );
+    const what = singlePost ? `post ${postId} from ${folderName}` : folderName;
+    setStartedNote(simulate ? `Queued a preview of ${what}.` : `Queued ${what}.`);
+  }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    void submit(false);
   }
 
   return (
@@ -106,62 +211,54 @@ export function MobileDownloadClient() {
           Back to library
         </Link>
         <h1 className="m-0 text-display">Download</h1>
+        <p className="m-0 text-small text-ink-2">Runs on the PC and saves straight into your library.</p>
       </div>
 
       {loadError ? <Notice tone="danger">{loadError}</Notice> : null}
       <MobilePermissionNotice loaded={loaded} canDownload={canDownload} />
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <TextField
-          label="Account or post link"
-          mono
-          placeholder="@username or x.com/user/status/..."
-          value={input}
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          error={validationHint ?? undefined}
-          hint={
-            !validationHint && mode === "post" && postId && targetHandle
-              ? `Post ${postId} · saves to ${targetHandle}/Image and ${targetHandle}/Video`
-              : !validationHint && mode === "account" && targetHandle
-                ? `Saves to ${targetHandle}/Image and ${targetHandle}/Video`
-                : "Runs on the PC and saves straight into your library."
-          }
-          onChange={(event) => handleInputChange(event.target.value)}
-          className="[&_input]:min-h-11 [&>div]:min-h-11"
+      <form onSubmit={onSubmit} className="flex flex-col gap-2">
+        <RunForm
+          spec={spec}
+          accountInput={accountInput}
+          accountError={accountError}
+          hint={hint}
+          folderName={folderName}
+          onSite={onSite}
+          onAccountInput={onAccountInput}
+          onMedia={(media) => patchSpec({ media })}
+          datePreset={datePreset}
+          dateError={dateError}
+          onDatePreset={onDatePreset}
+          onDates={(dates) => patchSpec(dates)}
+          onLayoutKind={onLayoutKind}
+          templateText={templateText}
+          onTemplateText={onTemplateText}
+          onAdvanced={(patch: Partial<Advanced>) => patchSpec({ advanced: { ...spec.advanced, ...patch } })}
+          cookiesDefault={defaults.cookies}
+          folderOverride={folderOverride}
+          folderError={folderError}
+          onFolderChange={setFolderOverride}
+          caughtUp={caughtUp}
+          caughtUpChanged={caughtUp !== defaultCaughtUp}
+          onCaughtUpChange={setCaughtUpChoice}
+          onCaughtUpReset={() => setCaughtUpChoice(null)}
+          advancedChanged={advancedChanged}
+          parallelBlock={parallelReason}
+          linkRuns={false}
         />
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-label text-ink">What to download</span>
-          <Segmented
-            label="What to download"
-            columns={2}
-            value={mode}
-            onChange={(value) => {
-              setMode(value as Mode);
-              setError(null);
-            }}
-            options={[
-              { value: "account", label: "Whole account" },
-              { value: "post", label: "This post" },
-            ]}
-          />
-        </div>
-
-        {mode === "account" ? (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-label text-ink">Media</span>
-            <Segmented
-              label="Media"
-              columns={3}
-              value={kind}
-              onChange={(value) => setKind(value as DownloadKind)}
-              options={[
-                { value: "image", label: "Images" },
-                { value: "video", label: "Videos" },
-                { value: "both", label: "Both" },
-              ]}
+        {spec.site === "x" && postId ? (
+          <div className="border-t border-line py-4">
+            <Switch
+              label="Only this post"
+              hint={
+                onlyPost
+                  ? `Downloads post ${postId} only, into ${folderName}/.`
+                  : `Downloads every post from @${account || "this account"}.`
+              }
+              checked={onlyPost}
+              onChange={setOnlyPost}
             />
           </div>
         ) : null}
@@ -169,17 +266,29 @@ export function MobileDownloadClient() {
         {error ? <Notice tone="danger">{error}</Notice> : null}
         {startedNote ? <Notice tone="info">{startedNote}</Notice> : null}
 
-        <div className="flex flex-col gap-1.5 pt-1">
-          <Button
-            type="submit"
-            variant="primary"
-            className="min-h-11 w-full"
-            loading={submitting}
-            disabled={!canSubmit}
-          >
-            Download
-          </Button>
-          {disabledReason ? <p className="m-0 text-small text-ink-2">{disabledReason}</p> : null}
+        <div className="flex flex-col gap-2 border-t border-line pt-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11 w-full"
+              loading={pending === "preview"}
+              disabled={reason !== null || pending !== null || !loaded}
+              onClick={() => void submit(true)}
+            >
+              Preview files
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="min-h-11 w-full"
+              loading={pending === "download"}
+              disabled={reason !== null || pending !== null || !loaded}
+            >
+              {hint?.kind === "active" ? "Queue" : "Download"}
+            </Button>
+          </div>
+          {reason ? <p className="m-0 text-small text-ink-2">{reason}</p> : null}
         </div>
       </form>
 

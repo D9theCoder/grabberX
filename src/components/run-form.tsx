@@ -49,6 +49,8 @@ interface RunFormProps {
   advancedChanged: number;
   /** Why this run cannot download in parallel; null when it can. */
   parallelBlock: string | null;
+  /** False on the phone, which cannot open the desktop's History pages. */
+  linkRuns?: boolean;
 }
 
 /**
@@ -66,7 +68,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function hintText(hint: AccountHint | null): { text: ReactNode; error?: string } {
+function hintText(hint: AccountHint | null, linkRuns: boolean): { text: ReactNode; error?: string } {
   switch (hint?.kind) {
     case "exists":
       return {
@@ -88,10 +90,15 @@ function hintText(hint: AccountHint | null): { text: ReactNode; error?: string }
       return {
         text: (
           <span className="text-warn">
-            A run for this account is in progress.{" "}
-            <Link href={`/history/${hint.runId}`} className="underline underline-offset-2">
-              View run
-            </Link>
+            A run for this account is in progress.
+            {linkRuns ? (
+              <>
+                {" "}
+                <Link href={`/history/${hint.runId}`} className="underline underline-offset-2">
+                  View run
+                </Link>
+              </>
+            ) : null}
           </span>
         ),
       };
@@ -106,7 +113,7 @@ export function RunForm(props: RunFormProps) {
   const { spec } = props;
   const site = siteDef(spec.site);
   const isUrl = spec.site === "url";
-  const accountHint = hintText(props.hint);
+  const accountHint = hintText(props.hint, props.linkRuns ?? true);
   const layoutMismatch =
     props.hint?.kind === "exists" &&
     props.hint.layout !== "unknown" &&

@@ -5,17 +5,16 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { AccountHint, ActionResult, JobSpec, Settings, SiteId } from "@/lib/spec";
+import type { AccountHint, ActionResult, Settings, SiteId } from "@/lib/spec";
 import { classifyCookieCheck } from "@/lib/cookie-check";
 import type { CookieCheckKind } from "@/lib/cookie-check";
-import { parseJobSpec } from "@/lib/spec-schema";
 import { folderNameFor, siteDef, validateAccount } from "@/lib/sites";
 import { cutoffSiteOf, tipForSpec } from "@/lib/twitter-id";
 import { readArchiveTip } from "@/server/archive";
 import { lastLine, runGalleryDl } from "@/server/gallery-dl";
 import { getAccountHint } from "@/server/library";
-import { isReserved, isValidFolderName } from "@/server/paths";
 import { runQueue } from "@/server/run-queue";
+import { accountHintInput, prepareRunSpec } from "@/server/run-request";
 import { killTreeWindows } from "@/server/runner";
 import { refreshScheduler } from "@/server/scheduler";
 import {
@@ -36,21 +35,6 @@ const COOKIE_CHECK_TIMEOUT_MS = 20_000;
 /** The probe account does not have to exist: a signed-out session fails before any lookup. */
 const PROBE_ACCOUNT = "example_user";
 
-const hintInput = z.object({
-  site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit", "url"]),
-  account: z.string(),
-  folder: z.string().optional(),
-});
-
-function folderProblem(folder: string): string | null {
-  if (!isValidFolderName(folder)) {
-    return "Folder names can use letters, numbers, dots, dashes and underscores, up to 64 characters.";
-  }
-  if (isReserved(folder)) {
-    return `"${folder}" is used by the app itself. Choose a different folder name in Advanced → Folder name.`;
-  }
-  return null;
-}
 
 /** Our validation messages are safe to show; fs errors mention paths and get a plain line. */
 function settingsError(error: unknown): string {
@@ -61,24 +45,9 @@ function settingsError(error: unknown): string {
 export async function startRun(
   input: unknown,
 ): Promise<ActionResult<{ runId: string; position: number }>> {
-  const parsed = parseJobSpec(input);
-  if (!parsed.ok) return { ok: false, error: parsed.error };
-
-  const validated = validateAccount(parsed.data.site, parsed.data.account);
-  if (!validated.ok) return { ok: false, error: validated.message };
-  const spec: JobSpec = { ...parsed.data, account: validated.account };
-
-  let folder: string;
-  try {
-    folder = folderNameFor(spec);
-  } catch {
-    return {
-      ok: false,
-      error: "That account can't be used as a folder name. Pick one in Advanced → Folder name.",
-    };
-  }
-  const problem = folderProblem(folder);
-  if (problem) return { ok: false, error: problem };
+  const prepared = prepareRunSpec(input);
+  if (!prepared.ok) return { ok: false, error: prepared.error };
+  const spec = prepared.spec;
 
   try {
     const run = await runQueue.enqueue(spec);
@@ -303,7 +272,7 @@ export async function checkCookies(
 }
 
 export async function accountHint(input: unknown): Promise<AccountHint> {
-  const parsed = hintInput.safeParse(input);
+  const parsed = accountHintInput.safeParse(input);
   if (!parsed.success) return { kind: "empty" };
   try {
     return await getAccountHint({

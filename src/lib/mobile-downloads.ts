@@ -6,12 +6,23 @@ export type DownloadKind = "image" | "video" | "both";
 export const remoteDownloadRequestSchema = z.discriminatedUnion("mode", [
   z.strictObject({
     mode: z.literal("account"),
-    account: z.string().trim().min(1, "Enter an account.").max(100, "That handle is too long."),
+    site: z.enum(["x", "instagram", "bluesky", "pixiv", "reddit"]).optional(),
+    account: z.string().trim().min(1, "Enter an account.").max(2048, "That handle is too long."),
+    kind: z.enum(["image", "video", "both"], "Choose image, video, or both."),
+  }),
+  z.strictObject({
+    mode: z.literal("link"),
+    url: z.string().trim().min(1, "Paste a link.").max(2048, "That link is too long."),
     kind: z.enum(["image", "video", "both"], "Choose image, video, or both."),
   }),
   z.strictObject({
     mode: z.literal("post"),
     url: z.string().trim().min(1, "Paste a post link.").max(2048, "That link is too long."),
+  }),
+  // The same JobSpec the desktop Run form sends; the server checks it exactly like the desktop's startRun.
+  z.strictObject({
+    mode: z.literal("run"),
+    spec: z.unknown(),
   }),
 ]);
 

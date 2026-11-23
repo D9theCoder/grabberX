@@ -365,6 +365,75 @@ describe("remote downloads via mobile hooks", () => {
     expect(runnerMock.calls[1]!.at(-1)).toBe("https://x.com/alice_art/status/1834220145123456789");
   });
 
+  it("accepts the full desktop run form for every site and checks it like the desktop does", async () => {
+    const cookie = await pairPhone(true);
+    const start = (body: unknown) =>
+      fetch(url("/m/api/downloads"), {
+        method: "POST",
+        headers: { ...JSON_HEADERS, cookie },
+        body: JSON.stringify(body),
+      });
+    const desktopSpec = {
+      site: "instagram",
+      account: "https://www.instagram.com/some.artist/",
+      media: "images",
+      layout: { kind: "byTypeYear" },
+      simulate: false,
+      advanced: { ...DEFAULT_ADVANCED, cookies: { browser: "firefox" } },
+    };
+
+    const res = await start({ mode: "run", spec: desktopSpec });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const finished = await queueModule.runQueue.waitFor(data.runId);
+    expect(finished?.remote).toBe(true);
+    expect(finished?.spec).toMatchObject({ site: "instagram", account: "some.artist", layout: { kind: "byTypeYear" } });
+    const steps = runnerMock.calls.filter((argv) => !argv.includes("-j"));
+    expect(steps.at(-1)!.at(-1)).toBe("https://www.instagram.com/some.artist/");
+
+    for (const bad of [
+      { ...desktopSpec, site: "myspace" },
+      { ...desktopSpec, account: "https://x.com/not_instagram" },
+      { ...desktopSpec, folder: "src" },
+      { ...desktopSpec, site: "url", account: "ftp://example.com/" },
+      { ...desktopSpec, postId: "123" },
+    ]) {
+      expect((await start({ mode: "run", spec: bad })).status, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
+  it("queues a named-site account and an Other URL link from the share sheet", async () => {
+    const cookie = await pairPhone(true);
+    const start = (body: unknown) =>
+      fetch(url("/m/api/downloads"), {
+        method: "POST",
+        headers: { ...JSON_HEADERS, cookie },
+        body: JSON.stringify(body),
+      });
+
+    const account = await (await start({ mode: "account", site: "reddit", account: "someone", kind: "image" })).json();
+    expect((await queueModule.runQueue.waitFor(account.runId))?.spec).toMatchObject({ site: "reddit", account: "someone" });
+
+    const link = await (await start({ mode: "link", url: "https://example.com/gallery/42", kind: "both" })).json();
+    const linkRun = await queueModule.runQueue.waitFor(link.runId);
+    expect(linkRun?.spec).toMatchObject({ site: "url", account: "https://example.com/gallery/42", media: "all" });
+
+    expect((await start({ mode: "link", url: "javascript:alert(1)", kind: "both" })).status).toBe(400);
+    expect((await start({ mode: "account", site: "url", account: "https://example.com/", kind: "both" })).status).toBe(400);
+  });
+
+  it("answers the account hint for a paired phone, even without download permission", async () => {
+    expect((await fetch(url("/m/api/downloads/hint?site=x&account=alice"))).status).toBe(401);
+    const cookie = await pairPhone(false);
+    const hint = await fetch(url("/m/api/downloads/hint?site=x&account=new_person"), { headers: { cookie } });
+    expect(hint.status).toBe(200);
+    expect((await hint.json()).hint).toMatchObject({ kind: "new", folder: "new_person" });
+    const reserved = await fetch(url("/m/api/downloads/hint?site=x&account=alice&folder=src"), { headers: { cookie } });
+    expect((await reserved.json()).hint).toMatchObject({ kind: "reserved" });
+    const junk = await fetch(url("/m/api/downloads/hint?site=nope&account=alice"), { headers: { cookie } });
+    expect((await junk.json()).hint).toEqual({ kind: "empty" });
+  });
+
   it("stops only phone-started runs via taskkill + .part cleanup, and refuses desktop runs", async () => {
     const cookie = await pairPhone(true);
     runnerMock.mode = "tree";

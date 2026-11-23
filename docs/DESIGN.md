@@ -424,7 +424,7 @@ narrow (max 672 px): it is read one field at a time, while Run, Library and Hist
 shows the same two warnings as the Run screen, and reads nothing when the browser is **None**.
 
 **Mobile gallery.** Lists paired phones with inline rename, `Remove`, and a per-device **Can start downloads**
-switch (off by default). Turning it on lets that phone queue X downloads onto the PC from `/m/download` and `/m/share`.
+switch (off by default). Turning it on lets that phone queue downloads onto the PC from `/m/download` and `/m/share`.
 When a Tailscale address is present, pairing defaults to it and explains that using one address keeps a single browser origin
 and offline cache at home and away.
 
@@ -456,15 +456,20 @@ The hint notes that anything cached on the phone is visible to anyone who can un
   Layer 3 reduced-quality images and playable MP4s (`Saved offline copy`) before falling back to 320 px thumbnails in the
   lightbox, and shows PC-only actions (`Download`, `Download zip`, `View original`) as disabled. When offline with no synced
   data, falls back to `"Can’t reach your PC"` and `Try again`.
-- **Download (`/m/download`).** Mobile-first form with 44 px touch targets: one mono field for an X handle or
-  pasted post link, a `Whole account` / `This post` switch, `Images` / `Videos` / `Both` for whole-account runs,
-  and a live `Runs` list below showing status, counters, estimated progress, and `Stop`/`Cancel` for phone-started runs.
-  When **Can start downloads** is off for this phone, a notice explains how to turn it on in PC Settings and the
-  submit button stays disabled with that reason below it.
+- **Download (`/m/download`).** The desktop Run form itself (`RunForm`), stacked one column: every site (X, Instagram,
+  Bluesky, Pixiv, Reddit, Other URL), Media, Dates, Folders, and Advanced, with the same account hint (read from
+  `GET /m/api/downloads/hint`; "View run" is left out because the phone can't open History). Pasting an X post link adds an
+  **Only this post** switch (on by default). `Preview files` and `Download` (`Queue` while the account has a run) sit
+  side by side at 44 px, the reason sits under them when they are disabled, and a live `Runs` list below shows status,
+  counters, progress, and `Stop`/`Cancel` for phone-started runs. There is no command panel: the phone never sees PC
+  paths. When **Can start downloads** is off for this phone, a notice explains how to turn it on in PC Settings.
+  `?site=&account=` prefill the form (used by the share page's **More options**).
 - **Share target (`/m/share`).** Installed PWA share target (`share_target` in `manifest.ts`, GET `title`/`text`/`url`).
-  Extracts the first X/Twitter status link (including links embedded in `text` by the Android X app) and offers
-  **Download this post** and **Download all media from @handle** (with `Images` / `Videos` / `Both`), then shows
-  the same live `Runs` list below.
+  Takes the best link in `url`, `text` or `title` (an X post first, then any supported site, then any web link). An X post
+  offers **Download this post** and **Download all media from @handle**; another site's link with a readable profile offers
+  **Download all media from @name** (or `name on Bluesky`) and **Download just this link**; any other link offers
+  **Download this link** (runs as Other URL). `Images` / `Videos` / `Both` applies to the account and link buttons. The
+  live `Runs` list sits below.
 
 ---
 

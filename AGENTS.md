@@ -90,9 +90,11 @@ ADR-11, ADR-12 and ADR-13 in `docs/ARCHITECTURE.md` before changing it.
   (device revoked), the phone wipes all offline storage.
 - Remote downloads are opt-in per device (`canDownload` in `.gather/devices.json`, off by default, toggled via
   "Can start downloads" in Settings → Mobile gallery). Only when enabled for that session cookie may a phone call
-  `POST /m/api/downloads` (X handle or single X post URL, rebuilt server-side into `buildCommand` + `RunQueue`) or
-  `POST /m/api/downloads/stop` (stops phone-started runs only via `RunQueue.stop`). Desktop Server Actions and all
-  other write routes stay blocked, and proxying still strips cookies/origin.
+  `POST /m/api/downloads` (the desktop Run form's full `JobSpec` for any site, a site account, a link, or a single X
+  post) or `POST /m/api/downloads/stop` (stops phone-started runs only via `RunQueue.stop`). Every start goes through
+  `prepareRunSpec` (`src/server/run-request.ts`), the same check the desktop `startRun` action uses, so the phone can
+  never queue what the desktop form would refuse. `GET /m/api/downloads/hint` (session only) serves the Run form's account
+  hint. Desktop Server Actions and all other write routes stay blocked, and proxying still strips cookies/origin.
 - The gateway sends `Referrer-Policy: same-origin`, not `no-referrer`: Chrome sends `Origin: null` on a same-origin
   form POST under `no-referrer`, which the Origin check rightly rejects.
 - The gateway does not proxy the dev server's hot-reload socket, so the phone pages only hydrate against a

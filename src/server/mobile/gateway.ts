@@ -13,6 +13,7 @@ export type RouteClass =
   | "pair"
   | "logout"
   | "downloads-status"
+  | "downloads-hint"
   | "downloads-start"
   | "downloads-stop"
   | "offline-index"
@@ -63,6 +64,7 @@ export function classifyRoute(method: string | undefined, rawUrl: string | undef
   if (verb !== "GET" && verb !== "HEAD") return "blocked";
   if (path === "/m/ca.crt") return "ca";
   if (path === "/m/api/downloads") return "downloads-status";
+  if (path === "/m/api/downloads/hint") return "downloads-hint";
   if (path === "/m/api/offline/index") return "offline-index";
   if (path === "/m/api/offline/thumb") return "offline-thumb";
   if (path === "/m/api/offline/file") return "offline-file";
@@ -183,6 +185,8 @@ export interface GatewayHooks {
   onPair?(req: IncomingMessage, res: ServerResponse): void;
   onLogout?(req: IncomingMessage, res: ServerResponse): void;
   onDownloadsStatus?(req: IncomingMessage, res: ServerResponse): void;
+  /** Read-only: what the desktop Run form says about an account (new, already in the library, reserved). */
+  onDownloadHint?(req: IncomingMessage, res: ServerResponse): void;
   onDownloadStart?(req: IncomingMessage, res: ServerResponse): void;
   onDownloadStop?(req: IncomingMessage, res: ServerResponse): void;
   onOfflineIndex?(req: IncomingMessage, res: ServerResponse): void;
@@ -277,13 +281,15 @@ export function createGatewayHandler(options: GatewayOptions) {
         return options.onPair ? options.onPair(req, res) : reply(res, 404, "Not found.\n");
       case "logout":
         return options.onLogout ? options.onLogout(req, res) : reply(res, 404, "Not found.\n");
-      case "downloads-status": {
-        if (!options.onDownloadsStatus) return reply(res, 404, "Not found.\n");
+      case "downloads-status":
+      case "downloads-hint": {
+        const handler = route === "downloads-status" ? options.onDownloadsStatus : options.onDownloadHint;
+        if (!handler) return reply(res, 404, "Not found.\n");
         const token = readSessionCookie(req.headers.cookie);
         if (!options.authorize(token, peerOf(req))) {
           return replyJson(res, 401, { ok: false, error: "Pair this phone from grabberX on the PC first." });
         }
-        return options.onDownloadsStatus(req, res);
+        return handler(req, res);
       }
       case "offline-index": {
         if (!options.onOfflineIndex) return reply(res, 404, "Not found.\n");

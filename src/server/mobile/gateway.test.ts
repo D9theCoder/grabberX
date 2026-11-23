@@ -52,6 +52,9 @@ describe("classifyRoute", () => {
     expect(classifyRoute("PUT", "/m/api/downloads")).toBe("blocked");
     expect(classifyRoute("GET", "/m/api/pair")).toBe("blocked");
     expect(classifyRoute("GET", "/m/api/downloads/stop")).toBe("blocked");
+    expect(classifyRoute("GET", "/m/api/downloads/hint?site=x&account=a")).toBe("downloads-hint");
+    expect(classifyRoute("HEAD", "/m/api/downloads/hint")).toBe("downloads-hint");
+    expect(classifyRoute("POST", "/m/api/downloads/hint")).toBe("blocked");
     expect(classifyRoute("GET", "/m/api/other")).toBe("blocked");
   });
 

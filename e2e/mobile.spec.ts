@@ -486,10 +486,22 @@ test.describe("mobile gallery", () => {
       // Phone can now queue a whole-account download and see status.
       await mobile.reload();
       await expect(mobile.getByText("Downloads are off for this phone")).toHaveCount(0);
-      await mobile.getByLabel("Account or post link").fill("alice_e2e");
+      // The phone has the desktop's whole Run form: every site, Other URL, and the Advanced options.
+      for (const siteLabel of ["X", "Instagram", "Bluesky", "Pixiv", "Reddit", "Other URL"]) {
+        await expect(mobile.getByRole("radio", { name: siteLabel, exact: true })).toBeVisible();
+      }
+      await mobile.getByText("Advanced", { exact: true }).click();
+      await expect(mobile.getByLabel("Folder name")).toBeVisible();
+      await mobile.getByLabel("Account", { exact: true }).fill("alice_e2e");
       await expect(submitBtn).toBeEnabled();
       await submitBtn.click();
       await expect(mobile.getByText("@alice_e2e").first()).toBeVisible();
+      expect(await mobile.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+      // A shared Instagram profile offers the whole account and the link itself.
+      await mobile.goto(`${GATEWAY}/m/share?url=https%3A%2F%2Fwww.instagram.com%2Fsome.artist%2F`);
+      await expect(mobile.getByRole("button", { name: "Download all media from @some.artist" })).toBeEnabled();
+      await expect(mobile.getByRole("button", { name: "Download just this link" })).toBeEnabled();
 
       // Share target extracts X post URL from text parameter (Android X app style).
       await mobile.goto(

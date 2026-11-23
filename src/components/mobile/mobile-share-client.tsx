@@ -11,46 +11,63 @@ import {
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
-import type { DownloadKind } from "@/lib/mobile-downloads";
-import type { ParsedXPost } from "@/lib/x-url";
+import type { DownloadKind, RemoteDownloadRequest } from "@/lib/mobile-downloads";
+import type { SharedLink } from "@/lib/share-link";
+import { siteDef } from "@/lib/sites";
 
-export function MobileShareClient({
-  parsedPost,
-  parsedAccount,
-}: {
-  parsedPost: ParsedXPost | null;
-  parsedAccount: string | null;
-}) {
+type Action = "post" | "account" | "link";
+
+const ACTION_BUTTON = "min-h-11 w-full";
+
+function accountLabel(link: SharedLink): string {
+  if (!link.site || !link.account) return "";
+  const def = siteDef(link.site.id);
+  return def.prefix === "@" ? `@${link.account}` : `${link.account} on ${link.site.label}`;
+}
+
+function fullFormHref(link: SharedLink): string {
+  const query = new URLSearchParams(
+    link.site ? { site: link.site.id, account: link.post ? link.url : (link.account ?? link.url) } : { site: "url", account: link.url },
+  );
+  return `/m/download?${query}`;
+}
+
+export function MobileShareClient({ link }: { link: SharedLink | null }) {
   const { loaded, canDownload, runs, loadError, startDownload, stopDownload } = useMobileDownloads();
   const [kind, setKind] = useState<DownloadKind>("both");
-  const [pending, setPending] = useState<"post" | "account" | null>(null);
+  const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedNote, setStartedNote] = useState<string | null>(null);
 
-  const handle = parsedPost?.handle ?? parsedAccount;
   const actionsDisabled = !loaded || !canDownload || pending !== null;
 
-  async function runPost() {
-    if (!parsedPost || actionsDisabled) return;
+  async function run(action: Action, payload: RemoteDownloadRequest, note: string) {
+    if (actionsDisabled) return;
     setError(null);
     setStartedNote(null);
-    setPending("post");
-    const result = await startDownload({ mode: "post", url: parsedPost.canonicalUrl });
+    setPending(action);
+    const result = await startDownload(payload);
     setPending(null);
     if (!result.ok) setError(result.error);
-    else setStartedNote(`Queued post ${parsedPost.postId} from @${parsedPost.handle}.`);
+    else setStartedNote(note);
   }
 
-  async function runAccount() {
-    if (!handle || actionsDisabled) return;
-    setError(null);
-    setStartedNote(null);
-    setPending("account");
-    const result = await startDownload({ mode: "account", account: handle, kind });
-    setPending(null);
-    if (!result.ok) setError(result.error);
-    else setStartedNote(`Queued @${handle}.`);
-  }
+  const kindPicker = (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-label text-ink">Media</span>
+      <Segmented
+        label="Media"
+        columns={3}
+        value={kind}
+        onChange={(value) => setKind(value as DownloadKind)}
+        options={[
+          { value: "image", label: "Images" },
+          { value: "video", label: "Videos" },
+          { value: "both", label: "Both" },
+        ]}
+      />
+    </div>
+  );
 
   return (
     <main className="mx-auto flex max-w-xl flex-col gap-5 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-12">
@@ -64,10 +81,10 @@ export function MobileShareClient({
             Library
           </Link>
           <Link
-            href="/m/download"
+            href={link ? fullFormHref(link) : "/m/download"}
             className="inline-flex min-h-11 items-center text-small text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
           >
-            Download page
+            {link ? "More options" : "Download page"}
           </Link>
         </div>
         <h1 className="m-0 text-display">Shared link</h1>
@@ -76,81 +93,65 @@ export function MobileShareClient({
       {loadError ? <Notice tone="danger">{loadError}</Notice> : null}
       <MobilePermissionNotice loaded={loaded} canDownload={canDownload} />
 
-      {parsedPost ? (
+      {link ? (
         <div className="flex flex-col gap-4 rounded-lg border border-line-strong bg-surface p-4">
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-title text-ink">@{parsedPost.handle}</span>
-            <span className="font-mono text-small break-all text-ink-2">{parsedPost.canonicalUrl}</span>
+            <span className="font-mono text-title text-ink">
+              {link.post ? `@${link.post.handle}` : link.account ? accountLabel(link) : (link.site?.label ?? "Other link")}
+            </span>
+            <span className="font-mono text-small break-all text-ink-2">{link.post?.canonicalUrl ?? link.url}</span>
           </div>
 
-          <Button
-            variant="primary"
-            className="min-h-11 w-full"
-            loading={pending === "post"}
-            disabled={actionsDisabled}
-            onClick={() => void runPost()}
-          >
-            Download this post
-          </Button>
-
-          <div className="flex flex-col gap-3 border-t border-line pt-4">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-label text-ink">Account media</span>
-              <Segmented
-                label="Account media"
-                columns={3}
-                value={kind}
-                onChange={(value) => setKind(value as DownloadKind)}
-                options={[
-                  { value: "image", label: "Images" },
-                  { value: "video", label: "Videos" },
-                  { value: "both", label: "Both" },
-                ]}
-              />
-            </div>
+          {link.post ? (
             <Button
-              variant="secondary"
-              className="min-h-11 w-full"
-              loading={pending === "account"}
+              variant="primary"
+              className={ACTION_BUTTON}
+              loading={pending === "post"}
               disabled={actionsDisabled}
-              onClick={() => void runAccount()}
+              onClick={() =>
+                void run(
+                  "post",
+                  { mode: "post", url: link.post!.canonicalUrl },
+                  `Queued post ${link.post!.postId} from @${link.post!.handle}.`,
+                )
+              }
             >
-              {`Download all media from @${parsedPost.handle}`}
+              Download this post
             </Button>
+          ) : null}
+
+          <div className={link.post ? "flex flex-col gap-3 border-t border-line pt-4" : "flex flex-col gap-3"}>
+            {kindPicker}
+            {link.site && link.account ? (
+              <Button
+                variant={link.post ? "secondary" : "primary"}
+                className={ACTION_BUTTON}
+                loading={pending === "account"}
+                disabled={actionsDisabled}
+                onClick={() =>
+                  void run(
+                    "account",
+                    { mode: "account", site: link.site!.id, account: link.account!, kind },
+                    `Queued ${accountLabel(link)}.`,
+                  )
+                }
+              >
+                {`Download all media from ${accountLabel(link)}`}
+              </Button>
+            ) : null}
+            {!link.post ? (
+              <Button
+                variant={link.site && link.account ? "secondary" : "primary"}
+                className={ACTION_BUTTON}
+                loading={pending === "link"}
+                disabled={actionsDisabled}
+                onClick={() => void run("link", { mode: "link", url: link.url, kind }, "Queued this link.")}
+              >
+                {link.site && link.account ? "Download just this link" : "Download this link"}
+              </Button>
+            ) : null}
           </div>
 
-          {loaded && !canDownload ? (
-            <p className="m-0 text-small text-ink-2">
-              Enable &ldquo;Can start downloads&rdquo; for this phone in Settings on the PC first.
-            </p>
-          ) : null}
-        </div>
-      ) : parsedAccount ? (
-        <div className="flex flex-col gap-4 rounded-lg border border-line-strong bg-surface p-4">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-title text-ink">@{parsedAccount}</span>
-            <span className="text-small text-ink-2">Profile link shared (no post ID found).</span>
-          </div>
-          <Segmented
-            label="Account media"
-            columns={3}
-            value={kind}
-            onChange={(value) => setKind(value as DownloadKind)}
-            options={[
-              { value: "image", label: "Images" },
-              { value: "video", label: "Videos" },
-              { value: "both", label: "Both" },
-            ]}
-          />
-          <Button
-            variant="primary"
-            className="min-h-11 w-full"
-            loading={pending === "account"}
-            disabled={actionsDisabled}
-            onClick={() => void runAccount()}
-          >
-            {`Download all media from @${parsedAccount}`}
-          </Button>
           {loaded && !canDownload ? (
             <p className="m-0 text-small text-ink-2">
               Enable &ldquo;Can start downloads&rdquo; for this phone in Settings on the PC first.
@@ -159,8 +160,8 @@ export function MobileShareClient({
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <Notice tone="info" title="No X post link found">
-            Nothing shared looked like an X post link. Open the Download page to enter a handle or link by hand.
+          <Notice tone="info" title="No link found">
+            Nothing shared looked like a web link. Open the Download page to enter an account or link by hand.
           </Notice>
           <Link
             href="/m/download"

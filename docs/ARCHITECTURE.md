@@ -538,17 +538,26 @@ function canStart(next: Run, running: Run[], limit: number): boolean {
 
 - **Decision:** A paired phone can be granted a per-device `canDownload` flag (off by default, stored in `.gather/devices.json`,
   toggled per phone in desktop Settings → Mobile gallery). When enabled for that phone's session cookie, the gateway allows
-  `POST /m/api/downloads` (whole X account or single X post) and `POST /m/api/downloads/stop` (for phone-started runs only,
+  `POST /m/api/downloads` and `POST /m/api/downloads/stop` (for phone-started runs only,
   reusing `RunQueue.stop` with `taskkill /T /F` and `.part` cleanup), alongside session-only `GET /m/api/downloads`, `/m/download`,
   `/m/share`, and the PWA `share_target` in `src/app/manifest.ts`.
-- **Why:** Lets the owner share a post from Android X or queue an account from a paired phone directly into the PC's library
-  (`<acct>/Image`, `<acct>/Video`, `<acct>/archive.sqlite3`) without exposing desktop Server Actions, settings, or arbitrary URLs
-  to the network.
+- **Scope (parity with the desktop):** `/m/download` renders the desktop `RunForm`, so a phone can start anything the
+  desktop Run screen can: every site, **Other URL**, dates, layouts, folder names, and Advanced options. The request body is
+  one of `{ mode: "run", spec }` (the form's `JobSpec`), `{ mode: "account", site?, account, kind }` and
+  `{ mode: "link", url, kind }` (share sheet shortcuts filled from the PC's default settings), or `{ mode: "post", url }`
+  (single X post). All four end in `prepareRunSpec` (`src/server/run-request.ts`): `parseJobSpec`, `validateAccount`,
+  `folderNameFor` and the reserved-name check, the exact path the desktop `startRun` action takes. Read-only
+  `GET /m/api/downloads/hint` returns the same account hint the desktop form shows.
+- **Why:** Lets the owner share a link from any app or fill in the full Run form on a paired phone and have the PC download
+  straight into its library, without exposing desktop Server Actions or settings to the network.
+- **Accepted risk:** **Other URL** lets a phone with `canDownload` make the PC's gallery-dl fetch any http(s) address,
+  including hosts on the home network. The owner chose desktop parity over limiting it; the per-device switch is the guard,
+  so grant it only to your own phones. The phone cannot change `galleryDlPath`, `mediaRoot` or any setting.
 - **Supersedes in part:** Supersedes ADR-11's strictly read-only rule for `/m/api/downloads` and `/m/api/downloads/stop` only.
-  Every write checks same-origin, `application/json`, a live session cookie, and `canDownload === true`; handles (`^[A-Za-z0-9_]{1,15}$`)
-  and status IDs (`^\d{1,30}$`) are validated server-side against `paths.ts` reserved names and rebuilt into canonical URLs before
-  calling `buildCommand` and `RunQueue.enqueue`. All desktop routes remain blocked and proxied requests still strip cookies/origin.
-- **Revisit if:** remote downloads ever need custom layouts, non-X sites, or per-phone run isolation.
+  Every write checks same-origin, `application/json`, a live session cookie, and `canDownload === true` before
+  `prepareRunSpec`; an X post link is rebuilt into its canonical URL. All desktop routes remain blocked and proxied requests
+  still strip cookies/origin.
+- **Revisit if:** phones need per-phone run isolation, or Other URL should be limited to public hosts.
 
 ### ADR-13: Offline phone gallery
 

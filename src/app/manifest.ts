@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/m",
     name: "grabberX gallery",
-    short_name: "gallery",
+    short_name: "grabberX",
     description: "Your grabberX library on this phone.",
     start_url: "/m",
     scope: "/m",

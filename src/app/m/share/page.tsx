@@ -1,5 +1,5 @@
 import { MobileShareClient } from "@/components/mobile/mobile-share-client";
-import { extractXAccountFromShare, extractXPostFromShare } from "@/lib/x-url";
+import { extractSharedLink } from "@/lib/share-link";
 
 export const dynamic = "force-dynamic";
 
@@ -9,13 +9,11 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 
 export default async function MobileSharePage({ searchParams }: PageProps<"/m/share">) {
   const params = await searchParams;
-  const shareInput = {
-    title: firstParam(params.title),
-    text: firstParam(params.text),
-    url: firstParam(params.url),
-  };
-  const parsedPost = extractXPostFromShare(shareInput);
-  const parsedAccount = parsedPost ? null : extractXAccountFromShare(shareInput);
+  const link = extractSharedLink({
+    title: firstParam(params.title)?.slice(0, 4096),
+    text: firstParam(params.text)?.slice(0, 4096),
+    url: firstParam(params.url)?.slice(0, 4096),
+  });
 
-  return <MobileShareClient parsedPost={parsedPost} parsedAccount={parsedAccount} />;
+  return <MobileShareClient link={link} />;
 }
