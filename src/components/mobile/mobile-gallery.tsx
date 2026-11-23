@@ -506,21 +506,22 @@ function Viewer({
   }
 
   function handleDoubleTap(clientX: number, clientY: number) {
-    if (viewRef.current.scale > 1.01) {
-      resetZoom(true);
-      return;
-    }
     const stageEl = stageRef.current;
     const mediaEl = activeMediaRef.current;
-    if (!stageEl || !mediaEl) return;
-    const rect = stageEl.getBoundingClientRect();
-    if (mediaEl instanceof HTMLVideoElement) {
+    if (stageEl && mediaEl instanceof HTMLVideoElement) {
+      const rect = stageEl.getBoundingClientRect();
       const region = tapRegion(clientX, rect.left, rect.width);
       if (region !== "middle") {
         skip(mediaEl, region === "back" ? -SKIP_SECONDS : SKIP_SECONDS);
         return;
       }
     }
+    if (viewRef.current.scale > 1.01) {
+      resetZoom(true);
+      return;
+    }
+    if (!stageEl || !mediaEl) return;
+    const rect = stageEl.getBoundingClientRect();
     const px = clientX - rect.left - rect.width / 2;
     const py = clientY - rect.top - rect.height / 2;
     const intrinsicWidth =

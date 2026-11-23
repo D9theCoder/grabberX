@@ -220,11 +220,11 @@ export function Lightbox({ account, path, site, files, index, onIndexChange, onC
     }, SINGLE_CLICK_MS);
   }
 
-  // On a video, the outer thirds skip and the middle keeps the zoom toggle. Once zoomed, a double click resets the zoom.
+  // On a video, the outer thirds skip (even while zoomed, without touching the zoom) and the middle toggles or resets the zoom.
   function onStageDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
     cancelPendingClick();
     const stageEl = stage.current;
-    if (file?.kind === "video" && view.scale <= 1.01 && stageEl) {
+    if (file?.kind === "video" && stageEl) {
       const rect = stageEl.getBoundingClientRect();
       const region = tapRegion(event.clientX, rect.left, rect.width);
       if (region !== "middle") {
